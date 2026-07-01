@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0f766e">
+<title>Contratos — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root{--primary:#0f766e;--primary-dark:#0d6460;--primary-light:#f0fdfa;
+--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
+--success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
+body{padding-bottom:80px;background:var(--bg);color:var(--text);}
+.contract-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);border-left:4px solid var(--primary);}
+.contract-card h3{font-size:16px;font-weight:700;color:var(--primary);margin-bottom:4px;}
+.contract-meta{font-size:12px;color:var(--text-3);display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
+.contract-body{font-size:13px;color:var(--text-2);display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-bottom:12px;}
+.contract-body label{font-weight:600;color:var(--text);font-size:12px;}
+.doc-chip{display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1e40af;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;margin:2px;}
+.tag-count{background:var(--primary-light);color:var(--primary);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;}
+.vigencia-ok{color:var(--success);font-weight:700;}
+.vigencia-warn{color:var(--warning);font-weight:700;}
+.vigencia-exp{color:var(--danger);font-weight:700;}
+.section-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;overflow-x:auto;}
+.stab{flex:none;padding:10px 16px;font-size:13px;font-weight:600;color:var(--text-3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;}
+.stab.active{color:var(--primary);border-bottom-color:var(--primary);}
+.upload-zone{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:all .2s;}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--primary);background:var(--primary-light);}
+.upload-zone input{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;}
+.file-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:6px;}
+.file-row .file-name{flex:1;font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.file-row .file-size{font-size:11px;color:var(--text-3);white-space:nowrap;}
+</style>
+</head>
+<body>
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:var(--primary)">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Contratos</h1>
+  <button class="btn-icon" onclick="openNewContract()" title="Novo contrato" style="color:#fff;font-size:22px;background:rgba(255,255,255,.15);border-radius:50%;width:36px;height:36px;border:none;cursor:pointer">+</button>
+</header>
+
+<!-- Lista de contratos -->
+<div id="screen-list" class="screen active" style="padding:12px">
+  <div id="contracts-list"></div>
+  <div id="contracts-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
+    <div style="font-size:48px;margin-bottom:12px">📋</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhum contrato cadastrado</div>
+    <div style="font-size:13px">Clique em + para adicionar o primeiro contrato</div>
+  </div>
+</div>
+
+<!-- Form de contrato -->
+<div id="screen-form" class="screen" style="padding:12px;display:none">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:16px" id="form-title">Novo contrato</h2>
+
+    <div class="section-tabs" id="form-tabs">
+      <button class="stab active" onclick="switchFormTab('dados')">Dados gerais</button>
+      <button class="stab" onclick="switchFormTab('equipamentos')">Equipamentos</button>
+      <button class="stab" onclick="switchFormTab('documentos')">Documentos</button>
+    </div>
+
+    <!-- Tab: Dados gerais -->
+    <div id="tab-dados">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div class="field" style="grid-column:1/-1">
+          <label>Número do contrato *</label>
+          <input id="f-numero" type="text" placeholder="Ex: 1020">
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Razão social do contratante *</label>
+          <input id="f-razao" type="text" placeholder="Nome da empresa">
+        </div>
+        <div class="field">
+          <label>CNPJ</label>
+          <input id="f-cnpj" type="text" placeholder="00.000.000/0000-00">
+        </div>
+        <div class="field">
+          <label>Telefone</label>
+          <input id="f-tel" type="text" placeholder="(00) 00000-0000">
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Endereço</label>
+          <input id="f-end" type="text" placeholder="Endereço completo">
+        </div>
+        <div class="field">
+          <label>Responsável</label>
+          <input id="f-resp" type="text" placeholder="Nome do responsável">
+        </div>
+        <div class="field">
+          <label>E-mail</label>
+          <input id="f-email" type="email" placeholder="email@empresa.com">
+        </div>
+        <div class="field">
+          <label>Início da vigência *</label>
+          <input id="f-inicio" type="date">
+        </div>
+        <div class="field">
+          <label>Fim da vigência *</label>
+          <input id="f-fim" type="date">
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Número da ART</label>
+          <input id="f-art" type="text" placeholder="Ex: 2024-000123">
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Observações</label>
+          <textarea id="f-obs" rows="3" placeholder="Informações adicionais…"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab: Equipamentos -->
+    <div id="tab-equipamentos" style="display:none">
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
+        Faça upload do banco de equipamentos em formato <strong>CSV ou XLS</strong>.
+        Colunas esperadas: TAG · Marca · Tipo · Capacidade · Estabelecimento · Recinto
+      </p>
+      <div class="upload-zone" id="equip-drop" style="position:relative">
+        <input type="file" accept=".csv,.xlsx,.xls" onchange="handleEquipFile(event)">
+        <div style="font-size:28px;margin-bottom:8px">📊</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-2)">Arraste o arquivo ou clique para selecionar</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px">CSV, XLS ou XLSX</div>
+      </div>
+      <div id="equip-preview" style="margin-top:12px;display:none">
+        <div style="background:var(--success-bg);border:1px solid #bbf7d0;border-radius:8px;padding:12px;font-size:13px;color:var(--success)">
+          ✅ <span id="equip-count"></span> equipamentos carregados
+        </div>
+        <div id="equip-sample" style="margin-top:8px;font-size:12px;color:var(--text-2)"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Documentos -->
+    <div id="tab-documentos" style="display:none">
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
+        Anexe documentos relacionados ao contrato: laudos, certificados, análises de qualidade do ar/água, etc.
+      </p>
+      <div class="upload-zone" id="docs-drop" style="position:relative;margin-bottom:12px">
+        <input type="file" accept=".pdf,.jpg,.jpeg,.png" multiple onchange="handleDocFiles(event)">
+        <div style="font-size:28px;margin-bottom:8px">📎</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text-2)">Arraste arquivos ou clique para selecionar</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px">PDF, JPG ou PNG (máx. 5MB por arquivo)</div>
+      </div>
+      <div id="docs-list"></div>
+    </div>
+
+    <div class="action-bar" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="cancelForm()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveContract()">💾 Salvar contrato</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detalhe do contrato -->
+<div id="screen-detail" class="screen" style="padding:12px;display:none">
+  <div id="detail-content"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Auth ──────────────────────────────────────────────────────────
+const user = getCurrentUser();
+if (!user) { window.location.href = 'index.html'; }
+else { document.getElementById('auth-overlay').style.display = 'none';
+  DB.getContratos().then(data => {
+    if (data && data.length) {
+      contracts = data;
+      localStorage.setItem('smm_contracts', JSON.stringify(data));
+      renderList();
+    }
+  }).catch(()=>{}); }
+
+// ── Data ──────────────────────────────────────────────────────────
+const CONTRACTS_KEY = 'smm_contracts';
+let contracts = [];
+let editId     = null;
+let pendingEquip = null;
+let pendingDocs  = [];
+
+function load() {
+  contracts = JSON.parse(localStorage.getItem(CONTRACTS_KEY) || '[]');
+}
+
+function save() {
+  localStorage.setItem(CONTRACTS_KEY, JSON.stringify(contracts));
+}
+
+// ── Toast ─────────────────────────────────────────────────────────
+function showToast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+// ── Vigência ─────────────────────────────────────────────────────
+function vigenciaLabel(fim) {
+  if (!fim) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const end   = new Date(fim + 'T00:00:00');
+  const days  = Math.round((end - today) / 86400000);
+  if (days < 0)   return `<span class="vigencia-exp">⚠️ Vencido há ${Math.abs(days)}d</span>`;
+  if (days < 30)  return `<span class="vigencia-warn">⏰ Vence em ${days}d</span>`;
+  return `<span class="vigencia-ok">✅ Vigente (${days}d restantes)</span>`;
+}
+
+// ── Render list ───────────────────────────────────────────────────
+function renderList() {
+  load();
+  const list  = document.getElementById('contracts-list');
+  const empty = document.getElementById('contracts-empty');
+  if (!contracts.length) { list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display = 'none';
+  list.innerHTML = contracts.map(c => {
+    const equip  = c.equipamentos || [];
+    const docs   = c.documentos   || [];
+    const canEdit= user.role==='admin';
+    return `
+    <div class="contract-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <h3>Contrato ${c.numero} — ${c.razao}</h3>
+        ${canEdit ? `<button onclick="openEdit('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
+      </div>
+      <div class="contract-meta">
+        <span>CNPJ: ${c.cnpj||'—'}</span>
+        <span>Resp: ${c.responsavel||'—'}</span>
+        <span>ART: ${c.art||'—'}</span>
+      </div>
+      <div class="contract-body">
+        <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
+        <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
+        <div><label>Contratante</label><div>${c.razao}</div></div>
+        <div><label>Telefone</label><div>${c.tel||'—'}</div></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <span class="tag-count">📊 ${equip.length} equipamentos</span>
+        ${docs.map(d=>`<span class="doc-chip">📄 ${d.name}</span>`).join('')}
+        ${equip.length ? `<button onclick="viewEquipamentos('${c.id}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Form helpers ──────────────────────────────────────────────────
+function switchFormTab(tab) {
+  ['dados','equipamentos','documentos'].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t===tab ? '' : 'none';
+  });
+  document.querySelectorAll('.stab').forEach((b,i) => {
+    b.classList.toggle('active', ['dados','equipamentos','documentos'][i]===tab);
+  });
+}
+
+function openNewContract() {
+  if (!['admin'].includes(user.role)) { showToast('Apenas o admin pode criar contratos'); return; }
+  editId = null; pendingEquip = null; pendingDocs = [];
+  document.getElementById('form-title').textContent = 'Novo contrato';
+  ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
+    .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
+  document.getElementById('equip-preview').style.display = 'none';
+  document.getElementById('docs-list').innerHTML = '';
+  switchFormTab('dados');
+  showScreen('form');
+}
+
+function openEdit(id) {
+  if (!['admin'].includes(user.role)) { showToast('Apenas o admin pode editar contratos'); return; }
+  load();
+  const c = contracts.find(x=>x.id===id);
+  if (!c) return;
+  editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[];
+  document.getElementById('form-title').textContent = 'Editar contrato';
+  document.getElementById('f-numero').value = c.numero||'';
+  document.getElementById('f-razao').value  = c.razao||'';
+  document.getElementById('f-cnpj').value   = c.cnpj||'';
+  document.getElementById('f-tel').value    = c.tel||'';
+  document.getElementById('f-end').value    = c.endereco||'';
+  document.getElementById('f-resp').value   = c.responsavel||'';
+  document.getElementById('f-email').value  = c.email||'';
+  document.getElementById('f-inicio').value = c.inicio||'';
+  document.getElementById('f-fim').value    = c.fim||'';
+  document.getElementById('f-art').value    = c.art||'';
+  document.getElementById('f-obs').value    = c.obs||'';
+  if (pendingEquip.length) {
+    document.getElementById('equip-count').textContent = pendingEquip.length;
+    document.getElementById('equip-preview').style.display = '';
+  }
+  renderDocsList();
+  switchFormTab('dados');
+  showScreen('form');
+}
+
+function cancelForm() { showScreen('list'); }
+
+function saveContract() {
+  const numero = document.getElementById('f-numero').value.trim();
+  const razao  = document.getElementById('f-razao').value.trim();
+  const inicio = document.getElementById('f-inicio').value;
+  const fim    = document.getElementById('f-fim').value;
+  if (!numero || !razao) { showToast('Número e razão social são obrigatórios'); return; }
+  load();
+  const c = {
+    id:          editId || ('c-'+Date.now()),
+    numero, razao,
+    cnpj:        document.getElementById('f-cnpj').value.trim(),
+    tel:         document.getElementById('f-tel').value.trim(),
+    endereco:    document.getElementById('f-end').value.trim(),
+    responsavel: document.getElementById('f-resp').value.trim(),
+    email:       document.getElementById('f-email').value.trim(),
+    inicio, fim,
+    art:         document.getElementById('f-art').value.trim(),
+    obs:         document.getElementById('f-obs').value.trim(),
+    equipamentos: pendingEquip || [],
+    documentos:   pendingDocs  || [],
+    updatedAt:   Date.now(),
+  };
+  if (!editId) c.createdAt = Date.now();
+  const idx = contracts.findIndex(x=>x.id===editId);
+  if (idx>=0) contracts[idx]=c; else contracts.push(c);
+  save();
+  // Sync backend
+  DB.saveContrato(c).catch(e => console.warn('Sync contrato:', e.message));
+
+  // Sync machine DB com os equipamentos do contrato
+  if (c.equipamentos.length) {
+    const mdb = getEffDB() || {};
+    mdb[c.numero] = c.equipamentos;
+    localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
+  }
+
+  showToast(`Contrato ${c.numero} salvo!`);
+  showScreen('list');
+  renderList();
+}
+
+// ── File handlers ─────────────────────────────────────────────────
+function handleEquipFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'csv') {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const rows = ev.target.result.split('\n').filter(r=>r.trim());
+      const headers = rows[0].split(',').map(h=>h.trim().toLowerCase());
+      const data = rows.slice(1).map(row => {
+        const cols = row.split(',');
+        const obj = {};
+        headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
+        return obj;
+      }).filter(r => r.tag || r['tag']);
+      pendingEquip = data;
+      document.getElementById('equip-count').textContent = data.length;
+      document.getElementById('equip-preview').style.display = '';
+      document.getElementById('equip-sample').textContent =
+        'Prévia: ' + data.slice(0,3).map(r=>r.tag||r['tag']).join(', ') + (data.length>3?'…':'');
+      showToast(`${data.length} equipamentos carregados`);
+    };
+    reader.readAsText(file);
+  } else {
+    showToast('Para XLS/XLSX, converta para CSV antes de carregar.');
+  }
+}
+
+function handleDocFiles(e) {
+  const files = Array.from(e.target.files);
+  files.forEach(f => {
+    if (f.size > 5*1024*1024) { showToast(`${f.name}: arquivo muito grande (máx 5MB)`); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      pendingDocs.push({ name:f.name, size:f.size, type:f.type, data:ev.target.result, addedAt:Date.now() });
+      renderDocsList();
+    };
+    reader.readAsDataURL(f);
+  });
+}
+
+function renderDocsList() {
+  const list = document.getElementById('docs-list');
+  if (!pendingDocs.length) { list.innerHTML=''; return; }
+  list.innerHTML = pendingDocs.map((d,i) => `
+    <div class="file-row">
+      <span style="font-size:18px">${d.type?.includes('pdf')?'📄':'🖼️'}</span>
+      <span class="file-name">${d.name}</span>
+      <span class="file-size">${(d.size/1024).toFixed(0)}KB</span>
+      <button onclick="removeDoc(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px">✕</button>
+    </div>`).join('');
+}
+
+function removeDoc(i) { pendingDocs.splice(i,1); renderDocsList(); }
+
+// ── Equipamentos viewer ───────────────────────────────────────────
+function viewEquipamentos(id) {
+  load();
+  const c = contracts.find(x=>x.id===id); if (!c) return;
+  const equip = c.equipamentos||[];
+  const detail= document.getElementById('detail-content');
+  const byEstab = {};
+  equip.forEach(e => {
+    const k = e.estabelecimento||e['estabelecimento']||'—';
+    if (!byEstab[k]) byEstab[k]=[];
+    byEstab[k].push(e);
+  });
+  detail.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <button onclick="showScreen('list')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px">← Contratos</button>
+      <h2 style="font-size:16px;font-weight:700">Equipamentos — Contrato ${c.numero}</h2>
+      <span class="tag-count">${equip.length} total</span>
+    </div>
+    ${Object.entries(byEstab).map(([estab,items])=>`
+      <div style="margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:6px;padding:6px 10px;background:var(--bg);border-radius:6px">
+          🏢 ${estab} (${items.length})
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr style="background:var(--surface);color:var(--text-3)">
+              ${['TAG','Marca','Tipo','Capacidade','Recinto'].map(h=>`<th style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
+            </tr></thead>
+            <tbody>
+              ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
+                <td style="padding:5px 8px;font-weight:700;color:var(--primary)">${eq.tag||eq['tag']||'—'}</td>
+                <td style="padding:5px 8px">${eq.marca||eq['marca']||'—'}</td>
+                <td style="padding:5px 8px">${eq.tipo||eq['tipo']||'—'}</td>
+                <td style="padding:5px 8px">${eq.capacidade||eq['capacidade']||'—'}</td>
+                <td style="padding:5px 8px">${eq.recinto||eq['recinto']||'—'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('')}`;
+  showScreen('detail');
+}
+
+// ── Screen nav ────────────────────────────────────────────────────
+function showScreen(s) {
+  document.getElementById('screen-list').style.display   = s==='list'   ? '' : 'none';
+  document.getElementById('screen-form').style.display   = s==='form'   ? '' : 'none';
+  document.getElementById('screen-detail').style.display = s==='detail' ? '' : 'none';
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+renderList();
+</script>
+</body>
+</html>

@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#7c3aed">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Chamados — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root {
+  --primary: #7c3aed; --primary-dark: #6d28d9; --primary-light: #f5f3ff;
+  --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+  --border: #e2e8f0; --bg: #f5f6fa; --surface: #fff;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08); --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+  --success: #16a34a; --success-bg: #f0fdf4;
+  --warning: #d97706; --warning-bg: #fffbeb;
+  --danger: #dc2626; --danger-bg: #fef2f2;
+}
+body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:#7c3aed">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Chamados</h1>
+  <div style="position:relative" id="user-chip"></div>
+</header>
+
+<header class="app-header">
+  <span style="font-size:22px">🔔</span>
+  <h1>Chamados de Manutenção</h1>
+  <button class="btn-icon" id="btn-drive-header" onclick="openDriveModal()" title="Google Drive">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28zm1.44 2h8.56l4.08 7H3.64L7.72 5zM7.5 14h9l-4.5 7.79L7.5 14z"/></svg>
+  </button>
+</header>
+
+<!-- ── LIST ── -->
+<div id="screen-list" class="screen active">
+  <div class="filter-bar">
+    <div class="filter-row">
+      <select id="f-filter-month" onchange="applyFilters()">
+        <option value="">📅 Todos os meses</option>
+      </select>
+      <select id="f-filter-contract" onchange="applyFilters()">
+        <option value="">📋 Todos os contratos</option>
+        <option value="1020">Contrato 1020</option>
+        <option value="1023">Contrato 1023</option>
+        <option value="1123">Contrato 1123</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="f-filter-estab" onchange="applyFilters()">
+        <option value="">🏢 Todos os estabelecimentos</option>
+      </select>
+      <select id="f-filter-status" onchange="applyFilters()">
+        <option value="">🔖 Todos os status</option>
+        <option value="aberto">Aberto</option>
+        <option value="andamento">Em andamento</option>
+        <option value="resolvido">Resolvido</option>
+        <option value="cancelado">Cancelado</option>
+      </select>
+    </div>
+    <div class="filter-summary">
+      <span id="filter-count-label">Carregando…</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-clear" onclick="clearFilters()">Limpar</button>
+        <button class="btn-report" onclick="printFilteredPDF()">🖨️ Relatório PDF</button>
+      </div>
+    </div>
+  </div>
+  <div style="padding:12px">
+    <div id="chamados-list"></div>
+    <div id="chamados-empty" class="empty" style="display:none">
+      <span class="empty-icon">🔔</span>
+      <h3>Nenhum chamado encontrado</h3>
+      <p>Toque em + para abrir<br>um novo chamado</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── NEW/EDIT ── -->
+<div id="screen-new" class="screen">
+  <div class="card">
+    <div class="card-title">Identificação do equipamento</div>
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione o contrato…</option>
+        <option value="1020">1020</option>
+        <option value="1023">1023</option>
+        <option value="1123">1123</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <div style="position:relative">
+        <input id="f-equip" type="text" placeholder="Digite o número da TAG..." oninput="onTagInput()" autocomplete="off">
+        <div class="tag-suggestions" id="tag-suggestions"></div>
+      </div>
+    </div>
+    <div class="machine-info-box" id="machine-info">
+      <div class="mi-title">✅ Equipamento encontrado</div>
+      <div id="mi-marca"></div>
+      <div id="mi-tipo"></div>
+      <div id="mi-cap"></div>
+      <div id="mi-estab"></div>
+      <div id="mi-recinto"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Detalhes do chamado</div>
+    <div class="field">
+      <label>Prioridade</label>
+      <select id="f-priority">
+        <option value="normal">🔵 Normal</option>
+        <option value="alta">🟡 Alta</option>
+        <option value="urgente">🔴 Urgente</option>
+        <option value="baixa">⚪ Baixa</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Data de abertura</label>
+      <input id="f-date" type="date">
+    </div>
+    <div class="field">
+      <label>Solicitante</label>
+      <input id="f-requester" type="text" placeholder="Nome de quem está relatando">
+    </div>
+    <div class="field">
+      <label>Descrição do problema *</label>
+      <textarea id="f-desc" rows="4" placeholder="Descreva o problema encontrado com o maior nível de detalhe possível..."></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      Fotos do problema
+      <span class="photo-count-badge" id="photo-badge" style="display:none">0</span>
+    </div>
+    <div class="photo-area" id="photo-area"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <input type="file" id="photo-input" accept="image/*" multiple capture="environment" onchange="handlePhotoInput(event)">
+      <span class="photo-area-icon">📷</span>
+      <p>Toque para tirar foto ou escolher da galeria</p>
+      <small>Múltiplas fotos permitidas</small>
+    </div>
+    <div class="photo-grid" id="photo-grid"></div>
+  </div>
+
+  <div class="action-bar">
+    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveChamado()">📨 Abrir chamado</button>
+  </div>
+</div>
+
+<!-- ── SETTINGS ── -->
+<div id="screen-settings" class="screen">
+  <div class="card">
+    <div class="card-title">Empresa</div>
+    <div class="field"><label>Nome da empresa</label><input id="s-company" type="text" placeholder="Nome fantasia ou razão social"></div>
+    <div class="field"><label>CNPJ / CPF</label><input id="s-cnpj" type="text" placeholder="00.000.000/0001-00"></div>
+    <div class="field"><label>Telefone</label><input id="s-tel" type="tel" placeholder="(62) 99999-9999"></div>
+    <div class="field"><label>E-mail</label><input id="s-email" type="email" placeholder="contato@empresa.com"></div>
+    <div class="field"><label>Endereço</label><input id="s-addr" type="text" placeholder="Rua, número — Cidade/UF"></div>
+    <div class="field"><label>Texto de rodapé no PDF</label><textarea id="s-footer" rows="2" placeholder="Ex: Chamados atendidos em até 24 horas úteis."></textarea></div>
+    <div class="action-bar" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="saveSettings()">Salvar configurações</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Google Drive</div>
+    <div id="drive-status-badge" class="drive-status disconnected"><span>🔴</span><span>Não conectado ao Google Drive</span></div>
+    <button class="btn btn-secondary" onclick="connectDrive()" style="width:100%;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28z"/></svg>
+      Conectar com Google Drive
+    </button>
+  </div>
+  <div class="card">
+    <div class="card-title">Dados</div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="exportData()">📤 Exportar JSON</button>
+      <button class="btn btn-secondary" onclick="importData()">📥 Importar JSON</button>
+    </div>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImport(event)">
+  </div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="startNew()">+</button>
+
+<!-- Detail modal -->
+<div class="modal-bg hidden" id="detail-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="detail-content"></div>
+    <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="editChamado(currentDetailId)" style="flex:1">✏️ Editar</button>
+      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
+      <button class="btn btn-secondary btn-sm" onclick="saveToDrive(currentDetailId)" style="flex:1;color:var(--success)">☁️ Drive</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteChamado(currentDetailId)" style="flex:1">🗑️ Excluir</button>
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
+  </div>
+</div>
+
+<!-- Drive modal -->
+<div class="modal-bg hidden" id="drive-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Google Drive</div>
+    <div id="drive-modal-content"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('drive-modal').classList.add('hidden')">Fechar</button>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+    Chamados
+  </button>
+  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Novo
+  </button>
+  <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Config
+  </button>
+</nav>
+
+<script>
+  // URL do backend Render — altere para a sua URL
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+(function() {
+  const user = getCurrentUser();
+  if (!user) { window.location.href = 'index.html'; return; }
+  const role = ROLES[user.role];
+  if (!role || !role.modules.includes('chamados')) { window.location.href = 'index.html'; return; }
+  document.getElementById('auth-overlay').style.display = 'none';
+  // Carrega dados do backend (mantém localStorage como cache)
+  DB.getAll('chamados').then(data => {
+    if (data && data.length > 0) {
+      chamados = data;
+      localStorage.setItem('chamados_list', JSON.stringify(data));
+      renderList();
+    }
+  }).catch(() => {});
+  const chip = document.getElementById('user-chip');
+  const r = ROLES[user.role] || {};
+  chip.innerHTML = `
+    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
+      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    </div>
+    <div class="user-menu hidden" id="umenu">
+      <div class="user-menu-header">
+        <div style="font-weight:600;font-size:14px">${user.name}</div>
+        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
+      </div>
+      <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
+      <hr style="border:none;border-top:1px solid #e2e8f0">
+      <button class="user-menu-item danger" onclick="logout()">🚪 Sair</button>
+    </div>`;
+  document.addEventListener('click', e => { if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
+
+  // Solicitante: só vê os próprios chamados e só pode criar
+  if (user.role === 'solicitante') {
+    const origGetFiltered = window.getFiltered;
+    // Will be patched after main JS loads
+    window._filterByUser = true;
+    window._userId = user.email;
+  }
+  if (!role.canCreate) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  // Gestor: sem botão novo
+  if (user.role === 'gestor') document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  window._currentUser = user; window._currentRole = role;
+})();
+</script>
+<script>
+
+// << MACHINE_DB INJECTED BY db.js >>
+
+// ── State ──
+let chamados = JSON.parse(localStorage.getItem('chamados_list') || '[]');
+let settings = JSON.parse(localStorage.getItem('chamados_settings') || '{}');
+let newPhotos = [];
+let editingId = null;
+let currentDetailId = null;
+let selectedMachine = null;
+let driveConnected = false;
+let gapiToken = null;
+let tagTimeout = null;
+let filterMonth = '';
+let filterContract = '';
+let filterEstab = '';
+let filterStatus = '';
+
+const genId = () => 'CH' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,4).toUpperCase();
+const today = () => new Date().toISOString().slice(0,10);
+const fmtDate = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+
+const PRIORITY_MAP = {
+  urgente: { label:'Urgente', cls:'prio-urgente', bar:'urgente', icon:'🔴' },
+  alta:    { label:'Alta',    cls:'prio-alta',    bar:'alta',    icon:'🟡' },
+  normal:  { label:'Normal',  cls:'prio-normal',  bar:'normal',  icon:'🔵' },
+  baixa:   { label:'Baixa',   cls:'prio-baixa',   bar:'baixa',   icon:'⚪' },
+};
+const STATUS_MAP = {
+  aberto:    { label:'Aberto',        cls:'badge-aberto' },
+  andamento: { label:'Em andamento',  cls:'badge-andamento' },
+  resolvido: { label:'Resolvido',     cls:'badge-resolvido' },
+  cancelado: { label:'Cancelado',     cls:'badge-cancelado' },
+};
+
+// ── Navigation ──
+function switchTab(tab) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + (tab==='list'?'list':tab==='new'?'new':'settings')).classList.add('active');
+  document.getElementById('nav-' + (tab==='list'?'list':tab==='new'?'new':'settings')).classList.add('active');
+  document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
+  if (tab === 'list') renderList();
+  if (tab === 'settings') loadSettings();
+}
+
+// ── Filters ──
+function buildFilterOptions() {
+  const months = new Set();
+  chamados.forEach(c => { if (c.date) months.add(c.date.slice(0,7)); });
+  const mSel = document.getElementById('f-filter-month');
+  const curM = mSel.value;
+  mSel.innerHTML = '<option value="">📅 Todos os meses</option>' +
+    [...months].sort().reverse().map(m => {
+      const [y,mo] = m.split('-');
+      const lbl = new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+      return `<option value="${m}" ${curM===m?'selected':''}>${lbl}</option>`;
+    }).join('');
+
+  const relevant = filterContract ? chamados.filter(c=>c.client===filterContract) : chamados;
+  const estabs = new Set();
+  relevant.forEach(c => { if (c.machine?.estabelecimento) estabs.add(c.machine.estabelecimento); });
+  const eSel = document.getElementById('f-filter-estab');
+  const curE = eSel.value;
+  eSel.innerHTML = '<option value="">🏢 Todos os estabelecimentos</option>' +
+    [...estabs].sort().map(e=>`<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
+}
+function applyFilters() {
+  filterMonth    = document.getElementById('f-filter-month').value;
+  filterContract = document.getElementById('f-filter-contract').value;
+  filterEstab    = document.getElementById('f-filter-estab').value;
+  filterStatus   = document.getElementById('f-filter-status').value;
+  buildFilterOptions();
+  renderList();
+}
+function clearFilters() {
+  filterMonth=filterContract=filterEstab=filterStatus='';
+  ['f-filter-month','f-filter-contract','f-filter-estab','f-filter-status'].forEach(id=>document.getElementById(id).value='');
+  buildFilterOptions(); renderList();
+}
+function getFiltered() {
+  return [...chamados].filter(c => {
+    const mM = !filterMonth    || (c.date&&c.date.startsWith(filterMonth));
+    const cM = !filterContract || c.client===filterContract;
+    const eM = !filterEstab    || c.machine?.estabelecimento===filterEstab;
+    const sM = !filterStatus   || c.status===filterStatus;
+    return mM&&cM&&eM&&sM;
+  }).sort((a,b)=>{
+    const prioOrder={urgente:0,alta:1,normal:2,baixa:3};
+    return (prioOrder[a.priority]||2)-(prioOrder[b.priority]||2) || (b.createdAt-a.createdAt);
+  });
+}
+
+// ── List ──
+function renderList() {
+  buildFilterOptions();
+  const filtered = getFiltered();
+  const list = document.getElementById('chamados-list');
+  const empty = document.getElementById('chamados-empty');
+  const total = filtered.length;
+  const active = [filterMonth,filterContract,filterEstab,filterStatus].filter(Boolean).length;
+  document.getElementById('filter-count-label').innerHTML = active
+    ? `<strong>${total}</strong> chamado${total!==1?'s':''} encontrado${total!==1?'s':''}`
+    : `<strong>${total}</strong> chamado${total!==1?'s':''} no total`;
+
+  if (!total) { list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+
+  let lastMonth='';
+  list.innerHTML = filtered.map(c => {
+    const p = PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
+    const s = STATUS_MAP[c.status]||STATUS_MAP.aberto;
+    const month = c.date?c.date.slice(0,7):'';
+    let header='';
+    if (month!==lastMonth) {
+      lastMonth=month;
+      const ml = month ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'Sem data';
+      header=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${ml}</div>`;
+    }
+    const thumb = c.photos&&c.photos[0]
+      ? `<div class="cc-thumb"><img src="${c.photos[0].dataUrl}" alt="foto"></div>`
+      : `<div class="cc-thumb">📷</div>`;
+    return header + `<div class="chamado-card" onclick="openDetail('${c.id}')">
+      <div class="cc-bar ${p.bar}"></div>
+      ${thumb}
+      <div class="cc-info">
+        <div class="cc-title">${c.id} · TAG ${c.equip||'—'}</div>
+        <div class="cc-meta">Contrato ${c.client} · ${fmtDate(c.date)}${c.requester?' · '+c.requester:''}</div>
+        ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
+        <div class="cc-desc">${c.desc||''}</div>
+      </div>
+      <div class="cc-right">
+        <span class="badge ${s.cls}">${s.label}</span>
+        <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span>
+        ${c.photos&&c.photos.length?`<span style="font-size:12px;color:var(--text-3)">${c.photos.length}📷</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── New / Edit ──
+function startNew() {
+  editingId=null; newPhotos=[]; selectedMachine=null;
+  document.getElementById('f-client').value='';
+  document.getElementById('f-equip').value='';
+  document.getElementById('f-date').value=today();
+  document.getElementById('f-priority').value='normal';
+  document.getElementById('f-requester').value='';
+  document.getElementById('f-desc').value='';
+  hideMachineInfo(); renderPhotoGrid(); switchTab('new');
+}
+function cancelNew() { switchTab('list'); }
+
+function saveChamado() {
+  const client = document.getElementById('f-client').value.trim();
+  const equip  = document.getElementById('f-equip').value.trim();
+  const desc   = document.getElementById('f-desc').value.trim();
+  if (!client) { showToast('Selecione o contrato'); return; }
+  if (!equip)  { showToast('Informe a TAG do equipamento'); return; }
+  if (!desc)   { showToast('Descreva o problema'); return; }
+  const c = {
+    id: editingId || genId(),
+    client, equip,
+    machine: selectedMachine||null,
+    date: document.getElementById('f-date').value,
+    priority: document.getElementById('f-priority').value,
+    requester: document.getElementById('f-requester').value,
+    desc,
+    photos: newPhotos,
+    status: editingId ? (chamados.find(x=>x.id===editingId)?.status||'aberto') : 'aberto',
+    createdAt: editingId ? (chamados.find(x=>x.id===editingId)?.createdAt||Date.now()) : Date.now(),
+  };
+  if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
+  else chamados.unshift(c);
+  persist();
+  showToast(editingId?'Chamado atualizado!':'Chamado aberto!');
+  editingId=null; newPhotos=[]; switchTab('list');
+}
+
+function editChamado(id) {
+  closeDetailModal();
+  const c=chamados.find(x=>x.id===id); if(!c) return;
+  editingId=id; newPhotos=c.photos?[...c.photos]:[]; selectedMachine=c.machine||null;
+  document.getElementById('f-client').value=c.client||'';
+  document.getElementById('f-equip').value=c.equip||'';
+  document.getElementById('f-date').value=c.date||today();
+  document.getElementById('f-priority').value=c.priority||'normal';
+  document.getElementById('f-requester').value=c.requester||'';
+  document.getElementById('f-desc').value=c.desc||'';
+  if (c.machine) showMachineInfo(c.machine); else hideMachineInfo();
+  renderPhotoGrid(); switchTab('new');
+  document.querySelector('#screen-new .btn-primary').innerHTML='💾 Salvar alterações';
+}
+
+function deleteChamado(id) {
+  if (!confirm('Excluir este chamado?')) return;
+  chamados=chamados.filter(c=>c.id!==id);
+  persist(); closeDetailModal(); showToast('Chamado excluído');
+}
+
+function updateStatus(id, status) {
+  const c=chamados.find(x=>x.id===id); if(c){ c.status=status; persist(); openDetail(id); }
+}
+
+function persist() {
+  // Cache local
+  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+  renderList();
+  // Sync backend (último item modificado)
+  const last = chamados[0];
+  if (last) DB.save('chamados', last).catch(e => console.warn('Sync chamado:', e.message));
+}
+
+// ── Photos ──
+function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
+function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area').classList.remove('drag'); addPhotos(Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'))); }
+function addPhotos(files){ files.forEach(file=>{ const r=new FileReader(); r.onload=ev=>{ newPhotos.push({dataUrl:ev.target.result,name:file.name}); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
+function removePhoto(i){ newPhotos.splice(i,1); renderPhotoGrid(); }
+function renderPhotoGrid(){
+  const grid=document.getElementById('photo-grid');
+  const badge=document.getElementById('photo-badge');
+  badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length;
+  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')"><button class="remove-photo" onclick="removePhoto(${i})">×</button></div>`).join('');
+}
+
+// ── Lightbox ──
+function openLightbox(src){ document.getElementById('lightbox-img').src=src; document.getElementById('lightbox').classList.remove('hidden'); }
+function closeLightbox(){ document.getElementById('lightbox').classList.add('hidden'); }
+
+// ── TAG lookup ──
+function onTagInput(){
+  const val=document.getElementById('f-equip').value.trim();
+  clearTimeout(tagTimeout); hideMachineInfo();
+  if(!val){document.getElementById('tag-suggestions').style.display='none';return;}
+  tagTimeout=setTimeout(()=>showTagSuggestions(val),150);
+}
+function showTagSuggestions(q){
+  const contract=document.getElementById('f-client').value;
+  if(!contract){showToast('Selecione o contrato primeiro');return;}
+  const list=getEffectiveDB()[contract]||[];
+  const matches=list.filter(m=>m.tag.startsWith(q)||m.estabelecimento.toLowerCase().includes(q.toLowerCase())||m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0,12);
+  const box=document.getElementById('tag-suggestions');
+  if(!matches.length){box.style.display='none';return;}
+  box.innerHTML=matches.map(m=>`<div class="tag-sug-item" onclick="selectTag('${m.tag}')"><div style="font-weight:600;font-size:14px">TAG ${m.tag}</div><div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''} · ${m.estabelecimento}</div><div style="font-size:12px;color:var(--text-3)">${m.recinto}</div></div>`).join('');
+  box.style.display='block';
+}
+function selectTag(tag){
+  const contract=document.getElementById('f-client').value;
+  const m=(getEffectiveDB()[contract]||[]).find(x=>x.tag===tag); if(!m)return;
+  selectedMachine=m;
+  document.getElementById('f-equip').value=tag;
+  document.getElementById('tag-suggestions').style.display='none';
+  showMachineInfo(m);
+}
+function showMachineInfo(m){
+  document.getElementById('machine-info').style.display='block';
+  document.getElementById('mi-marca').textContent=`Marca: ${m.marca}`;
+  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo}`;
+  document.getElementById('mi-cap').textContent=`Capacidade: ${m.capacidade?m.capacidade+' BTU':'—'}`;
+  document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
+  document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
+}
+function hideMachineInfo(){ selectedMachine=null; document.getElementById('machine-info').style.display='none'; }
+document.addEventListener('click',e=>{ if(!e.target.closest('#f-equip')&&!e.target.closest('#tag-suggestions')) document.getElementById('tag-suggestions').style.display='none'; });
+document.getElementById('f-client').addEventListener('change',()=>{ document.getElementById('f-equip').value=''; hideMachineInfo(); });
+
+// ── Detail modal ──
+function openDetail(id){
+  currentDetailId=id;
+  const c=chamados.find(x=>x.id===id); if(!c) return;
+  const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
+  const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
+  const statusOpts=['aberto','andamento','resolvido','cancelado'].map(st=>`<option value="${st}" ${c.status===st?'selected':''}>${STATUS_MAP[st].label}</option>`).join('');
+  const photos=c.photos&&c.photos.length
+    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${ph.dataUrl}" onclick="openLightbox('${ph.dataUrl}')">`).join('')}</div></div>`:' ';
+
+  // O.S. vinculadas
+  const allOS=JSON.parse(localStorage.getItem('smm_ordens_servico')||'[]');
+  const osVinculadas=allOS.filter(o=>o.chamadoId===c.id);
+  const canGerarOS=['admin','gestor'].includes(role.id);
+  const osSection=osVinculadas.length?`
+    <div style="margin-top:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px">
+      <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px">📋 Ordens de Serviço (${osVinculadas.length})</div>
+      ${osVinculadas.map(o=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #dcfce7;font-size:12px">
+          <span style="font-weight:600">${o.numero}</span>
+          <span style="color:#475569">${o.tecnico||'Não atribuída'}</span>
+          <span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;${o.status==='concluida'?'background:#d1fae5;color:#065f46':o.status==='em_execucao'?'background:#dbeafe;color:#1e40af':'background:#fef3c7;color:#92400e'}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída'}[o.status]||o.status}</span>
+        </div>`).join('')}
+    </div>`:'';
+
+  document.getElementById('detail-content').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px">
+      <div>
+        <div style="font-size:11px;color:var(--text-3);font-weight:600;margin-bottom:2px">CHAMADO</div>
+        <div style="font-size:18px;font-weight:700">${c.id}</div>
+        <div style="margin-top:4px"><span class="badge ${s.cls}">${s.label}</span> <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span></div>
+      </div>
+      <select onchange="updateStatus('${c.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>
+    </div>
+    <div style="background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-size:13px;line-height:1.8">
+      <div style="font-weight:600;color:var(--primary);margin-bottom:4px">📍 Equipamento</div>
+      <div>Contrato ${c.client} · TAG ${c.equip||'—'}</div>
+      ${c.machine?`<div>${c.machine.marca} ${c.machine.tipo}${c.machine.capacidade?' · '+c.machine.capacidade+' BTU':''}</div><div>${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
+    </div>
+    <div style="font-size:13px;color:var(--text-2);margin-bottom:10px">📅 ${fmtDate(c.date)}${c.requester?' · 👤 '+c.requester:''}</div>
+    <div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px;font-size:14px;line-height:1.6;margin-bottom:12px">
+      <div style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Descrição do problema</div>
+      ${c.desc||'—'}
+    </div>
+    ${osSection}
+    ${canGerarOS && c.status!=='resolvido' && c.status!=='cancelado' ? `
+    <button onclick="gerarOS('${c.id}')"
+      style="width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:#059669;color:#fff;font-size:14px;font-weight:700;cursor:pointer">
+      📋 Gerar Ordem de Serviço
+    </button>` : ''}
+    ${photos}`;
+  document.getElementById('detail-modal').classList.remove('hidden');
+}
+function closeDetailModal(){ document.getElementById('detail-modal').classList.add('hidden'); }
+
+// ── PDF individual ──
+function printPDF(id){
+  const c=chamados.find(x=>x.id===id); if(!c) return;
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,M=16,CW=W-M*2; let y=M;
+  const co=settings.company||'Empresa de Manutenção';
+  const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
+  const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
+
+  doc.setFillColor(124,58,237);
+  doc.rect(0,0,W,38,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16);doc.setFont('helvetica','bold');
+  doc.text(co,M,14);
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  const hp=[settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
+  if(hp)doc.text(hp,M,20);
+  if(settings.addr)doc.text(settings.addr,M,26);
+  doc.setFontSize(13);doc.setFont('helvetica','bold');
+  doc.text('CHAMADO DE MANUTENÇÃO',W-M,16,{align:'right'});
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  doc.text(`Nº ${c.id}`,W-M,22,{align:'right'});
+  doc.text(`Data: ${fmtDate(c.date)}`,W-M,28,{align:'right'});
+  y=46;
+
+  // Status + priority row
+  doc.setFillColor(245,243,255);
+  doc.rect(M,y,CW,12,'F');
+  doc.setTextColor(109,40,217);doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.text(`Status: ${s.label}`,M+4,y+8);
+  doc.text(`Prioridade: ${p.label}`,M+CW/2,y+8);
+  if(c.requester)doc.text(`Solicitante: ${c.requester}`,M+CW*0.75,y+8);
+  y+=18;
+
+  // Equipment box
+  const m=c.machine;
+  const bh=m?44:22;
+  doc.setFillColor(245,243,255);doc.rect(M,y,CW,bh,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(8);doc.setFont('helvetica','bold');
+  doc.text('DADOS DO EQUIPAMENTO',M+4,y+7);
+  doc.setFontSize(11);doc.setFont('helvetica','bold');
+  doc.text(`Contrato: ${c.client}   |   TAG: ${c.equip||'—'}`,M+4,y+14);
+  if(m){
+    doc.setFontSize(9);doc.setFont('helvetica','normal');
+    doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`,M+4,y+21);
+    doc.text(`Estabelecimento: ${m.estabelecimento}`,M+4,y+28);
+    doc.text(`Recinto: ${m.recinto}`,M+4,y+35);
+  }
+  y+=bh+8;
+
+  // Description
+  if(y>260){doc.addPage();y=M;}
+  doc.setFillColor(249,250,251);doc.rect(M,y,CW,8,'F');
+  doc.setFillColor(124,58,237);doc.rect(M,y,3,8,'F');
+  doc.setTextColor(50,50,50);doc.setFont('helvetica','bold');doc.setFontSize(9);
+  doc.text('DESCRIÇÃO DO PROBLEMA',M+6,y+5.5);
+  y+=8;
+  const descLines=doc.splitTextToSize(c.desc||'—',CW-8);
+  const descH=descLines.length*5+8;
+  if(y+descH>275){doc.addPage();y=M;}
+  doc.setFillColor(255,255,255);doc.rect(M,y,CW,descH,'F');
+  doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(30,30,30);
+  doc.text(descLines,M+4,y+7);
+  y+=descH+8;
+
+  // Photos
+  if(c.photos&&c.photos.length){
+    if(y>220){doc.addPage();y=M;}
+    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
+    doc.text(`REGISTRO FOTOGRÁFICO (${c.photos.length} foto${c.photos.length>1?'s':''})`,M,y);y+=5;
+    const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
+    c.photos.forEach((ph,pi)=>{
+      const col=pi%cols,row=Math.floor(pi/cols);
+      const px=M+col*(imgW+4),py=y+row*(imgH+4);
+      if(py+imgH>280){doc.addPage();y=M;}
+      try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){}
+    });
+    y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+  }
+
+  // Footer
+  doc.setFillColor(124,58,237);doc.rect(0,285,W,14,'F');
+  doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(8);
+  doc.text(settings.footer||'Chamado gerado automaticamente pelo sistema de gestão de manutenção.',W/2,293,{align:'center'});
+
+  doc.save(`chamado-${c.id}-TAG${c.equip||'x'}.pdf`);
+  closeDetailModal(); showToast('PDF gerado!');
+}
+
+// ── PDF filtrado ──
+function printFilteredPDF(){
+  const filtered=getFiltered();
+  if(!filtered.length){showToast('Nenhum chamado para o relatório');return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({unit:'mm',format:'a4'});
+  const W=210,M=16,CW=W-M*2; let y=M;
+  const co=settings.company||'Empresa de Manutenção';
+
+  // Cover
+  doc.setFillColor(124,58,237);doc.rect(0,0,W,60,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(20);doc.setFont('helvetica','bold');doc.text(co,M,20);
+  doc.setFontSize(14);doc.setFont('helvetica','bold');doc.text('RELATÓRIO DE CHAMADOS',M,32);
+  const hp=[settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
+  doc.setFontSize(9);doc.setFont('helvetica','normal');
+  if(hp)doc.text(hp,M,40);
+  if(settings.addr)doc.text(settings.addr,M,46);
+
+  y=68;
+  doc.setFillColor(245,243,255);doc.rect(M,y,CW,38,'F');
+  doc.setTextColor(30,30,30);doc.setFontSize(9);doc.setFont('helvetica','bold');
+  doc.text('PARÂMETROS DO RELATÓRIO',M+4,y+7);
+  doc.setFont('helvetica','normal');
+  const ml=filterMonth?new Date(filterMonth+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}):'Todos os meses';
+  doc.text(`Período: ${ml}`,M+4,y+14);
+  doc.text(`Contrato: ${filterContract?'Contrato '+filterContract:'Todos'}`,M+4,y+20);
+  doc.text(`Estabelecimento: ${filterEstab||'Todos'}`,M+4,y+26);
+  doc.text(`Status: ${filterStatus?STATUS_MAP[filterStatus]?.label||filterStatus:'Todos'}`,M+4,y+32);
+  doc.text(`Total: ${filtered.length} chamado${filtered.length!==1?'s':''}   |   Emitido em: ${new Date().toLocaleDateString('pt-BR')}`,M+4,y+38);
+  y+=48;
+
+  // Summary table
+  doc.setFillColor(124,58,237);doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255);doc.setFontSize(8);doc.setFont('helvetica','bold');
+  doc.text('Nº CHAMADO',M+3,y+5.5);
+  doc.text('DATA',M+CW*0.20,y+5.5);
+  doc.text('CONTRATO/TAG',M+CW*0.32,y+5.5);
+  doc.text('ESTABELECIMENTO',M+CW*0.52,y+5.5);
+  doc.text('PRIORIDADE',M+CW*0.76,y+5.5);
+  doc.text('STATUS',M+CW-3,y+5.5,{align:'right'});
+  y+=8;
+
+  filtered.forEach((c,i)=>{
+    if(y>272){doc.addPage();y=M;}
+    if(i%2===0){doc.setFillColor(248,244,255);}else{doc.setFillColor(255,255,255);}
+    doc.rect(M,y,CW,7,'F');
+    doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');doc.setFontSize(7.5);
+    const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
+    const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
+    doc.text(c.id,M+3,y+4.8);
+    doc.text(c.date||'—',M+CW*0.20,y+4.8);
+    doc.text(`${c.client}·T${c.equip||'?'}`,M+CW*0.32,y+4.8);
+    doc.text((c.machine?.estabelecimento||'—').slice(0,22),M+CW*0.52,y+4.8);
+    doc.text(p.label,M+CW*0.76,y+4.8);
+    doc.text(s.label,M+CW-3,y+4.8,{align:'right'});
+    y+=7;
+  });
+
+  // Detail pages
+  filtered.forEach((c,ci)=>{
+    doc.addPage(); y=M;
+    const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
+    const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
+    doc.setFillColor(124,58,237);doc.rect(0,0,W,38,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(14);doc.setFont('helvetica','bold');doc.text(co,M,12);
+    doc.setFontSize(10);doc.text('CHAMADO DE MANUTENÇÃO',W-M,12,{align:'right'});
+    doc.setFontSize(9);doc.setFont('helvetica','normal');
+    if(hp)doc.text(hp,M,18);
+    doc.text(`Nº ${c.id}`,W-M,18,{align:'right'});
+    doc.text(`Data: ${fmtDate(c.date)}`,W-M,24,{align:'right'});
+    doc.text(`${ci+1} / ${filtered.length}`,W-M,30,{align:'right'});
+    y=46;
+
+    doc.setFillColor(245,243,255);doc.rect(M,y,CW,12,'F');
+    doc.setTextColor(109,40,217);doc.setFont('helvetica','bold');doc.setFontSize(9);
+    doc.text(`Status: ${s.label}`,M+4,y+8);
+    doc.text(`Prioridade: ${p.label}`,M+CW/2,y+8);
+    if(c.requester)doc.text(`Solicitante: ${c.requester}`,M+CW*0.75,y+8);
+    y+=18;
+
+    const m=c.machine;
+    const bh=m?44:22;
+    doc.setFillColor(245,243,255);doc.rect(M,y,CW,bh,'F');
+    doc.setTextColor(30,30,30);doc.setFontSize(8);doc.setFont('helvetica','bold');
+    doc.text('DADOS DO EQUIPAMENTO',M+4,y+7);
+    doc.setFontSize(11);doc.setFont('helvetica','bold');
+    doc.text(`Contrato: ${c.client}   |   TAG: ${c.equip||'—'}`,M+4,y+14);
+    if(m){doc.setFontSize(9);doc.setFont('helvetica','normal');doc.text(`${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`,M+4,y+21);doc.text(`${m.estabelecimento}`,M+4,y+28);doc.text(`${m.recinto}`,M+4,y+35);}
+    y+=bh+8;
+
+    doc.setFillColor(249,250,251);doc.rect(M,y,CW,8,'F');
+    doc.setFillColor(124,58,237);doc.rect(M,y,3,8,'F');
+    doc.setTextColor(50,50,50);doc.setFont('helvetica','bold');doc.setFontSize(9);
+    doc.text('DESCRIÇÃO DO PROBLEMA',M+6,y+5.5);y+=8;
+    const dl=doc.splitTextToSize(c.desc||'—',CW-8);
+    const dh=dl.length*5+8;
+    if(y+dh>275){doc.addPage();y=M;}
+    doc.setFillColor(255,255,255);doc.rect(M,y,CW,dh,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(30,30,30);
+    doc.text(dl,M+4,y+7);y+=dh+6;
+
+    if(c.photos&&c.photos.length){
+      if(y>220){doc.addPage();y=M;}
+      doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
+      doc.text(`FOTOS (${c.photos.length})`,M,y);y+=5;
+      const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
+      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=M;}try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){};});
+      y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+    }
+
+    doc.setFillColor(124,58,237);doc.rect(0,285,W,14,'F');
+    doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(8);
+    doc.text(settings.footer||'Chamado gerado automaticamente pelo sistema de gestão de manutenção.',W/2,293,{align:'center'});
+  });
+
+  const fn=['relatorio-chamados', filterContract?'contrato'+filterContract:null, filterEstab?filterEstab.slice(0,15).replace(/\s+/g,'-'):null, filterMonth||null].filter(Boolean).join('-')+'.pdf';
+  doc.save(fn);
+  showToast('Relatório PDF gerado!');
+}
+
+// ── Settings ──
+function loadSettings(){
+  document.getElementById('s-company').value=settings.company||'';
+  document.getElementById('s-cnpj').value=settings.cnpj||'';
+  document.getElementById('s-tel').value=settings.tel||'';
+  document.getElementById('s-email').value=settings.email||'';
+  document.getElementById('s-addr').value=settings.addr||'';
+  document.getElementById('s-footer').value=settings.footer||'';
+  updateDriveUI();
+}
+function saveSettings(){
+  settings={company:document.getElementById('s-company').value,cnpj:document.getElementById('s-cnpj').value,tel:document.getElementById('s-tel').value,email:document.getElementById('s-email').value,addr:document.getElementById('s-addr').value,footer:document.getElementById('s-footer').value};
+  localStorage.setItem('chamados_settings',JSON.stringify(settings));
+  showToast('Configurações salvas!');
+}
+
+// ── Drive ──
+function connectDrive(){
+  const cid=prompt('Informe seu Google OAuth Client ID:',localStorage.getItem('gdrive_client_id')||'');
+  if(!cid)return;
+  localStorage.setItem('gdrive_client_id',cid);
+  const p=new URLSearchParams({client_id:cid,redirect_uri:location.origin+location.pathname,response_type:'token',scope:'https://www.googleapis.com/auth/drive.file',include_granted_scopes:'true'});
+  window.open('https://accounts.google.com/o/oauth2/v2/auth?'+p,'_blank','width=500,height=600');
+  showToast('Janela aberta. Após login, cole o token.');
+  setTimeout(()=>{const t=prompt('Cole o access_token:');if(t){gapiToken=t;driveConnected=true;updateDriveUI();showToast('Drive conectado!');}},3000);
+}
+function updateDriveUI(){
+  const b=document.getElementById('drive-status-badge');
+  if(driveConnected){b.className='drive-status connected';b.innerHTML='<span>🟢</span><span>Google Drive conectado</span>';}
+  else{b.className='drive-status disconnected';b.innerHTML='<span>🔴</span><span>Não conectado ao Google Drive</span>';}
+}
+async function saveToDrive(id){
+  if(!driveConnected||!gapiToken){showToast('Conecte o Drive nas configurações');switchTab('settings');closeDetailModal();return;}
+  const c=chamados.find(x=>x.id===id);if(!c)return;
+  showToast('Enviando para o Drive…');
+  try{
+    const form=new FormData();
+    form.append('metadata',new Blob([JSON.stringify({name:`chamado-${c.id}.json`,mimeType:'application/json'})],{type:'application/json'}));
+    form.append('file',new Blob([JSON.stringify(c,null,2)],{type:'application/json'}));
+    const res=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{Authorization:`Bearer ${gapiToken}`},body:form});
+    if(res.ok)showToast('Salvo no Drive! ✅');else throw new Error('Erro '+res.status);
+  }catch(e){showToast('Erro: '+e.message);}
+}
+function openDriveModal(){
+  document.getElementById('drive-modal-content').innerHTML=driveConnected
+    ?`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">✅ Conectado.</p><button class="btn btn-secondary" style="width:100%" onclick="gapiToken=null;driveConnected=false;updateDriveUI();document.getElementById('drive-modal').classList.add('hidden');showToast('Desconectado')">🔌 Desconectar</button>`
+    :`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">❌ Não conectado.</p><button class="btn btn-primary" style="width:100%" onclick="document.getElementById('drive-modal').classList.add('hidden');switchTab('settings')">Ir para Configurações</button>`;
+  document.getElementById('drive-modal').classList.remove('hidden');
+}
+
+// ── Export/Import ──
+function exportData(){
+  const safe=chamados.map(c=>({...c,photos:(c.photos||[]).map(p=>({name:p.name}))}));
+  const blob=new Blob([JSON.stringify({chamados:safe,settings},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chamados-backup.json';a.click();
+}
+function importData(){document.getElementById('import-file').click();}
+function doImport(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.chamados){chamados=d.chamados;persist();}if(d.settings){settings=d.settings;localStorage.setItem('chamados_settings',JSON.stringify(settings));}showToast('Dados importados!');}catch{showToast('Arquivo inválido');}};
+  r.readAsText(f);
+}
+
+// ── Toast ──
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ── Ordens de Serviço ────────────────────────────────────────────
+const OS_KEY = 'smm_ordens_servico';
+
+function gerarOS(chamadoId) {
+  const c = chamados.find(x=>x.id===chamadoId); if(!c) return;
+  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  // Número sequencial por chamado
+  const existentes = allOS.filter(o=>o.chamadoId===chamadoId).length;
+  const numero = `OS-${chamadoId}-${String(existentes+1).padStart(2,'0')}`;
+  const os = {
+    id:         'os-'+Date.now(),
+    numero,
+    chamadoId,
+    chamadoDesc: c.desc||'',
+    contrato:   c.client,
+    tag:        c.equip||'',
+    machine:    c.machine||null,
+    prioridade: c.priority||'normal',
+    solicitante:c.requester||'',
+    status:     'aberta',
+    criadoEm:   Date.now(),
+    criadoPor:  getCurrentUser()?.name||'',
+    tecnico:    '',
+    registroId: null,
+  };
+  allOS.push(os);
+  localStorage.setItem(OS_KEY, JSON.stringify(allOS));
+  // Muda status do chamado para em andamento
+  if (c.status==='aberto') {
+    c.status='andamento';
+    try{localStorage.setItem('chamados_list',JSON.stringify(chamados));}catch(e){}
+  }
+  showToast(`✅ ${numero} gerada! Disponível em Registros → O.S. Pendentes`);
+  closeDetailModal();
+  renderList();
+}
+
+
+// ── Init ──
+buildFilterOptions();
+renderList();
+
+
+// Patch: solicitante only sees own chamados
+const _baseGetFiltered = getFiltered;
+getFiltered = function() {
+  let list = _baseGetFiltered();
+  if (window._filterByUser) {
+    list = list.filter(c => c.requester === window._currentUser?.name || c._ownerEmail === window._currentUser?.email);
+  }
+  return list;
+};
+
+// Patch: tag owner email on save
+const _baseSaveChamado = saveChamado;
+saveChamado = function() {
+  // inject owner email before saving
+  const user = window._currentUser;
+  if (user) {
+    const origUnshift = Array.prototype.unshift;
+    // will be picked up by saveChamado's chamados.unshift
+  }
+  _baseSaveChamado();
+  // tag the newly created chamado with owner email
+  if (window._currentUser && chamados.length) {
+    const latest = chamados[0];
+    if (!latest._ownerEmail) {
+      latest._ownerEmail = window._currentUser.email;
+      persist();
+    }
+  }
+};
+
+const _origOpenDetailC = openDetail;
+openDetail = function(id) {
+  _origOpenDetailC(id);
+  const role = window._currentRole || {};
+  if (!role.canEdit) document.querySelectorAll('[onclick*="editChamado"]').forEach(b => b.style.display='none');
+  if (!role.canDelete) document.querySelectorAll('[onclick*="deleteChamado"]').forEach(b => b.style.display='none');
+  // Solicitante cannot change status
+  if (window._currentUser?.role === 'solicitante') {
+    document.querySelectorAll('select[onchange*="updateStatus"]').forEach(s => s.disabled = true);
+  }
+};
+</script>
+</body>
+</html>

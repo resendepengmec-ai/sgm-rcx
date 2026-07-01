@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autenticando…</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #f5f6fa; }
+.card { text-align: center; background: #fff; padding: 40px; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.1); max-width: 320px; }
+.spinner { width: 40px; height: 40px; border: 3px solid #e2e8f0; border-top-color: #7c3aed; border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+h2 { font-size: 16px; color: #0f172a; margin-bottom: 8px; }
+p { font-size: 13px; color: #94a3b8; }
+.error { color: #dc2626; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="spinner" id="spinner"></div>
+  <h2 id="msg">Autenticando com Google…</h2>
+  <p id="sub">Aguarde um momento</p>
+</div>
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script>
+(async () => {
+  const hash = location.hash.slice(1);
+  const params = Object.fromEntries(new URLSearchParams(hash));
+  const token = params.access_token;
+
+  if (!token) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('msg').textContent = 'Erro na autenticação';
+    document.getElementById('msg').className = 'error';
+    document.getElementById('sub').textContent = 'Token não encontrado. Tente novamente.';
+    setTimeout(() => window.location.href = 'index.html', 3000);
+    return;
+  }
+
+  try {
+    document.getElementById('msg').textContent = 'Verificando perfil…';
+    const user = await loginWithGoogleToken(token);
+    document.getElementById('msg').textContent = `Bem-vindo, ${user.name.split(' ')[0]}!`;
+    document.getElementById('sub').textContent = 'Redirecionando…';
+    setTimeout(() => window.location.href = 'index.html', 800);
+  } catch (e) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('msg').textContent = 'Acesso negado';
+    document.getElementById('msg').className = 'error';
+    document.getElementById('sub').textContent = e.message;
+    setTimeout(() => window.location.href = 'index.html', 3000);
+  }
+})();
+</script>
+</body>
+</html>

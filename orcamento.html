@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Orçamentos — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root {
+  --primary: #2563eb; --primary-dark: #1d4ed8; --primary-light: #eff6ff;
+  --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+  --border: #e2e8f0; --bg: #f5f6fa; --surface: #fff;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08); --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+  --success: #16a34a; --success-bg: #f0fdf4;
+  --danger: #dc2626; --danger-bg: #fef2f2;
+}
+body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
+</style>
+</head>
+<body>
+
+<!-- Auth overlay -->
+<div class="auth-overlay" id="auth-overlay">
+  <div class="spinner"></div>
+  <p>Verificando acesso…</p>
+</div>
+
+<!-- Header -->
+<header class="app-header" style="background:#2563eb">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Orçamentos</h1>
+  <div style="position:relative" id="user-chip"></div>
+</header>
+
+<!-- Header -->
+<header class="app-header">
+  <span class="header-icon">🔧</span>
+  <h1>Orçamentos de Serviços</h1>
+  <button class="btn-icon" onclick="openDriveModal()" title="Google Drive">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28zm1.44 2h8.56l4.08 7H3.64L7.72 5zM7.5 14h9l-4.5 7.79L7.5 14z"/></svg>
+  </button>
+</header>
+
+<!-- Screens -->
+<div id="screen-quotes" class="screen active">
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <div class="filter-row">
+      <select id="f-filter-month" onchange="applyFilters()">
+        <option value="">📅 Todos os meses</option>
+      </select>
+      <select id="f-filter-contract" onchange="applyFilters()">
+        <option value="">📋 Todos os contratos</option>
+        <option value="1020">Contrato 1020</option>
+        <option value="1023">Contrato 1023</option>
+        <option value="1123">Contrato 1123</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="f-filter-estab" onchange="applyFilters()">
+        <option value="">🏢 Todos os estabelecimentos</option>
+      </select>
+    </div>
+    <div class="filter-summary">
+      <span id="filter-count-label">Carregando…</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-clear" onclick="clearFilters()">Limpar</button>
+        <button class="btn-report" onclick="openConsolidatedModal()">🖨️ Orçamento consolidado</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:12px">
+    <div id="quotes-list"></div>
+    <div id="quotes-empty" class="empty" style="display:none">
+      <span class="empty-icon">📋</span>
+      <h3>Nenhum orçamento encontrado</h3>
+      <p>Tente outros filtros ou toque<br>no botão + para criar um novo</p>
+    </div>
+  </div>
+</div>
+
+<div id="screen-new" class="screen">
+  <!-- Client info -->
+  <div class="card">
+    <div class="card-title">Dados do Contrato</div>
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione o contrato…</option>
+        <option value="1020">1020</option>
+        <option value="1023">1023</option>
+        <option value="1123">1123</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <div style="position:relative">
+        <input id="f-equip" type="text" placeholder="Digite o número da TAG..." oninput="onTagInput()" autocomplete="off">
+        <div id="tag-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--primary);border-top:none;border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;z-index:50;box-shadow:var(--shadow-md)"></div>
+      </div>
+    </div>
+    <!-- Auto-filled fields (read-only) -->
+    <div id="machine-info" style="display:none;background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-top:10px;font-size:13px;line-height:1.8">
+      <div style="font-weight:600;color:var(--primary);margin-bottom:4px">✅ Equipamento encontrado</div>
+      <div id="mi-marca"></div>
+      <div id="mi-tipo"></div>
+      <div id="mi-cap"></div>
+      <div id="mi-estab"></div>
+      <div id="mi-recinto"></div>
+    </div>
+    <input type="hidden" id="f-phone">
+    <input type="hidden" id="f-address">
+    <input type="hidden" id="f-validity">
+    <input type="hidden" id="f-payment">
+    <div class="field">
+      <label>Data</label>
+      <input id="f-date" type="date">
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Serviços</span>
+      <button class="btn-sm btn-outline" onclick="openServiceModal()">+ Adicionar serviço</button>
+    </div>
+    <div id="new-items-list">
+      <div class="empty" style="padding:24px 0">
+        <p>Nenhum serviço adicionado</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notes -->
+  <div class="card">
+    <div class="card-title">Observações</div>
+    <textarea id="f-notes" rows="3" placeholder="Prazo de execução, garantia, condições especiais..."></textarea>
+  </div>
+
+  <!-- Totals -->
+  <div class="card" id="totals-card" style="display:none">
+    <div class="card-title">Resumo</div>
+    <div class="totals-row"><span>Subtotal</span><span id="t-sub">R$ 0,00</span></div>
+    <div class="totals-row"><span>Impostos (~20%)</span><span id="t-tax">R$ 0,00</span></div>
+    <div class="totals-row main"><span>Total</span><span id="t-total">R$ 0,00</span></div>
+  </div>
+
+  <div class="action-bar">
+    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveQuote()">💾 Salvar orçamento</button>
+  </div>
+</div>
+
+<div id="screen-settings" class="screen">
+  <div class="card">
+    <div class="card-title">Empresa</div>
+    <div class="field"><label>Nome da empresa</label><input id="s-company" type="text" placeholder="Nome fantasia ou razão social"></div>
+    <div class="field"><label>CNPJ / CPF</label><input id="s-cnpj" type="text" placeholder="00.000.000/0001-00"></div>
+    <div class="field"><label>Telefone</label><input id="s-tel" type="tel" placeholder="(62) 99999-9999"></div>
+    <div class="field"><label>E-mail</label><input id="s-email" type="email" placeholder="contato@empresa.com"></div>
+    <div class="field"><label>Endereço</label><input id="s-addr" type="text" placeholder="Rua, número — Cidade/UF"></div>
+    <div class="field"><label>Logo URL (opcional)</label><input id="s-logo" type="url" placeholder="https://..."></div>
+    <div class="field"><label>Texto de rodapé no PDF</label><textarea id="s-footer" rows="2" placeholder="Ex: Garantia de 90 dias em peças e serviços."></textarea></div>
+    <div class="action-bar" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="saveSettings()">Salvar configurações</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Textos do orçamento consolidado</div>
+    <div class="field">
+      <label>Texto padrão de apresentação</label>
+      <textarea id="s-intro" rows="4" placeholder="Texto exibido antes da tabela orçamentária. Ex: Apresentamos a seguir o orçamento para os serviços de manutenção identificados nos equipamentos relacionados, conforme diagnóstico técnico realizado em campo..."></textarea>
+    </div>
+    <div class="field">
+      <label>Ressalvas finais</label>
+      <textarea id="s-ressalvas" rows="4" placeholder="Texto exibido após a tabela orçamentária. Ex: Os valores apresentados são válidos por 15 dias. Eventuais divergências encontradas durante a execução poderão implicar em ajuste de valores, mediante comunicação prévia ao contratante..."></textarea>
+    </div>
+    <div class="action-bar" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="saveSettings()">Salvar textos</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Google Drive</div>
+    <div id="drive-status-badge" class="drive-status disconnected">
+      <span>🔴</span><span>Não conectado ao Google Drive</span>
+    </div>
+    <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:14px">
+      Conecte sua conta Google para salvar os orçamentos automaticamente na nuvem e acessar de qualquer dispositivo.
+    </p>
+    <button class="btn btn-secondary" onclick="connectDrive()" id="btn-drive-connect" style="width:100%;margin-bottom:8px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28z"/></svg>
+      Conectar com Google Drive
+    </button>
+    <p style="font-size:12px;color:var(--text-3);text-align:center">
+      Para usar o Drive, abra o app em um servidor web (não como arquivo local) e configure o Client ID da Google Cloud Console.
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Dados</div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="exportData()">📤 Exportar JSON</button>
+      <button class="btn btn-secondary" onclick="importData()">📥 Importar JSON</button>
+    </div>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImport(event)">
+  </div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="startNew()" title="Novo orçamento">+</button>
+
+<!-- Service modal -->
+<div class="modal-bg hidden" id="service-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Adicionar serviço</div>
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="search" id="svc-search" placeholder="Pesquisar serviço..." oninput="filterServices()">
+    </div>
+    <div class="service-grid" id="svc-list"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="closeServiceModal()">Fechar</button>
+  </div>
+</div>
+
+<!-- Quote detail modal -->
+<div class="modal-bg hidden" id="detail-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="detail-content"></div>
+    <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="editQuote(currentDetailId)" style="flex:1">✏️ Editar</button>
+      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
+      <button class="btn btn-success btn-sm" onclick="saveToDrive(currentDetailId)" style="flex:1">☁️ Drive</button>
+      <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger)" onclick="deleteQuote(currentDetailId)">🗑️ Excluir</button>
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
+  </div>
+</div>
+
+<!-- Drive modal -->
+<div class="modal-bg hidden" id="drive-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Google Drive</div>
+    <div id="drive-modal-content"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('drive-modal').classList.add('hidden')">Fechar</button>
+  </div>
+</div>
+
+<!-- Consolidated report modal -->
+<div class="modal-bg hidden" id="consolidated-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Orçamento consolidado</div>
+    <div id="consolidated-modal-content"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('consolidated-modal').classList.add('hidden')">Fechar</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="switchTab('quotes')" id="nav-quotes">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
+    Orçamentos
+  </button>
+  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Novo
+  </button>
+  <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Configurações
+  </button>
+</nav>
+
+<script>
+  // URL do backend Render — altere para a sua URL
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Auth guard ──
+(function() {
+  const user = getCurrentUser();
+  if (!user) { window.location.href = 'index.html'; return; }
+  const role = ROLES[user.role];
+  if (!role || !role.modules.includes('orcamento')) {
+    window.location.href = 'index.html'; return;
+  }
+  document.getElementById('auth-overlay').style.display = 'none';
+  // Carrega dados do backend (mantém localStorage como cache)
+  DB.getAll('orcamentos').then(data => {
+    if (data && data.length > 0) {
+      quotes = data;
+      localStorage.setItem('orcamento_quotes', JSON.stringify(data));
+      renderQuoteList();
+    }
+  }).catch(() => {});
+
+  // Inject user chip
+  const chip = document.getElementById('user-chip');
+  const r = ROLES[user.role] || {};
+  chip.innerHTML = `
+    <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
+      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    </div>
+    <div class="user-menu hidden" id="umenu">
+      <div class="user-menu-header">
+        <div style="font-weight:600;font-size:14px">${user.name}</div>
+        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
+      </div>
+      <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
+      <hr class="user-menu-divider" style="border:none;border-top:1px solid #e2e8f0">
+      <button class="user-menu-item danger" onclick="logout()">🚪 Sair</button>
+    </div>
+  `;
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden');
+  });
+
+  // Apply role restrictions
+  if (!role.canCreate) {
+    document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display = 'none');
+  }
+  if (!role.canDelete) {
+    // hide delete buttons - handled in openDetail
+  }
+  window._currentUser = user;
+  window._currentRole = role;
+})();
+</script>
+<script>
+
+// << MACHINE_DB INJECTED BY db.js >>
+
+const INVIAVEL_NOTE = 'Equipamento condenado. Constatada a inviabilidade técnica e econômica do reparo em razão da indisponibilidade de peças de reposição no mercado e/ou pelo custo estimado do conserto.';
+
+const SERVICES = [
+  { name: "⚠️ Inviável — Equipamento condenado", price: 0.00, taxRate: 0.00, inviavel: true },
+  { name: "Instalação nova", price: 1200.00, taxRate: 0.20 },
+  { name: "Realocação", price: 874.50, taxRate: 0.20 },
+  { name: "Troca de compressor", price: 2260.20, taxRate: 0.20 },
+  { name: "Troca de capacitor", price: 192.50, taxRate: 0.20 },
+  { name: "Recarga de gás R22", price: 692.40, taxRate: 0.20 },
+  { name: "Recarga de gás R410", price: 692.40, taxRate: 0.20 },
+  { name: "Recarga de gás R32", price: 692.40, taxRate: 0.20 },
+  { name: "Troca de placa eletrônica", price: 494.50, taxRate: 0.20 },
+  { name: "Troca da turbina evaporadora", price: 552.50, taxRate: 0.20 },
+  { name: "Troca motoventilador cond./evap.", price: 749.60, taxRate: 0.20 },
+  { name: "Troca da hélice da condensadora", price: 502.40, taxRate: 0.20 },
+  { name: "Troca de contatora, relé ou afins", price: 303.80, taxRate: 0.20 },
+  { name: "Troca do sensor da evaporadora", price: 341.50, taxRate: 0.20 },
+  { name: "Troca do sensor condensadora", price: 196.80, taxRate: 0.20 },
+  { name: "Rede frigorífera", price: 247.60, taxRate: 0.20 },
+  { name: "Cabo de comunicação PP", price: 174.70, taxRate: 0.20 },
+];
+
+// ── State ──
+let quotes = JSON.parse(localStorage.getItem('orcamento_quotes') || '[]');
+let settings = JSON.parse(localStorage.getItem('orcamento_settings') || '{}');
+let newItems = [];
+let editingId = null;
+let currentDetailId = null;
+let driveConnected = false;
+let gapiToken = null;
+
+const fmt = v => 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const today = () => new Date().toISOString().slice(0, 10);
+
+// ── TAG Lookup ──
+let tagTimeout = null;
+let selectedMachine = null;
+
+function onTagInput() {
+  const val = document.getElementById('f-equip').value.trim();
+  clearTimeout(tagTimeout);
+  hideMachineInfo();
+  if (!val) { document.getElementById('tag-suggestions').style.display = 'none'; return; }
+  tagTimeout = setTimeout(() => showTagSuggestions(val), 150);
+}
+
+function showTagSuggestions(q) {
+  const contract = document.getElementById('f-client').value;
+  if (!contract) { showToast('Selecione o contrato primeiro'); return; }
+  const list = getEffectiveDB()[contract] || [];
+  const matches = list.filter(m => m.tag.startsWith(q) || m.estabelecimento.toLowerCase().includes(q.toLowerCase()) || m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0, 12);
+  const box = document.getElementById('tag-suggestions');
+  if (!matches.length) { box.style.display = 'none'; return; }
+  box.innerHTML = matches.map(m => `
+    <div onclick="selectTag('${m.tag}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600;font-size:14px">TAG ${m.tag}</div>
+      <div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo} ${m.capacidade ? m.capacidade+' BTU' : ''} · ${m.estabelecimento}</div>
+      <div style="font-size:12px;color:var(--text-3)">${m.recinto}</div>
+    </div>`).join('');
+  box.style.display = 'block';
+}
+
+function selectTag(tag) {
+  const contract = document.getElementById('f-client').value;
+  const list = getEffectiveDB()[contract] || [];
+  const m = list.find(x => x.tag === tag);
+  if (!m) return;
+  selectedMachine = m;
+  document.getElementById('f-equip').value = tag;
+  document.getElementById('tag-suggestions').style.display = 'none';
+  showMachineInfo(m);
+}
+
+function showMachineInfo(m) {
+  document.getElementById('machine-info').style.display = 'block';
+  document.getElementById('mi-marca').textContent = `Marca: ${m.marca}`;
+  document.getElementById('mi-tipo').textContent = `Tipo: ${m.tipo}`;
+  document.getElementById('mi-cap').textContent = `Capacidade: ${m.capacidade ? m.capacidade+' BTU' : '—'}`;
+  document.getElementById('mi-estab').textContent = `Estabelecimento: ${m.estabelecimento}`;
+  document.getElementById('mi-recinto').textContent = `Recinto: ${m.recinto}`;
+}
+
+function hideMachineInfo() {
+  selectedMachine = null;
+  document.getElementById('machine-info').style.display = 'none';
+}
+
+// Close suggestions on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('#f-equip') && !e.target.closest('#tag-suggestions'))
+    document.getElementById('tag-suggestions').style.display = 'none';
+});
+
+// Re-filter suggestions when contract changes
+document.getElementById('f-client').addEventListener('change', () => {
+  document.getElementById('f-equip').value = '';
+  hideMachineInfo();
+  document.getElementById('tag-suggestions').style.display = 'none';
+});
+
+
+// ── Filters ──
+let filterMonth = '';
+let filterEstab = '';
+let filterContract = '';
+
+function buildFilterOptions() {
+  const months = new Set();
+  document.getElementById('f-filter-month');
+  quotes.forEach(q => { if (q.date) months.add(q.date.slice(0,7)); });
+
+  const mSel = document.getElementById('f-filter-month');
+  const curM = mSel.value;
+  mSel.innerHTML = '<option value="">📅 Todos os meses</option>' +
+    [...months].sort().reverse().map(m => {
+      const [y, mo] = m.split('-');
+      const label = new Date(y, mo-1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+      return `<option value="${m}" ${curM===m?'selected':''}>${label}</option>`;
+    }).join('');
+
+  const relevant = filterContract ? quotes.filter(q => q.client === filterContract) : quotes;
+  const estabs = new Set();
+  relevant.forEach(q => { if (q.machine?.estabelecimento) estabs.add(q.machine.estabelecimento); });
+  const eSel = document.getElementById('f-filter-estab');
+  const curE = eSel.value;
+  eSel.innerHTML = '<option value="">🏢 Todos os estabelecimentos</option>' +
+    [...estabs].sort().map(e => `<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
+}
+
+function applyFilters() {
+  filterMonth    = document.getElementById('f-filter-month').value;
+  filterContract = document.getElementById('f-filter-contract').value;
+  filterEstab    = document.getElementById('f-filter-estab').value;
+  buildFilterOptions();
+  renderQuoteList();
+}
+
+function clearFilters() {
+  filterMonth = ''; filterEstab = ''; filterContract = '';
+  document.getElementById('f-filter-month').value = '';
+  document.getElementById('f-filter-contract').value = '';
+  document.getElementById('f-filter-estab').value = '';
+  buildFilterOptions();
+  renderQuoteList();
+}
+
+function getFilteredQuotes() {
+  return [...quotes]
+    .filter(q => {
+      const mMatch = !filterMonth    || (q.date && q.date.startsWith(filterMonth));
+      const cMatch = !filterContract || q.client === filterContract;
+      const eMatch = !filterEstab    || (q.machine && q.machine.estabelecimento === filterEstab);
+      return mMatch && cMatch && eMatch;
+    })
+    .sort((a,b) => (a.date||'').localeCompare(b.date||'') || b.createdAt - a.createdAt);
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + tab).classList.add('active');
+  document.getElementById('nav-' + tab).classList.add('active');
+  document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
+  if (tab === 'quotes') renderQuoteList();
+  if (tab === 'settings') loadSettings();
+}
+
+// ── Quotes list ──
+function renderQuoteList() {
+  buildFilterOptions();
+  const filtered = getFilteredQuotes();
+  const list = document.getElementById('quotes-list');
+  const empty = document.getElementById('quotes-empty');
+
+  const total = filtered.length;
+  const activeFilters = [filterMonth, filterContract, filterEstab].filter(Boolean).length;
+  const label = document.getElementById('filter-count-label');
+  label.innerHTML = activeFilters
+    ? `<strong>${total}</strong> orçamento${total!==1?'s':''} encontrado${total!==1?'s':''}`
+    : `<strong>${total}</strong> orçamento${total!==1?'s':''} no total`;
+
+  if (!total) { list.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  let lastMonth = '';
+  list.innerHTML = filtered.map(q => {
+    const total = q.items.reduce((s,i) => s + i.price * i.qty, 0);
+    const statusMap = { pending: ['Pendente','badge-pending'], sent: ['Enviado','badge-sent'], approved: ['Aprovado','badge-approved'] };
+    const [sLabel, sCls] = statusMap[q.status || 'pending'];
+    const month = q.date ? q.date.slice(0,7) : '';
+    let header = '';
+    if (month !== lastMonth) {
+      lastMonth = month;
+      const mLabel = month ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'Sem data';
+      header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${mLabel}</div>`;
+    }
+    return header + `<div class="quote-card" onclick="openDetail('${q.id}')">
+      <div class="qi-info" style="flex:1">
+        <div class="qc-client">Contrato: ${q.client || '—'}</div>
+        <div class="qc-meta">${q.date || ''} · ${q.items.length} serviço(s) · <span class="badge ${sCls}">${sLabel}</span></div>
+        ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${q.equip}${q.machine ? ' · '+q.machine.marca+' · '+q.machine.estabelecimento : ''}</div>` : ''}
+      </div>
+      <div class="qc-total">${fmt(total)}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── New/edit quote ──
+function startNew() {
+  editingId = null;
+  hideMachineInfo();
+  document.getElementById('tag-suggestions').style.display = 'none';
+  newItems = [];
+  document.getElementById('f-client').value = '';
+  document.getElementById('f-equip').value = '';
+  document.getElementById('f-date').value = today();
+  document.getElementById('f-notes').value = '';
+  renderNewItems();
+  switchTab('new');
+}
+
+function editQuote(id) {
+  closeDetailModal();
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+  hideMachineInfo();
+  editingId = id;
+  newItems = q.items.map(i => ({...i}));
+  document.getElementById('f-client').value = q.client || '';
+  document.getElementById('f-equip').value = q.equip || '';
+  document.getElementById('f-date').value = q.date || today();
+  document.getElementById('f-notes').value = q.notes || '';
+  // Try to reload machine info
+  if (q.equip && q.client && getEffectiveDB()[q.client]) {
+    const m = getEffectiveDB()[q.client].find(x => x.tag === q.equip);
+    if (m) showMachineInfo(m);
+  }
+  renderNewItems();
+  switchTab('new');
+}
+
+function cancelNew() {
+  newItems = [];
+  switchTab('quotes');
+}
+
+function saveQuote() {
+  const client = document.getElementById('f-client').value.trim();
+  if (!client) { showToast('Selecione o contrato'); return; }
+  if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
+  const q = {
+    id: editingId || genId(),
+    client,
+    phone: '',
+    address: '',
+    equip: document.getElementById('f-equip').value,
+    machine: selectedMachine || null,
+    date: document.getElementById('f-date').value,
+    validity: '',
+    payment: '',
+    notes: document.getElementById('f-notes').value,
+    items: newItems,
+    status: 'pending',
+    createdAt: editingId ? (quotes.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
+  };
+  if (editingId) {
+    const idx = quotes.findIndex(x => x.id === editingId);
+    quotes[idx] = q;
+  } else {
+    quotes.unshift(q);
+  }
+  persist();
+  showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
+  editingId = null;
+  newItems = [];
+  switchTab('quotes');
+}
+
+function deleteQuote(id) {
+  if (!confirm('Excluir este orçamento?')) return;
+  quotes = quotes.filter(q => q.id !== id);
+  persist();
+  closeDetailModal();
+  renderQuoteList();
+  showToast('Orçamento excluído');
+}
+
+function persist() {
+  localStorage.setItem('orcamento_quotes', JSON.stringify(quotes));
+  renderQuoteList();
+  const last = quotes[0];
+  if (last) DB.save('orcamentos', last).catch(e => console.warn('Sync orçamento:', e.message));
+}
+
+// ── Items ──
+function renderNewItems() {
+  const el = document.getElementById('new-items-list');
+  const tc = document.getElementById('totals-card');
+  if (!newItems.length) {
+    el.innerHTML = '<div class="empty" style="padding:24px 0"><p>Nenhum serviço adicionado</p></div>';
+    tc.style.display = 'none'; return;
+  }
+  tc.style.display = '';
+  let sub = 0, tax = 0;
+  el.innerHTML = newItems.map((it, i) => {
+    const line = it.price * it.qty;
+    const t = line * it.taxRate;
+    sub += line; tax += t;
+    if (it.inviavel) {
+      return `<div class="quote-item" style="background:#fef2f2;border-radius:8px;padding:10px 12px;margin:4px 0">
+        <div class="qi-info" style="flex:1">
+          <div class="qi-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
+          <div class="qi-price" style="color:#dc2626;font-size:12px;margin-top:4px">Sem custo de reparo</div>
+        </div>
+        <button class="btn-del" onclick="removeItem(${i})">×</button>
+      </div>`;
+    }
+    return `<div class="quote-item">
+      <div class="qi-info">
+        <div class="qi-name">${it.name}</div>
+        <div class="qi-price">${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong></div>
+      </div>
+      <div class="qty-ctrl">
+        <button class="qty-btn" onclick="chgQty(${i},-1)">−</button>
+        <span class="qty-val">${it.qty}</span>
+        <button class="qty-btn" onclick="chgQty(${i},1)">+</button>
+      </div>
+      <button class="btn-del" onclick="removeItem(${i})">×</button>
+    </div>`;
+  }).join('');
+  document.getElementById('t-sub').textContent = fmt(sub);
+  document.getElementById('t-tax').textContent = fmt(tax);
+  document.getElementById('t-total').textContent = fmt(sub);
+}
+
+function chgQty(i, d) { newItems[i].qty = Math.max(1, newItems[i].qty + d); renderNewItems(); }
+function removeItem(i) { newItems.splice(i, 1); renderNewItems(); }
+
+// ── Service modal ──
+function openServiceModal() {
+  document.getElementById('svc-search').value = '';
+  filterServices();
+  document.getElementById('service-modal').classList.remove('hidden');
+}
+function closeServiceModal() { document.getElementById('service-modal').classList.add('hidden'); }
+function filterServices() {
+  const q = document.getElementById('svc-search').value.toLowerCase();
+  const el = document.getElementById('svc-list');
+  el.innerHTML = SERVICES.filter(s => s.name.toLowerCase().includes(q)).map((s, i) => {
+    const idx = SERVICES.indexOf(s);
+    if (s.inviavel) {
+      return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${idx})">
+        <div class="svc-info">
+          <div class="svc-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
+          <div class="svc-price" style="color:#dc2626;font-size:12px">Preenche observação automaticamente</div>
+        </div>
+        <button class="svc-add" style="background:#dc2626" onclick="addService(${idx});event.stopPropagation()">+</button>
+      </div>`;
+    }
+    return `<div class="service-item" onclick="addService(${idx})">
+      <div class="svc-info">
+        <div class="svc-name">${s.name}</div>
+        <div class="svc-price">${fmt(s.price)}</div>
+      </div>
+      <button class="svc-add" onclick="addService(${idx});event.stopPropagation()">+</button>
+    </div>`;
+  }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum serviço encontrado</p>';
+}
+function addService(i) {
+  const s = SERVICES[i];
+  if (s.inviavel) {
+    // Replace all items with just the inviável entry, auto-fill note
+    newItems = [{ name: 'Inviável — Equipamento condenado', price: 0.00, taxRate: 0.00, qty: 1, inviavel: true }];
+    const notesEl = document.getElementById('f-notes');
+    notesEl.value = INVIAVEL_NOTE;
+    renderNewItems();
+    closeServiceModal();
+    showToast('Equipamento marcado como inviável');
+    return;
+  }
+  const ex = newItems.findIndex(x => x.name === s.name);
+  if (ex >= 0) { newItems[ex].qty++; }
+  else { newItems.push({ name: s.name, price: s.price, taxRate: s.taxRate, qty: 1 }); }
+  renderNewItems();
+  showToast(s.name + ' adicionado');
+}
+
+// ── Detail modal ──
+function openDetail(id) {
+  currentDetailId = id;
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+  const sub = q.items.reduce((s,i) => s + i.price*i.qty, 0);
+  const tax = q.items.reduce((s,i) => s + i.price*i.qty*i.taxRate, 0);
+  const statusOpts = ['pending','sent','approved'].map(s => `<option value="${s}" ${q.status===s?'selected':''}>${{pending:'Pendente',sent:'Enviado',approved:'Aprovado'}[s]}</option>`).join('');
+  document.getElementById('detail-content').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px">
+      <div>
+        <div style="font-size:19px;font-weight:700">Contrato: ${q.client}</div>
+        ${q.equip ? `<div style="font-size:14px;color:var(--text-2);margin-top:2px">🏷️ TAG: ${q.equip}</div>` : ''}
+        ${q.machine ? `
+          <div style="font-size:13px;color:var(--text-2)">${q.machine.marca} ${q.machine.tipo}${q.machine.capacidade ? ' · '+q.machine.capacidade+' BTU' : ''}</div>
+          <div style="font-size:13px;color:var(--text-2)">${q.machine.estabelecimento}</div>
+          <div style="font-size:13px;color:var(--text-3)">${q.machine.recinto}</div>
+        ` : ''}
+        ${q.address ? `<div style="font-size:14px;color:var(--text-2)">📍 ${q.address}</div>` : ''}
+        <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${q.date || ''}</div>
+      </div>
+      <select onchange="updateStatus('${q.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
+      ${q.items.map(it => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
+          <span>${it.name} × ${it.qty}</span>
+          <span style="font-weight:600">${fmt(it.price*it.qty)}</span>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Subtotal</span><span>${fmt(sub)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Impostos</span><span>${fmt(tax)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub)}</span></div>
+    ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${q.notes}</div>` : ''}
+  `;
+  document.getElementById('detail-modal').classList.remove('hidden');
+}
+function closeDetailModal() { document.getElementById('detail-modal').classList.add('hidden'); }
+function updateStatus(id, status) {
+  const q = quotes.find(x => x.id === id);
+  if (q) { q.status = status; persist(); }
+}
+
+// ── PDF ──
+// ── Consolidated quote by unit (estabelecimento) ──
+function openConsolidatedModal() {
+  const filtered = getFilteredQuotes();
+  if (!filtered.length) { showToast('Nenhum orçamento para consolidar'); return; }
+
+  // Group by estabelecimento
+  const groups = {};
+  filtered.forEach(q => {
+    const key = (q.machine && q.machine.estabelecimento) || 'Sem estabelecimento definido';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(q);
+  });
+  const unitNames = Object.keys(groups).sort();
+
+  const monthLabel = filterMonth ? new Date(filterMonth+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'todos os meses';
+  const contractLabel = filterContract ? `Contrato ${filterContract}` : 'todos os contratos';
+
+  document.getElementById('consolidated-modal-content').innerHTML = `
+    <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:14px">
+      Serão gerados <strong>${unitNames.length}</strong> orçamento(s) consolidado(s) — um por estabelecimento — com base no filtro atual:
+      <strong>${contractLabel}</strong>, <strong>${monthLabel}</strong>.
+    </p>
+    <div style="max-height:240px;overflow-y:auto;margin-bottom:14px">
+      ${unitNames.map(u => {
+        const qs = groups[u];
+        const total = qs.reduce((s,q) => s + q.items.reduce((s2,i)=>s2+i.price*i.qty,0), 0);
+        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
+          <div>
+            <div style="font-size:14px;font-weight:600">${u}</div>
+            <div style="font-size:12px;color:var(--text-2)">${qs.length} equipamento(s)</div>
+          </div>
+          <div style="font-size:14px;font-weight:700;color:var(--primary)">${fmt(total)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <button class="btn btn-primary" style="width:100%" onclick="generateConsolidatedPDFs()">📄 Gerar PDF(s) consolidado(s)</button>
+  `;
+  document.getElementById('consolidated-modal').classList.remove('hidden');
+  window._consolidatedGroups = groups;
+}
+
+function generateConsolidatedPDFs() {
+  const groups = window._consolidatedGroups || {};
+  const unitNames = Object.keys(groups).sort();
+  unitNames.forEach(unit => printConsolidatedPDF(unit, groups[unit]));
+  document.getElementById('consolidated-modal').classList.add('hidden');
+  showToast(`${unitNames.length} PDF(s) gerado(s)!`);
+}
+
+function printConsolidatedPDF(unitName, unitQuotes) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, M = 16, CW = W - M*2;
+  let y = M;
+  const co = settings.company || 'Empresa de Manutenção';
+
+  function drawHeader(pageTitle) {
+    doc.setFillColor(37, 99, 235);
+    doc.rect(0, 0, W, 38, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text(co, M, 14);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+    if (hParts) doc.text(hParts, M, 20);
+    if (settings.addr) doc.text(settings.addr, M, 26);
+    doc.setFontSize(13); doc.setFont('helvetica','bold');
+    doc.text(pageTitle, W - M, 16, { align:'right' });
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text(`Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, W - M, 22, { align:'right' });
+    return 46;
+  }
+
+  function drawFooter() {
+    doc.setFillColor(37,99,235);
+    doc.rect(0, 285, W, 14, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text(settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.', W/2, 293, {align:'center'});
+  }
+
+  y = drawHeader('ORÇAMENTO CONSOLIDADO');
+
+  // Unit box
+  doc.setFillColor(239,246,255);
+  doc.rect(M, y, CW, 20, 'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('UNIDADE / ESTABELECIMENTO', M+4, y+7);
+  doc.setFontSize(12); doc.setFont('helvetica','bold');
+  doc.text(unitName, M+4, y+15);
+  y += 26;
+
+  // Intro text
+  if (settings.intro && settings.intro.trim()) {
+    const introLines = doc.splitTextToSize(settings.intro, CW);
+    doc.setTextColor(50,50,50); doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+    doc.text(introLines, M, y);
+    y += introLines.length * 5 + 8;
+  }
+  if (y > 260) { doc.addPage(); y = M; }
+
+  let grandTotal = 0, grandTax = 0;
+
+  // One section per equipment (TAG)
+  unitQuotes.forEach((q, qi) => {
+    if (y > 250) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+
+    // Equipment sub-header
+    doc.setFillColor(219,234,254);
+    doc.rect(M, y, CW, 9, 'F');
+    doc.setTextColor(30,58,138); doc.setFont('helvetica','bold'); doc.setFontSize(9.5);
+    const m = q.machine;
+    const eqLabel = `Contrato ${q.client} · TAG ${q.equip || '—'}${m ? '  —  '+m.marca+' '+m.tipo+(m.capacidade?' · '+m.capacidade+' BTU':'') : ''}`;
+    doc.text(eqLabel, M+3, y+6);
+    y += 9;
+    if (m && m.recinto) {
+      doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.text(`Recinto: ${m.recinto}`, M+3, y+5);
+      y += 7;
+    }
+
+    // Services table header
+    doc.setFillColor(37,99,235);
+    doc.rect(M, y, CW, 7, 'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
+    doc.text('SERVIÇO', M+3, y+5);
+    doc.text('QTD', M+CW*0.65, y+5, {align:'center'});
+    doc.text('VALOR UNIT.', M+CW*0.78, y+5, {align:'center'});
+    doc.text('TOTAL', M+CW-3, y+5, {align:'right'});
+    y += 7;
+
+    let sub = 0, tax = 0;
+    q.items.forEach((it, idx) => {
+      if (y > 270) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+      const line = it.price * it.qty;
+      const t = line * it.taxRate;
+      sub += line; tax += t;
+      if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 7, 'F'); }
+      if (it.inviavel) {
+        doc.setFillColor(254,242,242); doc.rect(M, y, CW, 7, 'F');
+        doc.setTextColor(220,38,38); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+        doc.text('INVIÁVEL — Equipamento condenado', M+3, y+5);
+        doc.text('—', M+CW-3, y+5, {align:'right'});
+      } else {
+        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        const nameStr = doc.splitTextToSize(it.name, CW*0.60);
+        doc.text(nameStr, M+3, y+5);
+        doc.text(String(it.qty), M+CW*0.65, y+5, {align:'center'});
+        doc.text(fmt(it.price), M+CW*0.78, y+5, {align:'center'});
+        doc.setFont('helvetica','bold');
+        doc.text(fmt(line), M+CW-3, y+5, {align:'right'});
+      }
+      y += 7;
+    });
+
+    grandTotal += sub; grandTax += tax;
+
+    // Subtotal per equipment
+    doc.setTextColor(80,80,80); doc.setFont('helvetica','bold'); doc.setFontSize(8.5);
+    doc.text(`Subtotal do equipamento:`, M+CW*0.55, y+4);
+    doc.text(fmt(sub), M+CW-3, y+4, {align:'right'});
+    y += 10;
+  });
+
+  // Grand total
+  if (y > 255) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+  y += 2;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(80,80,80);
+  doc.text('Subtotal geral:', M+CW*0.55, y);
+  doc.text(fmt(grandTotal), M+CW-3, y, {align:'right'});
+  y += 7;
+  doc.text('Impostos (~20%):', M+CW*0.55, y);
+  doc.text(fmt(grandTax), M+CW-3, y, {align:'right'});
+  y += 5;
+  doc.setFillColor(37,99,235);
+  doc.rect(M+CW*0.5, y, CW*0.5, 11, 'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(13);
+  doc.text('TOTAL GERAL:', M+CW*0.54, y+7.5);
+  doc.text(fmt(grandTotal), M+CW-3, y+7.5, {align:'right'});
+  y += 18;
+
+  // Ressalvas finais
+  if (settings.ressalvas && settings.ressalvas.trim()) {
+    if (y > 255) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+    doc.setFillColor(255,251,235);
+    const resLines = doc.splitTextToSize(settings.ressalvas, CW-8);
+    const resH = resLines.length * 5 + 10;
+    if (y + resH > 280) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+    doc.rect(M, y, CW, resH, 'F');
+    doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.text('RESSALVAS', M+4, y+6);
+    doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50); doc.setFontSize(9);
+    doc.text(resLines, M+4, y+12);
+    y += resH + 4;
+  }
+
+  drawFooter();
+
+  const safeName = unitName.replace(/[^\w\sÀ-ú-]/g,'').replace(/\s+/g,'-').slice(0,40);
+  const dateTag = filterMonth || new Date().toISOString().slice(0,7);
+  doc.save(`orcamento-consolidado-${safeName}-${dateTag}.pdf`);
+}
+
+function printPDF(id) {
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const W = 210, M = 16, CW = W - M*2;
+  let y = M;
+  const co = settings.company || 'Empresa de Manutenção';
+  const lineH = 7;
+
+  // Header bg
+  doc.setFillColor(37, 99, 235);
+  doc.rect(0, 0, W, 38, 'F');
+
+  // Company name
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(16); doc.setFont('helvetica','bold');
+  doc.text(co, M, 14);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  const headerParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+  if (headerParts) doc.text(headerParts, M, 20);
+  if (settings.addr) doc.text(settings.addr, M, 26);
+
+  // Title
+  doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text('ORÇAMENTO DE SERVIÇOS', W - M, 16, { align:'right' });
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text(`Nº ${q.id.toUpperCase().slice(-6)}`, W - M, 22, { align:'right' });
+  doc.text(`Data: ${q.date || today()}`, W - M, 28, { align:'right' });
+
+  y = 46;
+  // Client box
+  doc.setFillColor(239, 246, 255);
+  doc.rect(M, y, CW, 36, 'F');
+  doc.setTextColor(30, 30, 30);
+  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('DADOS DO CONTRATO', M+4, y+7);
+  doc.setFontSize(11); doc.setFont('helvetica','bold');
+  doc.text(`Contrato: ${q.client || '—'}`, M+4, y+14);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  const m = q.machine;
+  const clientLines = [
+    `TAG: ${q.equip || '—'}`,
+    m && `Equipamento: ${m.marca} ${m.tipo}${m.capacidade ? ' · ' + m.capacidade + ' BTU' : ''}`,
+    m && `Estabelecimento: ${m.estabelecimento}`,
+    m && `Recinto: ${m.recinto}`,
+  ].filter(Boolean);
+  clientLines.forEach((l, i) => doc.text(l, M+4, y+21+i*6));
+  y += 42;
+
+  // Services table header
+  doc.setFillColor(37, 99, 235);
+  doc.rect(M, y, CW, 8, 'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('SERVIÇO', M+3, y+5.5);
+  doc.text('QTD', M+CW*0.65, y+5.5, {align:'center'});
+  doc.text('VALOR UNIT.', M+CW*0.78, y+5.5, {align:'center'});
+  doc.text('TOTAL', M+CW-3, y+5.5, {align:'right'});
+  y += 8;
+
+  let sub = 0, tax = 0;
+  q.items.forEach((it, idx) => {
+    const line = it.price * it.qty;
+    const t = line * it.taxRate;
+    sub += line; tax += t;
+    if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 8, 'F'); }
+    if (it.inviavel) {
+      doc.setFillColor(254,242,242); doc.rect(M, y, CW, 8, 'F');
+      doc.setTextColor(220,38,38); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text('INVIÁVEL — Equipamento condenado', M+3, y+5.5);
+      doc.text('—', M+CW*0.65, y+5.5, {align:'center'});
+      doc.text('—', M+CW*0.78, y+5.5, {align:'center'});
+      doc.text('—', M+CW-3, y+5.5, {align:'right'});
+    } else {
+      doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+      const nameStr = doc.splitTextToSize(it.name, CW*0.60);
+      doc.text(nameStr, M+3, y+5.5);
+      doc.text(String(it.qty), M+CW*0.65, y+5.5, {align:'center'});
+      doc.text(fmt(it.price), M+CW*0.78, y+5.5, {align:'center'});
+      doc.setFont('helvetica','bold');
+      doc.text(fmt(line), M+CW-3, y+5.5, {align:'right'});
+    }
+    y += 8;
+    if (y > 260) { doc.addPage(); y = M; }
+  });
+
+  // Totals
+  y += 4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(80,80,80);
+  doc.text('Subtotal:', M+CW*0.55, y);
+  doc.text(fmt(sub), M+CW-3, y, {align:'right'});
+  y += 7;
+  doc.text('Impostos (~20%):', M+CW*0.55, y);
+  doc.text(fmt(tax), M+CW-3, y, {align:'right'});
+  y += 4;
+  doc.setFillColor(37,99,235);
+  doc.rect(M+CW*0.5, y, CW*0.5, 10, 'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(12);
+  doc.text('TOTAL:', M+CW*0.54, y+7);
+  doc.text(fmt(sub), M+CW-3, y+7, {align:'right'});
+  y += 16;
+
+  // Notes
+  if (q.notes) {
+    doc.setFillColor(255,251,235);
+    const noteLines = doc.splitTextToSize(q.notes, CW-8);
+    const noteH = noteLines.length * 5 + 10;
+    doc.rect(M, y, CW, noteH, 'F');
+    doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+    doc.text('OBSERVAÇÕES', M+4, y+6);
+    doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50); doc.setFontSize(9);
+    doc.text(noteLines, M+4, y+12);
+    y += noteH + 8;
+  }
+
+  // Footer
+  const footerY = 285;
+  doc.setFillColor(37,99,235);
+  doc.rect(0, footerY-2, W, 14, 'F');
+  doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+  const footerText = settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.';
+  doc.text(footerText, W/2, footerY+5, {align:'center'});
+
+  doc.save(`orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.pdf`);
+  closeDetailModal();
+  showToast('PDF gerado!');
+}
+
+// ── Settings ──
+function loadSettings() {
+  document.getElementById('s-company').value = settings.company || '';
+  document.getElementById('s-cnpj').value = settings.cnpj || '';
+  document.getElementById('s-tel').value = settings.tel || '';
+  document.getElementById('s-email').value = settings.email || '';
+  document.getElementById('s-addr').value = settings.addr || '';
+  document.getElementById('s-logo').value = settings.logo || '';
+  document.getElementById('s-footer').value = settings.footer || '';
+  document.getElementById('s-intro').value = settings.intro || '';
+  document.getElementById('s-ressalvas').value = settings.ressalvas || '';
+  updateDriveUI();
+}
+function saveSettings() {
+  settings = {
+    company: document.getElementById('s-company').value,
+    cnpj: document.getElementById('s-cnpj').value,
+    tel: document.getElementById('s-tel').value,
+    email: document.getElementById('s-email').value,
+    addr: document.getElementById('s-addr').value,
+    logo: document.getElementById('s-logo').value,
+    footer: document.getElementById('s-footer').value,
+    intro: document.getElementById('s-intro').value,
+    ressalvas: document.getElementById('s-ressalvas').value,
+  };
+  localStorage.setItem('orcamento_settings', JSON.stringify(settings));
+  showToast('Configurações salvas!');
+}
+
+// ── Google Drive (OAuth PKCE) ──
+const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const CLIENT_ID = localStorage.getItem('gdrive_client_id') || '';
+
+function connectDrive() {
+  const cid = prompt('Informe seu Google OAuth Client ID:\n(Configure em console.cloud.google.com → APIs → Credenciais)', CLIENT_ID);
+  if (!cid) return;
+  localStorage.setItem('gdrive_client_id', cid);
+  const params = new URLSearchParams({
+    client_id: cid, redirect_uri: location.origin + location.pathname,
+    response_type: 'token', scope: GDRIVE_SCOPE, include_granted_scopes: 'true',
+  });
+  window.open('https://accounts.google.com/o/oauth2/v2/auth?' + params, '_blank', 'width=500,height=600');
+  showToast('Janela de login aberta. Após autorizar, cole o token.');
+  setTimeout(() => {
+    const token = prompt('Cole o access_token retornado pela URL após o login:');
+    if (token) { gapiToken = token; driveConnected = true; updateDriveUI(); showToast('Google Drive conectado!'); }
+  }, 3000);
+}
+
+function updateDriveUI() {
+  const badge = document.getElementById('drive-status-badge');
+  if (driveConnected) {
+    badge.className = 'drive-status connected';
+    badge.innerHTML = '<span>🟢</span><span>Google Drive conectado</span>';
+  } else {
+    badge.className = 'drive-status disconnected';
+    badge.innerHTML = '<span>🔴</span><span>Não conectado ao Google Drive</span>';
+  }
+}
+
+async function saveToDrive(id) {
+  if (!driveConnected || !gapiToken) {
+    showToast('Conecte o Google Drive primeiro nas configurações');
+    switchTab('settings');
+    closeDetailModal();
+    return;
+  }
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+  showToast('Enviando para o Drive…');
+  try {
+    const content = JSON.stringify(q, null, 2);
+    const fileName = `orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.json`;
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify({ name: fileName, mimeType: 'application/json' })], { type: 'application/json' }));
+    form.append('file', new Blob([content], { type: 'application/json' }));
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { Authorization: `Bearer ${gapiToken}` }, body: form,
+    });
+    if (res.ok) { showToast('Salvo no Drive! ✅'); }
+    else { throw new Error('Erro ' + res.status); }
+  } catch(e) { showToast('Erro ao salvar no Drive: ' + e.message); }
+}
+
+function openDriveModal() {
+  document.getElementById('drive-modal-content').innerHTML = `
+    <p style="font-size:14px;color:var(--text-2);line-height:1.6;margin-bottom:14px">
+      ${driveConnected ? '✅ Conectado ao Google Drive. Os orçamentos podem ser enviados individualmente.' : '❌ Não conectado. Configure nas <strong>Configurações</strong>.'}
+    </p>
+    ${driveConnected ? `
+      <button class="btn btn-success" style="width:100%;margin-bottom:8px" onclick="saveAllToDrive()">☁️ Salvar todos os orçamentos</button>
+      <button class="btn btn-secondary" style="width:100%" onclick="gapiToken=null;driveConnected=false;updateDriveUI();document.getElementById('drive-modal').classList.add('hidden');showToast('Desconectado')">🔌 Desconectar</button>
+    ` : `<button class="btn btn-primary" style="width:100%" onclick="document.getElementById('drive-modal').classList.add('hidden');switchTab('settings')">Ir para Configurações</button>`}
+  `;
+  document.getElementById('drive-modal').classList.remove('hidden');
+}
+
+async function saveAllToDrive() {
+  for (const q of quotes) await saveToDrive(q.id);
+  showToast(`${quotes.length} orçamento(s) enviados!`);
+  document.getElementById('drive-modal').classList.add('hidden');
+}
+
+// ── Export / Import ──
+function exportData() {
+  const blob = new Blob([JSON.stringify({ quotes, settings }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'orcamentos-backup.json';
+  a.click();
+}
+function importData() { document.getElementById('import-file').click(); }
+function doImport(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if (data.quotes) { quotes = data.quotes; persist(); }
+      if (data.settings) { settings = data.settings; localStorage.setItem('orcamento_settings', JSON.stringify(settings)); }
+      showToast('Dados importados!');
+    } catch { showToast('Arquivo inválido'); }
+  };
+  r.readAsText(f);
+}
+
+// ── Toast ──
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Init ──
+document.getElementById('f-date').value = today();
+buildFilterOptions();
+renderQuoteList();
+
+
+// Patch openDetail to hide restricted actions
+const _origOpenDetail = openDetail;
+openDetail = function(id) {
+  _origOpenDetail(id);
+  const role = window._currentRole || {};
+  if (!role.canEdit) {
+    document.querySelectorAll('[onclick*="editQuote"]').forEach(b => b.style.display='none');
+  }
+  if (!role.canDelete) {
+    document.querySelectorAll('[onclick*="deleteQuote"]').forEach(b => b.style.display='none');
+  }
+  if (!role.canViewPrices) {
+    document.querySelectorAll('.qc-total, #t-sub, #t-tax, #t-total').forEach(el => el.textContent = '—');
+  }
+};
+</script>
+</body>
+</html>

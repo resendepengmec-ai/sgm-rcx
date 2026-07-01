@@ -1,0 +1,92 @@
+# Sistema de Manutenção — Guia de Instalação e Uso
+=======================================================
+
+## Arquivos do sistema
+
+  index.html        → Dashboard, login e painel de administração
+  auth-callback.html→ Recebe token do Google após login
+  auth.js           → Motor de autenticação, perfis e whitelist
+  db.js             → Banco de dados de equipamentos (3.313 TAGs embutido)
+  shared.css        → Estilos compartilhados entre módulos
+  chamados.html     → Módulo de chamados de manutenção
+  registro.html     → Módulo de registro de serviços
+  orcamento.html    → Módulo de orçamentos
+
+
+## Como publicar (obrigatório — Google OAuth exige URL real)
+
+Opção A — GitHub Pages (gratuito):
+  1. github.com → novo repositório público
+  2. Upload de todos os arquivos
+  3. Settings → Pages → Branch: main
+  4. URL: https://seu-usuario.github.io/repositorio/
+
+Opção B — Netlify (gratuito):
+  1. netlify.com → "Add new site" → "Deploy manually"
+  2. Arraste a pasta com todos os arquivos
+
+
+## Configurar Google OAuth
+
+  1. console.cloud.google.com → selecione ou crie um projeto
+  2. APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID
+  3. Tipo: Web application
+  4. Authorized JavaScript origins: https://seu-dominio.com
+  5. Authorized redirect URIs:     https://seu-dominio.com/auth-callback.html
+  6. Copie o Client ID gerado
+
+  No app: abra index.html → clique em "Configurar Google Client ID" → cole o Client ID
+
+
+## Primeiro acesso
+
+  O PRIMEIRO usuário a fazer login via Google torna-se Administrador automaticamente.
+  Os demais ficam bloqueados até que o Admin pré-autorize o e-mail deles.
+
+
+## Pré-autorizar usuários (Admin)
+
+  Dashboard → card "Administração" → aba "Pré-autorizar"
+  → Informe o e-mail Google e escolha o perfil → clique "+ Adicionar"
+  O usuário poderá fazer login normalmente após isso.
+
+
+## Gerenciar usuários existentes (Admin)
+
+  Dashboard → Administração → aba "Usuários"
+  → Altere o perfil ou ative/desative qualquer conta
+
+
+## Atualizar banco de dados de equipamentos (Admin)
+
+  Dashboard → Administração → aba "Banco"
+  → Clique em "Importar novo arquivo .xlsx"
+  → O arquivo deve ter uma aba por contrato (ex: aba "1020", "1023", "1123")
+     com colunas: A=TAG  B=Marca  C=Tipo  D=Capacidade  E=Estabelecimento  F=Recinto
+  → O novo banco é salvo localmente e usado em todos os módulos imediatamente
+  → Para voltar ao banco original: botão "Restaurar banco original"
+
+
+## Perfis de acesso
+
+  Perfil          Chamados   Registro   Orçamentos   Relatórios   Admin
+  ─────────────── ────────── ────────── ──────────── ──────────── ─────
+  Administrador   ✅ Total    ✅ Total    ✅ Total      ✅            ✅
+  Gestor          👁 Ver      👁 Ver      👁 Ver        ✅            ❌
+  Técnico         ✅ Criar    ✅ Criar    ❌            ❌            ❌
+  Solicitante     ✅ Criar    ❌          ❌            ❌            ❌
+
+  Solicitante: vê apenas os próprios chamados
+
+
+## Instalar como app no celular (PWA)
+
+  iPhone: Safari → Compartilhar → "Adicionar à Tela de Início"
+  Android: Chrome → Menu (⋮) → "Adicionar à tela inicial"
+
+
+## Dados e sincronização
+
+  Os dados ficam no localStorage de cada navegador/dispositivo.
+  Para sincronizar entre dispositivos, use a integração com Google Drive
+  disponível nas Configurações de cada módulo.

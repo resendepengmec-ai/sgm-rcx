@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#059669">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Registro de Serviços — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root {
+  --primary: #059669; --primary-dark: #047857; --primary-light: #ecfdf5;
+  --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+  --border: #e2e8f0; --bg: #f5f6fa; --surface: #fff;
+  --radius: 12px; --radius-sm: 8px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08); --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+  --success: #16a34a; --success-bg: #f0fdf4;
+  --danger: #dc2626; --danger-bg: #fef2f2;
+}
+body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:#059669">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Registro de Serviços</h1>
+  <div style="position:relative" id="user-chip"></div>
+</header>
+
+<header class="app-header">
+  <span style="font-size:22px">🔧</span>
+  <h1>Registro de Serviços</h1>
+  <button class="btn-icon" onclick="openDriveModal()" title="Google Drive">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28zm1.44 2h8.56l4.08 7H3.64L7.72 5zM7.5 14h9l-4.5 7.79L7.5 14z"/></svg>
+  </button>
+</header>
+
+<!-- ── RECORDS LIST ── -->
+<div id="screen-records" class="screen active">
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <div class="filter-row">
+      <select id="f-filter-month" onchange="applyFilters()">
+        <option value="">📅 Todos os meses</option>
+      </select>
+      <select id="f-filter-contract" onchange="applyFilters()">
+        <option value="">📋 Todos os contratos</option>
+        <option value="1020">Contrato 1020</option>
+        <option value="1023">Contrato 1023</option>
+        <option value="1123">Contrato 1123</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="f-filter-estab" onchange="applyFilters()">
+        <option value="">🏢 Todos os estabelecimentos</option>
+      </select>
+    </div>
+    <div class="filter-summary">
+      <span id="filter-count-label">Carregando…</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-clear" onclick="clearFilters()">Limpar</button>
+        <button class="btn-report" onclick="printFilteredPDF()">🖨️ Relatório PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:12px">
+    <div id="records-list"></div>
+    <div id="records-empty" class="empty" style="display:none">
+      <span class="empty-icon">📋</span>
+      <h3>Nenhum registro encontrado</h3>
+      <p>Tente outros filtros ou adicione<br>novos registros</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── NEW/EDIT RECORD ── -->
+<div id="screen-new" class="screen">
+  <!-- Contrato + TAG -->
+  <div class="card">
+    <div class="card-title">Dados do Equipamento</div>
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione o contrato…</option>
+        <option value="1020">1020</option>
+        <option value="1023">1023</option>
+        <option value="1123">1123</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <div style="position:relative">
+        <input id="f-equip" type="text" placeholder="Digite o número da TAG..." oninput="onTagInput()" autocomplete="off">
+        <div class="tag-suggestions" id="tag-suggestions"></div>
+      </div>
+    </div>
+    <div class="machine-info-box" id="machine-info">
+      <div class="mi-title">✅ Equipamento encontrado</div>
+      <div id="mi-marca"></div>
+      <div id="mi-tipo"></div>
+      <div id="mi-cap"></div>
+      <div id="mi-estab"></div>
+      <div id="mi-recinto"></div>
+    </div>
+    <div class="field" style="margin-top:10px">
+      <label>Data de execução</label>
+      <input id="f-date" type="date">
+    </div>
+    <div class="field">
+      <label>Técnico responsável</label>
+      <input id="f-tech" type="text" placeholder="Nome do técnico">
+    </div>
+  </div>
+
+  <!-- Serviços executados -->
+  <div class="card">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Serviços executados</span>
+      <button class="btn-sm btn-outline" onclick="openServiceModal()">+ Adicionar</button>
+    </div>
+    <div id="new-items-list">
+      <div class="empty" style="padding:24px 0"><p>Nenhum serviço adicionado</p></div>
+    </div>
+  </div>
+
+  <!-- Fotos -->
+  <div class="card">
+    <div class="card-title">
+      Fotos do serviço
+      <span class="photo-count-badge" id="photo-badge" style="display:none">0</span>
+    </div>
+    <div class="photo-area" id="photo-area"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleDrop(event)">
+      <input type="file" id="photo-input" accept="image/*" multiple capture="environment" onchange="handlePhotoInput(event)">
+      <span class="photo-area-icon">📷</span>
+      <p>Toque para tirar foto ou escolher da galeria</p>
+      <small>JPG, PNG — múltiplas fotos permitidas</small>
+    </div>
+    <div class="photo-grid" id="photo-grid"></div>
+  </div>
+
+  <!-- Observações -->
+  <div class="card">
+    <div class="card-title">Observações</div>
+    <textarea id="f-notes" rows="3" placeholder="Diagnóstico, peças utilizadas, condições encontradas..."></textarea>
+  </div>
+
+  <div class="action-bar">
+    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveRecord()">💾 Salvar registro</button>
+  </div>
+</div>
+
+<!-- ── SETTINGS ── -->
+<div id="screen-settings" class="screen">
+  <div class="card">
+    <div class="card-title">Empresa</div>
+    <div class="field"><label>Nome da empresa</label><input id="s-company" type="text" placeholder="Nome fantasia ou razão social"></div>
+    <div class="field"><label>CNPJ / CPF</label><input id="s-cnpj" type="text" placeholder="00.000.000/0001-00"></div>
+    <div class="field"><label>Telefone</label><input id="s-tel" type="tel" placeholder="(62) 99999-9999"></div>
+    <div class="field"><label>E-mail</label><input id="s-email" type="email" placeholder="contato@empresa.com"></div>
+    <div class="field"><label>Endereço</label><input id="s-addr" type="text" placeholder="Rua, número — Cidade/UF"></div>
+    <div class="field"><label>Texto de rodapé no PDF</label><textarea id="s-footer" rows="2" placeholder="Ex: Garantia de 90 dias em peças e serviços."></textarea></div>
+    <div class="action-bar" style="margin-top:14px">
+      <button class="btn btn-primary" onclick="saveSettings()">Salvar configurações</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Google Drive</div>
+    <div id="drive-status-badge" class="drive-status disconnected"><span>🔴</span><span>Não conectado ao Google Drive</span></div>
+    <button class="btn btn-secondary" onclick="connectDrive()" style="width:100%;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28z"/></svg>
+      Conectar com Google Drive
+    </button>
+  </div>
+  <div class="card">
+    <div class="card-title">Dados</div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="exportData()">📤 Exportar JSON</button>
+      <button class="btn btn-secondary" onclick="importData()">📥 Importar JSON</button>
+    </div>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImport(event)">
+  </div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="startNew()">+</button>
+
+<!-- Service modal -->
+<div class="modal-bg hidden" id="service-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Adicionar serviço executado</div>
+    <div class="search-bar">
+      <span class="search-icon">🔍</span>
+      <input type="search" id="svc-search" placeholder="Pesquisar serviço..." oninput="filterServices()">
+    </div>
+    <div class="service-grid" id="svc-list"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="closeServiceModal()">Fechar</button>
+  </div>
+</div>
+
+<!-- Detail modal -->
+<div class="modal-bg hidden" id="detail-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div id="detail-content"></div>
+    <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="editRecord(currentDetailId)" style="flex:1">✏️ Editar</button>
+      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
+      <button class="btn btn-secondary btn-sm" onclick="saveToDrive(currentDetailId)" style="flex:1;color:var(--success)">☁️ Drive</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteRecord(currentDetailId)" style="flex:1">🗑️ Excluir</button>
+    </div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
+  </div>
+</div>
+
+<!-- Drive modal -->
+<div class="modal-bg hidden" id="drive-modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Google Drive</div>
+    <div id="drive-modal-content"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('drive-modal').classList.add('hidden')">Fechar</button>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="switchTab('records')" id="nav-records">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    Registros
+  </button>
+  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Novo
+  </button>
+  <button class="nav-btn" onclick="switchTab('os')" id="nav-os" style="position:relative">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+    O.S.
+    <span id="os-badge" style="display:none;position:absolute;top:4px;right:12px;background:#dc2626;color:#fff;border-radius:99px;font-size:10px;font-weight:700;padding:1px 5px;min-width:16px;text-align:center"></span>
+  </button>
+    <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    Config
+  </button>
+</nav>
+
+<script>
+  // URL do backend Render — altere para a sua URL
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+(function() {
+  const user = getCurrentUser();
+  if (!user) { window.location.href = 'index.html'; return; }
+  const role = ROLES[user.role];
+  if (!role || !role.modules.includes('registro')) { window.location.href = 'index.html'; return; }
+  document.getElementById('auth-overlay').style.display = 'none';
+  // Carrega dados do backend (mantém localStorage como cache)
+  DB.getAll('registros').then(data => {
+    if (data && data.length > 0) {
+      records = data;
+      localStorage.setItem('registro_records', JSON.stringify(data));
+      renderRecordList();
+    }
+  }).catch(() => {});
+  const chip = document.getElementById('user-chip');
+  const r = ROLES[user.role] || {};
+  chip.innerHTML = `
+    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
+      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    </div>
+    <div class="user-menu hidden" id="umenu">
+      <div class="user-menu-header">
+        <div style="font-weight:600;font-size:14px">${user.name}</div>
+        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
+      </div>
+      <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
+      <hr style="border:none;border-top:1px solid #e2e8f0">
+      <button class="user-menu-item danger" onclick="logout()">🚪 Sair</button>
+    </div>`;
+  document.addEventListener('click', e => { if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
+  if (!role.canCreate) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  window._currentUser = user; window._currentRole = role;
+})();
+</script>
+<script>
+
+// << MACHINE_DB INJECTED BY db.js >>
+
+const INVIAVEL_NOTE = 'Equipamento condenado. Constatada a inviabilidade técnica e econômica do reparo em razão da indisponibilidade de peças de reposição no mercado e/ou pelo custo estimado do conserto.';
+
+const SERVICES = [
+  {
+    name: "⚠️ Inviável — Equipamento condenado",
+    desc: "Equipamento condenado. Constatada a inviabilidade técnica e econômica do reparo em razão da indisponibilidade de peças de reposição no mercado e/ou pelo custo estimado do conserto.",
+    inviavel: true
+  },
+  {
+    name: "Instalação nova",
+    desc: "Execução de instalação nova de unidade de ar-condicionado, compreendendo fixação das unidades evaporadora e condensadora, passagem de tubulação frigorífera, cabeamento elétrico e de comunicação, vedações e teste de funcionamento."
+  },
+  {
+    name: "Realocação",
+    desc: "Desmontagem e remontagem da unidade de ar-condicionado em novo local, incluindo reutilização ou substituição de tubulação frigorífera, cabeamento e suportes, com teste de funcionamento ao final."
+  },
+  {
+    name: "Troca de compressor",
+    desc: "Substituição do compressor da unidade condensadora, com recuperação do fluido refrigerante, instalação do novo componente, vácuo do circuito, recarga de gás e verificação de parâmetros de operação."
+  },
+  {
+    name: "Troca de capacitor",
+    desc: "Substituição do capacitor eletrolítico de partida e/ou de funcionamento do motor do compressor ou do ventilador, com verificação da capacitância e teste após instalação."
+  },
+  {
+    name: "Recarga de gás R22",
+    desc: "Recarga do fluido refrigerante R-22 (HCFC-22) no circuito frigorífico, precedida de verificação de vazamento, vácuo do sistema e carga conforme especificação do fabricante."
+  },
+  {
+    name: "Recarga de gás R410",
+    desc: "Recarga do fluido refrigerante R-410A no circuito frigorífico, precedida de verificação de vazamento, vácuo do sistema e carga conforme especificação do fabricante."
+  },
+  {
+    name: "Recarga de gás R32",
+    desc: "Recarga do fluido refrigerante R-32 no circuito frigorífico, precedida de verificação de vazamento, vácuo do sistema e carga conforme especificação do fabricante."
+  },
+  {
+    name: "Troca de placa eletrônica",
+    desc: "Substituição da placa de circuito impresso (PCB) da unidade evaporadora e/ou condensadora, com configuração dos parâmetros de operação e teste funcional completo."
+  },
+  {
+    name: "Troca da turbina evaporadora",
+    desc: "Substituição do conjunto turbina (rotor centrífugo) da unidade evaporadora, com limpeza do alojamento, balanceamento e teste de vazão de ar após montagem."
+  },
+  {
+    name: "Troca de motoventilador da condensadora/evaporadora",
+    desc: "Substituição do conjunto motoventilador (motor + ventoinha) da unidade condensadora e/ou evaporadora, com verificação elétrica e teste de corrente de operação."
+  },
+  {
+    name: "Troca da hélice da condensadora",
+    desc: "Substituição da hélice (fan blade) da unidade condensadora, com verificação de folgas, alinhamento ao eixo do motor e teste de operação para checagem de vibração e ruído."
+  },
+  {
+    name: "Troca de contatora, relé ou afins",
+    desc: "Substituição de contatora, relé auxiliar, relé de sobrecarga ou componente similar no quadro elétrico da unidade, com verificação de tensão, corrente e continuidade dos contatos."
+  },
+  {
+    name: "Troca do sensor da evaporadora",
+    desc: "Substituição do sensor de temperatura (NTC) da serpentina e/ou do ambiente da unidade evaporadora, com configuração via placa eletrônica e teste de leitura."
+  },
+  {
+    name: "Troca do sensor da condensadora",
+    desc: "Substituição do sensor de temperatura (NTC) da serpentina da unidade condensadora, com configuração via placa eletrônica e teste de leitura de temperatura."
+  },
+  {
+    name: "Rede frigorífera",
+    desc: "Instalação ou substituição de tubulação frigorífera em cobre, incluindo isolamento térmico, conexões soldadas, teste de pressão e vácuo do circuito antes da recarga."
+  },
+  {
+    name: "Cabo de comunicação PP",
+    desc: "Instalação ou substituição do cabo de comunicação paralelo (PP) entre as unidades evaporadora e condensadora, com verificação de continuidade e polaridade."
+  },
+];
+
+// ── State ──
+let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
+let settings = JSON.parse(localStorage.getItem('registro_settings') || '{}');
+let newItems = [];
+let newPhotos = []; // [{dataUrl, name}]
+let editingId = null;
+let currentDetailId = null;
+let selectedMachine = null;
+let driveConnected = false;
+let gapiToken = null;
+let tagTimeout = null;
+
+const fmt = d => new Date(d).toLocaleDateString('pt-BR');
+const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+const today = () => new Date().toISOString().slice(0,10);
+
+// ── Navigation ──
+function switchTab(tab) {
+  document.querySelectorAll('.screen').forEach(s => { s.classList.remove('active'); s.style.display='none'; });
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const screenMap = { new:'screen-new', settings:'screen-settings', os:'screen-os', records:'screen-records' };
+  const navMap    = { new:'new', settings:'settings', os:'os', records:'records' };
+  const screenId  = screenMap[tab] || 'screen-records';
+  const navId     = navMap[tab]    || 'records';
+  const el = document.getElementById(screenId);
+  if (el) { el.classList.add('active'); el.style.display=''; }
+  const nb = document.getElementById('nav-' + navId);
+  if (nb) nb.classList.add('active');
+  document.getElementById('fab').classList.toggle('hidden', tab !== 'records');
+  if (tab === 'records')  renderRecordList();
+  if (tab === 'settings') loadSettings();
+  if (tab === 'os')       renderOSList();
+}
+
+// ── Filters ──
+let filterMonth = '';
+let filterEstab = '';
+let filterContract = '';
+
+function buildFilterOptions() {
+  const months = new Set();
+  const estabs = new Set();
+  records.forEach(r => {
+    if (r.date) months.add(r.date.slice(0,7));
+    if (r.machine && r.machine.estabelecimento) estabs.add(r.machine.estabelecimento);
+  });
+
+  const mSel = document.getElementById('f-filter-month');
+  const curM = mSel.value;
+  mSel.innerHTML = '<option value="">📅 Todos os meses</option>' +
+    [...months].sort().reverse().map(m => {
+      const [y, mo] = m.split('-');
+      const label = new Date(y, mo-1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+      return `<option value="${m}" ${curM===m?'selected':''}>${label}</option>`;
+    }).join('');
+
+  const eSel = document.getElementById('f-filter-estab');
+  const curE = eSel.value;
+  // Filter estabs by selected contract if active
+  const relevantRecords = filterContract ? records.filter(r => r.client === filterContract) : records;
+  const filteredEstabs = new Set();
+  relevantRecords.forEach(r => { if (r.machine?.estabelecimento) filteredEstabs.add(r.machine.estabelecimento); });
+  eSel.innerHTML = '<option value="">🏢 Todos os estabelecimentos</option>' +
+    [...filteredEstabs].sort().map(e => `<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
+}
+
+function applyFilters() {
+  filterMonth    = document.getElementById('f-filter-month').value;
+  filterContract = document.getElementById('f-filter-contract').value;
+  filterEstab    = document.getElementById('f-filter-estab').value;
+  buildFilterOptions(); updateOSBadge(); // rebuild estab list filtered by contract
+  renderRecordList();
+}
+
+function clearFilters() {
+  filterMonth = ''; filterEstab = ''; filterContract = '';
+  document.getElementById('f-filter-month').value = '';
+  document.getElementById('f-filter-contract').value = '';
+  document.getElementById('f-filter-estab').value = '';
+  buildFilterOptions();
+  renderRecordList();
+}
+
+function getFilteredRecords() {
+  return [...records]
+    .filter(r => {
+      const mMatch = !filterMonth    || (r.date && r.date.startsWith(filterMonth));
+      const cMatch = !filterContract || r.client === filterContract;
+      const eMatch = !filterEstab    || (r.machine && r.machine.estabelecimento === filterEstab);
+      return mMatch && cMatch && eMatch;
+    })
+    .sort((a,b) => (a.date||'').localeCompare(b.date||'') || b.createdAt - a.createdAt);
+}
+
+// ── Records list ──
+function renderRecordList() {
+  buildFilterOptions();
+  const filtered = getFilteredRecords();
+  const list = document.getElementById('records-list');
+  const empty = document.getElementById('records-empty');
+
+  // Summary label
+  const total = filtered.length;
+  const activeFilters = [filterMonth, filterEstab].filter(Boolean).length;
+  const label = document.getElementById('filter-count-label');
+  label.innerHTML = activeFilters
+    ? `<strong>${total}</strong> registro${total!==1?'s':''} encontrado${total!==1?'s':''}`
+    : `<strong>${total}</strong> registro${total!==1?'s':''} no total`;
+
+  if (!total) { list.innerHTML = ''; empty.style.display = ''; return; }
+  empty.style.display = 'none';
+
+  // Group by month for visual separation
+  let lastMonth = '';
+  list.innerHTML = filtered.map(r => {
+    const month = r.date ? r.date.slice(0,7) : '';
+    let header = '';
+    if (month !== lastMonth) {
+      lastMonth = month;
+      const label = month
+        ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})
+        : 'Sem data';
+      header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${label}</div>`;
+    }
+    const firstPhoto = r.photos && r.photos[0];
+    const thumb = firstPhoto
+      ? `<div class="rc-thumb"><img src="${firstPhoto.dataUrl}" alt="foto"></div>`
+      : `<div class="rc-thumb">📷</div>`;
+    const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).join(', ');
+    return header + `<div class="record-card" onclick="openDetail('${r.id}')">
+      ${thumb}
+      <div class="rc-info">
+        <div class="rc-client">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
+        <div class="rc-meta">${r.date||'—'}${r.tech?' · 👷 '+r.tech:''}</div>
+        <div class="rc-meta">${svcNames}</div>
+        ${r.machine?`<div class="rc-meta" style="color:var(--text-3)">${r.machine.estabelecimento}${r.machine.recinto?' · '+r.machine.recinto:''}</div>`:''}
+      </div>
+      <div class="rc-count">${r.photos?r.photos.length:0}📷</div>
+    </div>`;
+  }).join('');
+}
+
+// ── Consolidated PDF report ──
+function printFilteredPDF() {
+  const filtered = getFilteredRecords();
+  if (!filtered.length) { showToast('Nenhum registro para o relatório'); return; }
+
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const W=210, M=16, CW=W-M*2;
+  let y=M;
+  const co = settings.company||'Empresa de Manutenção';
+
+  // ── Cover page ──
+  doc.setFillColor(5,150,105);
+  doc.rect(0,0,W,60,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(20); doc.setFont('helvetica','bold');
+  doc.text(co, M, 20);
+  doc.setFontSize(14); doc.setFont('helvetica','bold');
+  doc.text('RELATÓRIO DE SERVIÇOS EXECUTADOS', M, 32);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+
+  const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+  if (hParts) doc.text(hParts, M, 40);
+  if (settings.addr) doc.text(settings.addr, M, 46);
+
+  // Filter description on cover
+  y = 68;
+  doc.setFillColor(236,253,245);
+  doc.rect(M, y, CW, 38, 'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('PARÂMETROS DO RELATÓRIO', M+4, y+7);
+  doc.setFont('helvetica','normal');
+  const monthLabel = filterMonth
+    ? new Date(filterMonth+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})
+    : 'Todos os meses';
+  const estabLabel = filterEstab || 'Todos os estabelecimentos';
+  const contractLabel = filterContract ? `Contrato ${filterContract}` : 'Todos os contratos';
+  doc.text(`Período: ${monthLabel}`, M+4, y+14);
+  doc.text(`Contrato: ${contractLabel}`, M+4, y+20);
+  doc.text(`Estabelecimento: ${estabLabel}`, M+4, y+26);
+  doc.text(`Total de registros: ${filtered.length}   |   Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, M+4, y+32);
+  y += 42;
+
+  // ── Summary table ──
+  doc.setFillColor(5,150,105);
+  doc.rect(M, y, CW, 8, 'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('RESUMO', M+3, y+5.5);
+  doc.text('DATA', M+CW*0.45, y+5.5);
+  doc.text('TAG', M+CW*0.60, y+5.5);
+  doc.text('SERVIÇOS', M+CW*0.75, y+5.5);
+  y += 8;
+
+  filtered.forEach((r, idx) => {
+    if (y > 272) { doc.addPage(); y = M; }
+    if (idx%2===0) { doc.setFillColor(240,253,244); } else { doc.setFillColor(255,255,255); }
+    doc.rect(M, y, CW, 7, 'F');
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    const estabShort = (r.machine?.estabelecimento||'—').slice(0,28);
+    const svcShort = r.items.map(i=>i.inviavel?'Inviável':i.name.split(' ').slice(0,2).join(' ')).join(', ').slice(0,28);
+    doc.text(estabShort, M+3, y+4.5);
+    doc.text(r.date||'—', M+CW*0.45, y+4.5);
+    doc.text(r.equip||'—', M+CW*0.60, y+4.5);
+    doc.text(svcShort, M+CW*0.75, y+4.5);
+    y += 7;
+  });
+
+  // ── Detail pages: one section per record ──
+  filtered.forEach((r, rIdx) => {
+    doc.addPage(); y = M;
+
+    // Record header
+    doc.setFillColor(5,150,105);
+    doc.rect(0, 0, W, 38, 'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(14); doc.setFont('helvetica','bold');
+    doc.text(co, M, 12);
+    doc.setFontSize(10);
+    doc.text('REGISTRO DE SERVIÇO', W-M, 12, {align:'right'});
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    if(hParts) doc.text(hParts, M, 18);
+    doc.text(`OS Nº ${r.id.toUpperCase().slice(-6)}`, W-M, 18, {align:'right'});
+    doc.text(`Data: ${r.date||'—'}`, W-M, 24, {align:'right'});
+    doc.text(`${rIdx+1} / ${filtered.length}`, W-M, 30, {align:'right'});
+    y = 46;
+
+    // Equipment box
+    const m = r.machine;
+    const boxH = m ? 44 : 22;
+    doc.setFillColor(236,253,245);
+    doc.rect(M, y, CW, boxH, 'F');
+    doc.setTextColor(30,30,30);
+    doc.setFontSize(8); doc.setFont('helvetica','bold');
+    doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text(`Contrato: ${r.client}   |   TAG: ${r.equip||'—'}`, M+4, y+14);
+    if (m) {
+      doc.setFontSize(9); doc.setFont('helvetica','normal');
+      doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`, M+4, y+21);
+      doc.text(`Estabelecimento: ${m.estabelecimento}`, M+4, y+28);
+      doc.text(`Recinto: ${m.recinto}`, M+4, y+35);
+    }
+    if (r.tech) { doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.text(`Técnico: ${r.tech}`, M+CW-4, y+14, {align:'right'}); }
+    y += boxH + 6;
+
+    // Services
+    doc.setFillColor(5,150,105);
+    doc.rect(M, y, CW, 8, 'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+    doc.text('SERVIÇOS EXECUTADOS', M+3, y+5.5);
+    y += 8;
+
+    r.items.forEach((it, idx) => {
+      if (y > 255) { doc.addPage(); y = M; }
+      if (it.inviavel) {
+        doc.setFillColor(254,242,242); doc.rect(M,y,CW,8,'F');
+        doc.setTextColor(220,38,38); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.text('INVIÁVEL — Equipamento condenado', M+3, y+5.5);
+        y += 8;
+        const invLines = doc.splitTextToSize(it.desc||INVIAVEL_NOTE, CW-8);
+        const invH = invLines.length*4.5+6;
+        if(y+invH>275){doc.addPage();y=M;}
+        doc.setFillColor(255,240,240); doc.rect(M,y,CW,invH,'F');
+        doc.setTextColor(180,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        doc.text(invLines, M+4, y+5);
+        y += invH+4;
+      } else {
+        if(idx%2===0){doc.setFillColor(240,253,244);}else{doc.setFillColor(255,255,255);}
+        doc.rect(M,y,CW,8,'F');
+        doc.setTextColor(5,100,70); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+        doc.text(it.name, M+3, y+5.5);
+        y += 8;
+        if (it.desc) {
+          const dl = doc.splitTextToSize(it.desc, CW-10);
+          const dh = dl.length*4.5+6;
+          if(y+dh>275){doc.addPage();y=M;}
+          doc.setFillColor(248,252,250); doc.rect(M,y,CW,dh,'F');
+          doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+          doc.text(dl, M+5, y+5);
+          y += dh;
+        }
+        if (it.obs && it.obs.trim()) {
+          const ol = doc.splitTextToSize(`Observação: ${it.obs}`, CW-10);
+          const oh = ol.length*4.5+6;
+          if(y+oh>275){doc.addPage();y=M;}
+          doc.setFillColor(255,251,235); doc.rect(M,y,CW,oh,'F');
+          doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(8);
+          doc.text(ol, M+5, y+5);
+          y += oh;
+        }
+        y += 3;
+      }
+    });
+
+    // General notes
+    if (r.notes) {
+      y += 2;
+      if(y>245){doc.addPage();y=M;}
+      const nl = doc.splitTextToSize(r.notes, CW-8);
+      const nh = nl.length*4.5+10;
+      doc.setFillColor(255,251,235); doc.rect(M,y,CW,nh,'F');
+      doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.text('OBSERVAÇÕES GERAIS', M+4, y+6);
+      doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50); doc.setFontSize(8);
+      doc.text(nl, M+4, y+12);
+      y += nh + 4;
+    }
+
+    // Photos
+    if (r.photos && r.photos.length) {
+      if(y>220){doc.addPage();y=M;}
+      doc.setFontSize(8); doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
+      doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
+      y += 5;
+      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75;
+      r.photos.forEach((p, pi) => {
+        const col=pi%cols, row=Math.floor(pi/cols);
+        const px=M+col*(imgW+4), py=y+row*(imgH+4);
+        if(py+imgH>280){doc.addPage();y=M;}
+        try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+      });
+      y += Math.ceil(r.photos.length/cols)*(imgH+4)+4;
+    }
+
+    // Footer
+    doc.setFillColor(5,150,105);
+    doc.rect(0, 285, W, 14, 'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text(settings.footer||'Registro de execução de serviços de manutenção.', W/2, 293, {align:'center'});
+  });
+
+  const fn = [
+    'relatorio',
+    filterContract ? `contrato${filterContract}` : 'geral',
+    filterEstab ? filterEstab.slice(0,20).replace(/\s+/g,'-') : null,
+    filterMonth || null,
+  ].filter(Boolean).join('-') + '.pdf';
+  doc.save(fn);
+  showToast('Relatório PDF gerado!');
+}
+
+// ── New/Edit ──
+function startNew() {
+  editingId = null; newItems = []; newPhotos = []; selectedMachine = null;
+  document.getElementById('f-client').value = '';
+  document.getElementById('f-equip').value = '';
+  document.getElementById('f-date').value = today();
+  document.getElementById('f-tech').value = settings.defaultTech || '';
+  document.getElementById('f-notes').value = '';
+  hideMachineInfo();
+  renderNewItems();
+  renderPhotoGrid();
+  switchTab('new');
+}
+
+function cancelNew() { switchTab('records'); }
+
+function saveRecord() {
+  const client = document.getElementById('f-client').value.trim();
+  const equip = document.getElementById('f-equip').value.trim();
+  if (!client) { showToast('Selecione o contrato'); return; }
+  if (!equip) { showToast('Informe a TAG do equipamento'); return; }
+  if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
+  const r = {
+    id: editingId || genId(),
+    client, equip,
+    machine: selectedMachine || null,
+    date: document.getElementById('f-date').value,
+    tech: document.getElementById('f-tech').value,
+    notes: document.getElementById('f-notes').value,
+    items: newItems,
+    photos: newPhotos,
+    // Campos normalizados para integração com relatório
+    contract:   client,
+    tag:        equip,
+    services:   newItems.map(i => i.name || i.service || String(i)),
+    technician: document.getElementById('f-tech').value,
+    createdAt: editingId ? (records.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
+  };
+  if (editingId) { const i = records.findIndex(x=>x.id===editingId); records[i] = r; }
+  else { records.unshift(r); }
+  persist();
+  showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
+  // Se havia uma O.S. vinculada, marcar como concluída e fechar o chamado
+  if (window._currentOSId) {
+    const allOS = JSON.parse(localStorage.getItem('smm_ordens_servico')||'[]');
+    const os    = allOS.find(o=>o.id===window._currentOSId);
+    if (os) {
+      os.status     = 'concluida';
+      os.registroId = r.id;
+      os.concluidaEm= Date.now();
+      os.tecnico    = getCurrentUser()?.name||os.tecnico;
+      localStorage.setItem('smm_ordens_servico', JSON.stringify(allOS));
+      // Fechar chamado vinculado como resolvido
+      const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+      const chamado  = chamados.find(c=>c.id===os.chamadoId);
+      if (chamado) {
+        chamado.status = 'resolvido';
+        localStorage.setItem('chamados_list', JSON.stringify(chamados));
+      }
+      showToast(`✅ O.S. ${os.numero} concluída · Chamado ${os.chamadoId} resolvido`);
+    }
+    window._currentOSId = null;
+    // Remove OS banner if present
+    document.getElementById('os-link-banner')?.remove();
+  }
+  updateOSBadge();
+  editingId = null; newItems = []; newPhotos = [];
+  switchTab('records');
+}
+
+function editRecord(id) {
+  closeDetailModal();
+  const r = records.find(x=>x.id===id);
+  if (!r) return;
+  editingId = id; newItems = r.items.map(i=>({...i})); newPhotos = r.photos ? [...r.photos] : [];
+  selectedMachine = r.machine || null;
+  document.getElementById('f-client').value = r.client || '';
+  document.getElementById('f-equip').value = r.equip || '';
+  document.getElementById('f-date').value = r.date || today();
+  document.getElementById('f-tech').value = r.tech || '';
+  document.getElementById('f-notes').value = r.notes || '';
+  if (r.machine) showMachineInfo(r.machine); else hideMachineInfo();
+  renderNewItems();
+  renderPhotoGrid();
+  switchTab('new');
+}
+
+function deleteRecord(id) {
+  if (!confirm('Excluir este registro?')) return;
+  records = records.filter(r=>r.id!==id);
+  persist();
+  closeDetailModal();
+  showToast('Registro excluído');
+}
+
+function persist() {
+  try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+  renderRecordList();
+  const last = records[0];
+  if (last) DB.save('registros', last).catch(e => console.warn('Sync registro:', e.message));
+}
+
+// ── Items ──
+function renderNewItems() {
+  const el = document.getElementById('new-items-list');
+  if (!newItems.length) { el.innerHTML = '<div class="empty" style="padding:24px 0"><p>Nenhum serviço adicionado</p></div>'; return; }
+  el.innerHTML = newItems.map((it,i) => it.inviavel
+    ? `<div class="inviavel-row" style="flex-wrap:wrap;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="color:#dc2626;font-weight:700;font-size:14px">⚠️ Inviável — Equipamento condenado</div>
+          <div style="font-size:12px;color:#dc2626;margin-top:2px">Observação preenchida automaticamente</div>
+        </div>
+        <button class="btn-del" onclick="removeItem(${i})">×</button>
+      </div>`
+    : `<div class="svc-item-row" style="flex-wrap:wrap;align-items:flex-start;gap:6px;padding:12px 0">
+        <div style="flex:1;min-width:0">
+          <div class="svc-item-name" style="margin-bottom:6px">${it.name}</div>
+          <textarea
+            placeholder="Observação sobre este serviço (opcional)..."
+            rows="2"
+            style="font-size:13px;padding:7px 10px;resize:vertical;color:var(--text-2)"
+            oninput="newItems[${i}].obs=this.value"
+          >${it.obs||''}</textarea>
+        </div>
+        <button class="btn-del" style="margin-top:2px" onclick="removeItem(${i})">×</button>
+      </div>`
+  ).join('');
+}
+function removeItem(i){ newItems.splice(i,1); renderNewItems(); }
+
+// ── Service modal ──
+function openServiceModal(){ document.getElementById('svc-search').value=''; filterServices(); document.getElementById('service-modal').classList.remove('hidden'); }
+function closeServiceModal(){ document.getElementById('service-modal').classList.add('hidden'); }
+function filterServices(){
+  const q = document.getElementById('svc-search').value.toLowerCase();
+  const el = document.getElementById('svc-list');
+  el.innerHTML = SERVICES.filter(s=>s.name.toLowerCase().includes(q)||((s.desc||'').toLowerCase().includes(q))).map((s)=>{
+    const i = SERVICES.indexOf(s);
+    if(s.inviavel) return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${i})">
+      <div class="svc-info">
+        <div class="svc-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
+        <div style="font-size:12px;color:#dc2626;margin-top:2px">Preenche observação automaticamente</div>
+      </div>
+      <button class="svc-add" style="background:#dc2626" onclick="addService(${i});event.stopPropagation()">+</button>
+    </div>`;
+    return `<div class="service-item" onclick="addService(${i})">
+      <div class="svc-info">
+        <div class="svc-name">${s.name}</div>
+        ${s.desc?`<div style="font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.4">${s.desc.slice(0,90)}…</div>`:''}
+      </div>
+      <button class="svc-add" onclick="addService(${i});event.stopPropagation()">+</button>
+    </div>`;
+  }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum resultado</p>';
+}
+function addService(i){
+  const s = SERVICES[i];
+  if(s.inviavel){
+    newItems = [{name: s.name, desc: s.desc, inviavel:true, qty:1, obs:''}];
+    document.getElementById('f-notes').value = INVIAVEL_NOTE;
+    renderNewItems(); closeServiceModal(); showToast('Equipamento marcado como inviável'); return;
+  }
+  const ex = newItems.findIndex(x=>x.name===s.name && !x.inviavel);
+  if(ex>=0){ showToast('Serviço já adicionado'); return; }
+  newItems.push({name:s.name, desc:s.desc||'', qty:1, obs:''});
+  renderNewItems();
+  closeServiceModal();
+  showToast(s.name + ' adicionado');
+}
+
+// ── Photos ──
+function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
+function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area').classList.remove('drag'); addPhotos(Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'))); }
+function addPhotos(files){
+  files.forEach(file=>{
+    const reader = new FileReader();
+    reader.onload = ev => {
+      newPhotos.push({dataUrl: ev.target.result, name: file.name});
+      renderPhotoGrid();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function removePhoto(i){ newPhotos.splice(i,1); renderPhotoGrid(); }
+function renderPhotoGrid(){
+  const grid = document.getElementById('photo-grid');
+  const badge = document.getElementById('photo-badge');
+  badge.style.display = newPhotos.length ? '' : 'none';
+  badge.textContent = newPhotos.length;
+  if(!newPhotos.length){ grid.innerHTML=''; return; }
+  grid.innerHTML = newPhotos.map((p,i)=>`
+    <div class="photo-thumb">
+      <img src="${p.dataUrl}" alt="foto ${i+1}" onclick="openLightbox('${p.dataUrl}')">
+      <button class="remove-photo" onclick="removePhoto(${i})">×</button>
+    </div>`).join('');
+}
+
+// ── Lightbox ──
+function openLightbox(src){ document.getElementById('lightbox-img').src=src; document.getElementById('lightbox').classList.remove('hidden'); }
+function closeLightbox(){ document.getElementById('lightbox').classList.add('hidden'); }
+
+// ── TAG lookup ──
+function onTagInput(){
+  const val = document.getElementById('f-equip').value.trim();
+  clearTimeout(tagTimeout); hideMachineInfo();
+  if(!val){ document.getElementById('tag-suggestions').style.display='none'; return; }
+  tagTimeout = setTimeout(()=>showTagSuggestions(val), 150);
+}
+function showTagSuggestions(q){
+  const contract = document.getElementById('f-client').value;
+  if(!contract){ showToast('Selecione o contrato primeiro'); return; }
+  const list = getEffectiveDB()[contract]||[];
+  const matches = list.filter(m=>m.tag.startsWith(q)||m.estabelecimento.toLowerCase().includes(q.toLowerCase())||m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0,12);
+  const box = document.getElementById('tag-suggestions');
+  if(!matches.length){ box.style.display='none'; return; }
+  box.innerHTML = matches.map(m=>`<div class="tag-sug-item" onclick="selectTag('${m.tag}')"><div style="font-weight:600;font-size:14px">TAG ${m.tag}</div><div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''} · ${m.estabelecimento}</div><div style="font-size:12px;color:var(--text-3)">${m.recinto}</div></div>`).join('');
+  box.style.display='block';
+}
+function selectTag(tag){
+  const contract = document.getElementById('f-client').value;
+  const m = (getEffectiveDB()[contract]||[]).find(x=>x.tag===tag);
+  if(!m) return;
+  selectedMachine = m;
+  document.getElementById('f-equip').value = tag;
+  document.getElementById('tag-suggestions').style.display='none';
+  showMachineInfo(m);
+}
+function showMachineInfo(m){
+  document.getElementById('machine-info').style.display='block';
+  document.getElementById('mi-marca').textContent=`Marca: ${m.marca}`;
+  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo}`;
+  document.getElementById('mi-cap').textContent=`Capacidade: ${m.capacidade?m.capacidade+' BTU':'—'}`;
+  document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
+  document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
+}
+function hideMachineInfo(){ selectedMachine=null; document.getElementById('machine-info').style.display='none'; }
+document.addEventListener('click', e=>{ if(!e.target.closest('#f-equip')&&!e.target.closest('#tag-suggestions')) document.getElementById('tag-suggestions').style.display='none'; });
+document.getElementById('f-client').addEventListener('change',()=>{ document.getElementById('f-equip').value=''; hideMachineInfo(); });
+
+// ── Detail modal ──
+function openDetail(id){
+  currentDetailId=id;
+  const r = records.find(x=>x.id===id);
+  if(!r) return;
+  const svcList = r.items.map(it=>it.inviavel
+    ? `<div style="background:#fef2f2;border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="color:#dc2626;font-weight:700;font-size:14px;margin-bottom:4px">⚠️ Inviável — Equipamento condenado</div>
+        <div style="font-size:12px;color:#dc2626;line-height:1.5">${it.desc||INVIAVEL_NOTE}</div>
+      </div>`
+    : `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
+        <div style="font-size:14px;font-weight:600;margin-bottom:3px">${it.name}</div>
+        <div style="font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:${it.obs?'6px':'0'}">${it.desc||''}</div>
+        ${it.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:6px;padding:7px 10px;margin-top:4px">📝 ${it.obs}</div>`:''}
+      </div>`
+  ).join('');
+  const photos = r.photos && r.photos.length
+    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`).join('')}</div></div>` : '';
+  document.getElementById('detail-content').innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="font-size:19px;font-weight:700">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
+      ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${r.machine.marca} ${r.machine.tipo}${r.machine.capacidade?' · '+r.machine.capacidade+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${r.machine.estabelecimento} · ${r.machine.recinto}</div>`:''}
+      <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${r.date||'—'}${r.tech?' · 👷 '+r.tech:''}</div>
+    </div>
+    <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${svcList}</div>
+    ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${r.notes}</div>`:''}
+    ${photos}`;
+  document.getElementById('detail-modal').classList.remove('hidden');
+}
+function closeDetailModal(){ document.getElementById('detail-modal').classList.add('hidden'); }
+
+// ── PDF ──
+function printPDF(id){
+  const r = records.find(x=>x.id===id);
+  if(!r) return;
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  const W=210, M=16, CW=W-M*2;
+  let y=M;
+  const co = settings.company||'Empresa de Manutenção';
+
+  // Header
+  doc.setFillColor(5,150,105);
+  doc.rect(0,0,W,38,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(16); doc.setFont('helvetica','bold');
+  doc.text(co, M, 14);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  const hParts = [settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
+  if(hParts) doc.text(hParts, M, 20);
+  if(settings.addr) doc.text(settings.addr, M, 26);
+  doc.setFontSize(13); doc.setFont('helvetica','bold');
+  doc.text('REGISTRO DE SERVIÇO', W-M, 16, {align:'right'});
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text(`OS Nº ${r.id.toUpperCase().slice(-6)}`, W-M, 22, {align:'right'});
+  doc.text(`Data: ${r.date||today()}`, W-M, 28, {align:'right'});
+
+  y=46;
+  // Equipment box
+  const m = r.machine;
+  const boxH = m ? 44 : 22;
+  doc.setFillColor(236,253,245);
+  doc.rect(M,y,CW,boxH,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
+  doc.setFontSize(11); doc.setFont('helvetica','bold');
+  doc.text(`Contrato: ${r.client}   |   TAG: ${r.equip||'—'}`, M+4, y+14);
+  if(m){
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`, M+4, y+21);
+    doc.text(`Estabelecimento: ${m.estabelecimento}`, M+4, y+28);
+    doc.text(`Recinto: ${m.recinto}`, M+4, y+35);
+  }
+  if(r.tech){ doc.setFontSize(9); doc.setFont('helvetica','normal'); doc.text(`Técnico: ${r.tech}`, M+CW-4, y+14, {align:'right'}); }
+  y += boxH+6;
+
+  // Services table header
+  doc.setFillColor(5,150,105);
+  doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('SERVIÇOS EXECUTADOS', M+3, y+5.5);
+  y+=8;
+
+  r.items.forEach((it,idx)=>{
+    if(y>255){doc.addPage();y=M;}
+    if(it.inviavel){
+      doc.setFillColor(254,242,242); doc.rect(M,y,CW,8,'F');
+      doc.setTextColor(220,38,38); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text('INVIÁVEL — Equipamento condenado', M+3, y+5.5);
+      y+=8;
+      const invLines = doc.splitTextToSize(it.desc||INVIAVEL_NOTE, CW-8);
+      const invH = invLines.length*4.5+6;
+      if(y+invH>275){doc.addPage();y=M;}
+      doc.setFillColor(255,240,240); doc.rect(M,y,CW,invH,'F');
+      doc.setTextColor(180,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+      doc.text(invLines, M+4, y+5);
+      y += invH+4;
+    } else {
+      // Service name row
+      if(idx%2===0){doc.setFillColor(240,253,244);}else{doc.setFillColor(255,255,255);}
+      doc.rect(M,y,CW,8,'F');
+      doc.setTextColor(5,100,70); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+      doc.text(it.name, M+3, y+5.5);
+      y+=8;
+      // Technical description
+      if(it.desc){
+        const descLines = doc.splitTextToSize(it.desc, CW-10);
+        const descH = descLines.length*4.5+6;
+        if(y+descH>275){doc.addPage();y=M;}
+        doc.setFillColor(248,252,250); doc.rect(M,y,CW,descH,'F');
+        doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        doc.text(descLines, M+5, y+5);
+        y += descH;
+      }
+      // Per-item observation
+      if(it.obs && it.obs.trim()){
+        const obsLines = doc.splitTextToSize(`Observação: ${it.obs}`, CW-10);
+        const obsH = obsLines.length*4.5+6;
+        if(y+obsH>275){doc.addPage();y=M;}
+        doc.setFillColor(255,251,235); doc.rect(M,y,CW,obsH,'F');
+        doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(8);
+        doc.text(obsLines, M+5, y+5);
+        y += obsH;
+      }
+      y+=3;
+    }
+  });
+
+  y+=6;
+  // Notes
+  if(r.notes){
+    doc.setFillColor(255,251,235);
+    const nl = doc.splitTextToSize(r.notes, CW-8);
+    const nh = nl.length*5+10;
+    doc.rect(M,y,CW,nh,'F');
+    doc.setTextColor(146,64,14);doc.setFont('helvetica','bold');doc.setFontSize(8);
+    doc.text('OBSERVAÇÕES',M+4,y+6);
+    doc.setFont('helvetica','normal');doc.setTextColor(50,50,50);doc.setFontSize(9);
+    doc.text(nl,M+4,y+12);
+    y+=nh+8;
+  }
+
+  // Photos — up to 6 on PDF
+  if(r.photos && r.photos.length){
+    if(y>220){doc.addPage();y=M;}
+    doc.setFontSize(8);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
+    doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
+    y+=4;
+    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75;
+    r.photos.slice(0,6).forEach((p,i)=>{
+      const col=i%cols, row=Math.floor(i/cols);
+      const px=M+col*(imgW+4), py=y+row*(imgH+4);
+      if(py+imgH>280){doc.addPage();y=M;}
+      try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+    });
+    y += Math.ceil(Math.min(r.photos.length,6)/cols)*(imgH+4)+6;
+  }
+
+  // Footer
+  doc.setFillColor(5,150,105);
+  doc.rect(0,285,W,14,'F');
+  doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(8);
+  doc.text(settings.footer||'Registro de execução de serviços de manutenção.',W/2,293,{align:'center'});
+
+  doc.save(`OS-${r.client}-TAG${r.equip||'x'}-${r.id.slice(-6)}.pdf`);
+  closeDetailModal();
+  showToast('PDF gerado!');
+}
+
+// ── Settings ──
+function loadSettings(){
+  document.getElementById('s-company').value=settings.company||'';
+  document.getElementById('s-cnpj').value=settings.cnpj||'';
+  document.getElementById('s-tel').value=settings.tel||'';
+  document.getElementById('s-email').value=settings.email||'';
+  document.getElementById('s-addr').value=settings.addr||'';
+  document.getElementById('s-footer').value=settings.footer||'';
+  updateDriveUI();
+}
+function saveSettings(){
+  settings={company:document.getElementById('s-company').value,cnpj:document.getElementById('s-cnpj').value,tel:document.getElementById('s-tel').value,email:document.getElementById('s-email').value,addr:document.getElementById('s-addr').value,footer:document.getElementById('s-footer').value};
+  localStorage.setItem('registro_settings',JSON.stringify(settings));
+  showToast('Configurações salvas!');
+}
+
+// ── Google Drive ──
+function connectDrive(){
+  const cid=prompt('Informe seu Google OAuth Client ID:',localStorage.getItem('gdrive_client_id')||'');
+  if(!cid) return;
+  localStorage.setItem('gdrive_client_id',cid);
+  const p=new URLSearchParams({client_id:cid,redirect_uri:location.origin+location.pathname,response_type:'token',scope:'https://www.googleapis.com/auth/drive.file',include_granted_scopes:'true'});
+  window.open('https://accounts.google.com/o/oauth2/v2/auth?'+p,'_blank','width=500,height=600');
+  showToast('Janela aberta. Após login, cole o token.');
+  setTimeout(()=>{const t=prompt('Cole o access_token:');if(t){gapiToken=t;driveConnected=true;updateDriveUI();showToast('Drive conectado!');}},3000);
+}
+function updateDriveUI(){
+  const b=document.getElementById('drive-status-badge');
+  if(driveConnected){b.className='drive-status connected';b.innerHTML='<span>🟢</span><span>Google Drive conectado</span>';}
+  else{b.className='drive-status disconnected';b.innerHTML='<span>🔴</span><span>Não conectado ao Google Drive</span>';}
+}
+async function saveToDrive(id){
+  if(!driveConnected||!gapiToken){showToast('Conecte o Drive nas configurações');switchTab('settings');closeDetailModal();return;}
+  const r=records.find(x=>x.id===id);if(!r)return;
+  showToast('Enviando para o Drive…');
+  try{
+    const fn=`OS-${r.client}-TAG${r.equip||'x'}-${r.id.slice(-6)}.json`;
+    const form=new FormData();
+    form.append('metadata',new Blob([JSON.stringify({name:fn,mimeType:'application/json'})],{type:'application/json'}));
+    form.append('file',new Blob([JSON.stringify(r,null,2)],{type:'application/json'}));
+    const res=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{Authorization:`Bearer ${gapiToken}`},body:form});
+    if(res.ok) showToast('Salvo no Drive! ✅'); else throw new Error('Erro '+res.status);
+  }catch(e){showToast('Erro: '+e.message);}
+}
+function openDriveModal(){
+  document.getElementById('drive-modal-content').innerHTML=driveConnected
+    ?`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">✅ Conectado. Registros podem ser enviados individualmente.</p><button class="btn btn-secondary" style="width:100%" onclick="gapiToken=null;driveConnected=false;updateDriveUI();document.getElementById('drive-modal').classList.add('hidden');showToast('Desconectado')">🔌 Desconectar</button>`
+    :`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">❌ Não conectado.</p><button class="btn btn-primary" style="width:100%" onclick="document.getElementById('drive-modal').classList.add('hidden');switchTab('settings')">Ir para Configurações</button>`;
+  document.getElementById('drive-modal').classList.remove('hidden');
+}
+
+// ── Export/Import ──
+function exportData(){
+  const safe=records.map(r=>({...r,photos:(r.photos||[]).map(p=>({name:p.name}))}));
+  const blob=new Blob([JSON.stringify({records:safe,settings},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='registros-backup.json';a.click();
+  showToast('Exportado (sem fotos para reduzir tamanho)');
+}
+function importData(){document.getElementById('import-file').click();}
+function doImport(e){
+  const f=e.target.files[0];if(!f)return;
+  const r=new FileReader();
+  r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.records){records=d.records;persist();}if(d.settings){settings=d.settings;localStorage.setItem('registro_settings',JSON.stringify(settings));}showToast('Dados importados!');}catch{showToast('Arquivo inválido');}};
+  r.readAsText(f);
+}
+
+// ── Toast ──
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ── Init ──
+renderRecordList();
+buildFilterOptions();
+
+
+const _origOpenDetailR = openDetail;
+openDetail = function(id) {
+  _origOpenDetailR(id);
+  const role = window._currentRole || {};
+  if (!role.canEdit) document.querySelectorAll('[onclick*="editRecord"]').forEach(b => b.style.display='none');
+  if (!role.canDelete) document.querySelectorAll('[onclick*="deleteRecord"]').forEach(b => b.style.display='none');
+};
+// ── Ordens de Serviço ────────────────────────────────────────────
+const OS_KEY = 'smm_ordens_servico';
+
+function renderOSList() {
+  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  // Técnico: só vê O.S. abertas e em execução
+  // Admin/Gestor: vê todas
+  const visible = ['admin','gestor'].includes(role.id)
+    ? allOS
+    : allOS.filter(o=>o.status!=='concluida');
+
+  // Badge no nav
+  const pending = allOS.filter(o=>o.status==='aberta').length;
+  const badge   = document.getElementById('os-badge');
+  if (badge) { badge.style.display = pending>0?'':'none'; badge.textContent=pending; }
+
+  // Banner
+  const banner = document.getElementById('os-banner');
+  if (pending>0) {
+    banner.style.display='flex';
+    document.getElementById('os-banner-text').textContent =
+      `${pending} O.S. aberta${pending>1?'s':''} aguardando execução`;
+  } else { banner.style.display='none'; }
+
+  const list  = document.getElementById('os-list');
+  const empty = document.getElementById('os-empty');
+  if (!visible.length) { list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+
+  // Group by status
+  const abertas     = visible.filter(o=>o.status==='aberta');
+  const emExecucao  = visible.filter(o=>o.status==='em_execucao');
+  const concluidas  = visible.filter(o=>o.status==='concluida');
+
+  const renderGroup = (titulo, items, cls) => {
+    if (!items.length) return '';
+    return `
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">${titulo}</div>
+      ${items.map(o => {
+        const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+        const c = chamados.find(x=>x.id===o.chamadoId)||{};
+        const statusStyle = {
+          aberta:     'background:#fef3c7;color:#92400e',
+          em_execucao:'background:#dbeafe;color:#1e40af',
+          concluida:  'background:#d1fae5;color:#065f46',
+        }[o.status]||'';
+        return `
+        <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:4px solid ${o.status==='aberta'?'#f59e0b':o.status==='em_execucao'?'#3b82f6':'#16a34a'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-size:14px;font-weight:700">${o.numero}</div>
+              <div style="font-size:12px;color:var(--text-3)">Chamado: ${o.chamadoId}</div>
+            </div>
+            <span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída'}[o.status]||o.status}</span>
+          </div>
+          <div style="background:var(--bg);border-radius:8px;padding:10px;font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.6">
+            <div><strong>TAG:</strong> ${o.tag||'—'} · Contrato ${o.contrato||'—'}</div>
+            ${o.machine?`<div>${o.machine.estabelecimento||''} · ${o.machine.recinto||''}</div>`:''}
+            <div style="margin-top:4px;color:var(--text)"><strong>Problema:</strong> ${(o.chamadoDesc||'—').slice(0,120)}</div>
+          </div>
+          ${o.status==='aberta'||o.status==='em_execucao' ? `
+          <button onclick="iniciarRegistroOS('${o.id}')"
+            style="width:100%;padding:11px;border-radius:8px;border:none;background:#059669;color:#fff;font-size:13px;font-weight:700;cursor:pointer">
+            ${o.status==='aberta'?'▶ Iniciar execução':'✏️ Continuar registro'}
+          </button>` : `
+          <div style="font-size:12px;color:var(--success);font-weight:600">
+            ✅ Concluída · Registro: ${o.registroId||'—'}
+          </div>`}
+        </div>`;
+      }).join('')}`;
+  };
+
+  list.innerHTML =
+    renderGroup('⏳ Abertas', abertas) +
+    renderGroup('🔧 Em execução', emExecucao) +
+    renderGroup('✅ Concluídas', concluidas);
+}
+
+function iniciarRegistroOS(osId) {
+  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  const os    = allOS.find(o=>o.id===osId); if(!os) return;
+
+  // Marcar como em execução
+  if (os.status==='aberta') {
+    os.status     = 'em_execucao';
+    os.iniciadaEm = Date.now();
+    os.tecnico    = getCurrentUser()?.name||'';
+    localStorage.setItem(OS_KEY, JSON.stringify(allOS));
+  }
+
+  // Pré-preencher o form de registro
+  startNew();
+  switchTab('new');
+
+  // Aguardar o DOM do form estar pronto
+  setTimeout(() => {
+    // Preenche TAG
+    const tagInput = document.getElementById('f-tag');
+    if (tagInput) { tagInput.value = os.tag||''; tagInput.dispatchEvent(new Event('input')); }
+
+    // Preenche data com hoje
+    const dateInput = document.getElementById('f-date');
+    if (dateInput) dateInput.value = today();
+
+    // Preenche contrato
+    const contractSel = document.getElementById('f-contract');
+    if (contractSel) { contractSel.value = os.contrato||''; }
+
+    // Obs pré-preenchida com número da O.S.
+    const obsInput = document.getElementById('f-obs');
+    if (obsInput) obsInput.value = `Ref. ${os.numero} — ${os.chamadoDesc||''}`;
+
+    // Guardar osId para vincular ao salvar
+    window._currentOSId = osId;
+
+    // Banner informativo
+    const banner = document.createElement('div');
+    banner.id = 'os-link-banner';
+    banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:8px';
+    banner.innerHTML = `📋 <strong>O.S. ${os.numero}</strong> · TAG ${os.tag||'—'} · Chamado ${os.chamadoId}
+      <button onclick="document.getElementById('os-link-banner').remove();window._currentOSId=null;"
+        style="margin-left:auto;background:none;border:none;color:#1e40af;cursor:pointer;font-size:16px">✕</button>`;
+    const form = document.getElementById('screen-new');
+    if (form) { const first = form.firstChild; form.insertBefore(banner, first); }
+    showToast(`O.S. ${os.numero} vinculada ao registro`);
+  }, 100);
+}
+
+// ── Update badge on init ─────────────────────────────────────────
+function updateOSBadge() {
+  const allOS  = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  const pending= allOS.filter(o=>o.status==='aberta').length;
+  const badge  = document.getElementById('os-badge');
+  if (badge) { badge.style.display=pending>0?'':'none'; badge.textContent=pending; }
+}
+
+</script>
+
+<!-- ── O.S. Screen ── -->
+<div id="screen-os" class="screen" style="display:none">
+  <div id="os-banner" style="display:none;margin:12px 12px 0;background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:13px;color:#92400e;display:flex;align-items:center;gap:8px">
+    ⏳ <span id="os-banner-text"></span>
+  </div>
+  <div style="padding:12px" id="os-list-container">
+    <div id="os-list"></div>
+    <div id="os-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
+      <div style="font-size:48px;margin-bottom:12px">📋</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhuma O.S. pendente</div>
+      <div style="font-size:13px">As Ordens de Serviço geradas pelos chamados aparecerão aqui</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

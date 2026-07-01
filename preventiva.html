@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#0369a1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Preventiva — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root{
+  --primary:#0369a1;--primary-dark:#075985;--primary-light:#e0f2fe;
+  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
+  --success:#16a34a;--success-bg:#f0fdf4;
+  --danger:#dc2626;--danger-bg:#fef2f2;
+  --warning:#d97706;--warning-bg:#fffbeb;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{font-size:16px;-webkit-tap-highlight-color:transparent;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:90px;}
+input,select,textarea,button{font-family:inherit;font-size:15px;}
+input,select,textarea{display:block;width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);outline:none;transition:border-color .15s;-webkit-appearance:none;appearance:none;}
+input:focus,select:focus,textarea:focus{border-color:var(--primary);}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
+
+/* Header */
+.app-header{background:var(--primary);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow-md);}
+.app-header h1{font-size:17px;font-weight:600;flex:1;}
+.back-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;cursor:pointer;}
+.back-btn:active{background:rgba(255,255,255,.28);}
+.user-chip{position:relative;}
+.user-chip img,.user-chip-ph{width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.4);cursor:pointer;object-fit:cover;}
+.user-chip-ph{background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:15px;}
+.user-menu{position:absolute;top:calc(100% + 8px);right:0;background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow-md);min-width:200px;z-index:200;overflow:hidden;}
+.user-menu.hidden{display:none;}
+.user-menu-header{padding:12px 14px;border-bottom:1px solid var(--border);}
+.user-menu-header .un{font-size:13px;font-weight:600;}
+.user-menu-header .ue{font-size:11px;color:var(--text-2);}
+.role-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;margin-top:4px;}
+.user-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:10px 14px;border:none;background:none;font-size:13px;color:var(--text);cursor:pointer;text-align:left;}
+.user-menu-item:hover{background:var(--bg);}
+.user-menu-item.danger{color:var(--danger);}
+
+/* Screens */
+.screen{display:none;padding:16px;}
+.screen.active{display:block;}
+#screen-list{display:none;padding:0;}
+#screen-list.active{display:block;}
+
+/* Cards */
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin-bottom:12px;}
+.card-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:12px;}
+.field{margin-bottom:10px;}
+.field label{font-size:13px;color:var(--text-2);display:block;margin-bottom:5px;font-weight:500;}
+.section-title{font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
+
+/* Plan cards */
+.plan-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer;border-left:4px solid var(--primary);transition:transform .12s;}
+.plan-card:active{transform:scale(.98);}
+.plan-icon{font-size:26px;flex-shrink:0;}
+.plan-info{flex:1;min-width:0;}
+.plan-title{font-size:15px;font-weight:700;}
+.plan-meta{font-size:13px;color:var(--text-2);margin-top:3px;}
+.plan-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap;}
+.badge-n1{background:#dbeafe;color:#1e40af;}
+.badge-n2{background:#fef3c7;color:#92400e;}
+.badge-n3{background:#fee2e2;color:#991b1b;}
+.badge-pending{background:#ede9fe;color:#5b21b6;}
+.badge-done{background:var(--success-bg);color:var(--success);}
+.badge-partial{background:var(--warning-bg);color:var(--warning);}
+
+/* Execution list */
+.exec-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:10px;overflow:hidden;}
+.exec-header{background:var(--primary-light);padding:12px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;}
+.exec-equip-name{flex:1;}
+.exec-equip-tag{font-size:15px;font-weight:700;color:var(--primary);}
+.exec-equip-info{font-size:12px;color:var(--text-2);margin-top:2px;}
+.exec-progress{font-size:12px;font-weight:700;color:var(--primary);white-space:nowrap;}
+.exec-body{padding:12px 14px;display:none;}
+.exec-body.open{display:block;}
+.exec-progress-bar{height:4px;background:var(--border);border-radius:99px;margin-bottom:12px;overflow:hidden;}
+.exec-progress-fill{height:100%;background:var(--primary);border-radius:99px;transition:width .3s;}
+
+/* Checklist items */
+.chk-level-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);margin:10px 0 6px;display:flex;align-items:center;gap:6px;}
+.chk-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:.5px solid var(--border);}
+.chk-item:last-child{border-bottom:none;}
+.chk-checkbox{flex-shrink:0;width:22px;height:22px;border:2px solid var(--border);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;margin-top:1px;transition:all .15s;background:var(--surface);}
+.chk-checkbox.checked{background:var(--primary);border-color:var(--primary);}
+.chk-checkbox.checked::after{content:'✓';color:#fff;font-size:13px;font-weight:700;}
+.chk-checkbox.na{background:#f1f5f9;border-color:#cbd5e1;}
+.chk-checkbox.na::after{content:'N/A';color:#64748b;font-size:8px;font-weight:700;}
+.chk-content{flex:1;min-width:0;}
+.chk-text{font-size:14px;color:var(--text);line-height:1.4;}
+.chk-obs{margin-top:6px;}
+.chk-obs textarea{font-size:12px;padding:6px 10px;resize:none;min-height:36px;color:var(--text-2);}
+.chk-actions{display:flex;gap:6px;margin-top:6px;}
+.chk-btn{font-size:11px;font-weight:600;padding:3px 10px;border-radius:99px;border:1.5px solid var(--border);background:none;cursor:pointer;color:var(--text-2);}
+.chk-btn.active-ok{background:var(--success-bg);border-color:var(--success);color:var(--success);}
+.chk-btn.active-na{background:#f1f5f9;border-color:#94a3b8;color:#64748b;}
+
+/* Filter bar */
+.filter-bar{background:var(--surface);padding:10px 14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px;}
+.filter-row{display:flex;gap:8px;}
+.filter-row select{flex:1;padding:8px 32px 8px 10px;font-size:13px;}
+.filter-summary{font-size:12px;color:var(--text-3);display:flex;align-items:center;justify-content:space-between;padding:2px 0;}
+.filter-summary strong{color:var(--primary);}
+.btn-report{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.btn-report:active{opacity:.8;}
+.btn-clear{background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer;text-decoration:underline;}
+
+/* Buttons */
+.action-bar{display:flex;gap:10px;margin-top:16px;}
+.btn{flex:1;padding:13px 14px;border-radius:var(--radius-sm);font-size:15px;font-weight:600;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s;}
+.btn:active{opacity:.8;}
+.btn-primary{background:var(--primary);color:#fff;}
+.btn-secondary{background:var(--surface);color:var(--text);border:1.5px solid var(--border);}
+.btn-success{background:var(--success);color:#fff;}
+.btn-sm{padding:8px 14px;font-size:13px;border-radius:var(--radius-sm);border:none;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:5px;white-space:nowrap;}
+.btn-outline{background:none;border:1.5px solid var(--primary);color:var(--primary);}
+
+/* Modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;flex-direction:column;justify-content:flex-end;}
+.modal-bg.hidden{display:none;}
+.modal{background:var(--surface);border-radius:var(--radius) var(--radius) 0 0;padding:20px;max-height:90vh;overflow-y:auto;}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:99px;margin:0 auto 16px;}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:14px;}
+
+/* Bottom nav */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding-bottom:env(safe-area-inset-bottom);}
+.nav-btn{flex:1;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:3px;background:none;border:none;cursor:pointer;font-size:11px;font-weight:500;color:var(--text-3);}
+.nav-btn.active{color:var(--primary);}
+.nav-btn svg{width:24px;height:24px;}
+
+/* FAB */
+.fab{position:fixed;bottom:calc(70px + env(safe-area-inset-bottom));right:20px;width:56px;height:56px;border-radius:50%;background:var(--primary);color:#fff;border:none;font-size:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:var(--shadow-md);z-index:99;transition:transform .15s;}
+.fab:active{transform:scale(.93);}
+.fab.hidden{display:none;}
+
+/* Empty */
+.empty{text-align:center;padding:48px 24px;color:var(--text-3);}
+.empty-icon{font-size:48px;display:block;margin-bottom:12px;opacity:.4;}
+.empty h3{font-size:16px;color:var(--text-2);margin-bottom:6px;}
+.empty p{font-size:14px;line-height:1.5;}
+
+/* Auth overlay */
+.auth-overlay{position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;}
+.auth-overlay .spinner{width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Toast */
+.toast{position:fixed;bottom:calc(80px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%) translateY(20px);background:#1e293b;color:#fff;padding:10px 20px;border-radius:99px;font-size:14px;font-weight:500;z-index:300;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* Summary stats */
+.summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+.summary-card{background:var(--surface);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);text-align:center;}
+.summary-val{font-size:20px;font-weight:700;color:var(--primary);}
+.summary-label{font-size:11px;color:var(--text-3);margin-top:2px;}
+
+/* Level selector */
+.level-selector{display:flex;gap:8px;margin-bottom:12px;}
+.level-btn{flex:1;padding:10px 6px;border-radius:var(--radius-sm);border:2px solid var(--border);background:var(--surface);font-size:13px;font-weight:600;cursor:pointer;text-align:center;transition:all .15s;}
+.level-btn.active-n1{border-color:#2563eb;background:#eff6ff;color:#1e40af;}
+.level-btn.active-n2{border-color:#d97706;background:#fffbeb;color:#92400e;}
+.level-btn.active-n3{border-color:#dc2626;background:#fef2f2;color:#991b1b;}
+</style>
+</head>
+<body>
+
+<!-- Auth overlay -->
+<div class="auth-overlay" id="auth-overlay">
+  <div class="spinner"></div>
+  <p style="font-size:14px;color:#94a3b8">Verificando acesso…</p>
+</div>
+
+<header class="app-header">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1>Preventiva</h1>
+  <div class="user-chip" id="user-chip"></div>
+</header>
+
+<!-- ── SCREEN: PLANS LIST ── -->
+<div id="screen-list" class="screen active">
+  <div class="filter-bar">
+    <div class="filter-row">
+      <select id="f-month" onchange="applyFilters()"><option value="">📅 Todos os meses</option></select>
+      <select id="f-contract" onchange="applyFilters()">
+        <option value="">📋 Todos os contratos</option>
+        <option value="1020">Contrato 1020</option>
+        <option value="1023">Contrato 1023</option>
+        <option value="1123">Contrato 1123</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="f-status" onchange="applyFilters()">
+        <option value="">🔖 Todos os status</option>
+        <option value="pending">Pendente</option>
+        <option value="partial">Em andamento</option>
+        <option value="done">Concluída</option>
+      </select>
+      <select id="f-level" onchange="applyFilters()">
+        <option value="">📊 Todos os níveis</option>
+        <option value="1">Nível 1 — Leve</option>
+        <option value="2">Nível 2 — Intermediária</option>
+        <option value="3">Nível 3 — Pesada</option>
+      </select>
+    </div>
+    <div class="filter-summary">
+      <span id="filter-label">Carregando…</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-clear" onclick="clearFilters()">Limpar</button>
+        <button class="btn-report" onclick="printFilteredPDF()">🖨️ Relatório</button>
+      </div>
+    </div>
+  </div>
+  <div style="padding:12px">
+    <div id="plans-list"></div>
+    <div id="plans-empty" class="empty" style="display:none">
+      <span class="empty-icon">📋</span>
+      <h3>Nenhuma preventiva encontrada</h3>
+      <p>Crie um plano de preventiva<br>tocando no botão +</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── SCREEN: NEW PLAN ── -->
+<div id="screen-new" class="screen">
+  <div class="card">
+    <div class="card-title">Plano de preventiva</div>
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client" onchange="onContractChange()">
+        <option value="">Selecione o contrato…</option>
+        <option value="1020">1020</option>
+        <option value="1023">1023</option>
+        <option value="1123">1123</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Período de referência *</label>
+      <input id="f-period" type="month">
+    </div>
+    <div class="field">
+      <label>Nível de manutenção *</label>
+      <div class="level-selector">
+        <button class="level-btn" id="lb1" onclick="selectLevel(1)">🟢 Nível 1<br><small>Leve</small></button>
+        <button class="level-btn" id="lb2" onclick="selectLevel(2)">🟡 Nível 2<br><small>Intermediária</small></button>
+        <button class="level-btn" id="lb3" onclick="selectLevel(3)">🔴 Nível 3<br><small>Pesada</small></button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Técnico responsável</label>
+      <input id="f-tech" type="text" placeholder="Nome do técnico">
+    </div>
+    <div class="field">
+      <label>Observações gerais</label>
+      <textarea id="f-obs" rows="2" placeholder="Informações gerais sobre esta rodada de preventiva…"></textarea>
+    </div>
+  </div>
+
+  <div class="card" id="equip-selector" style="display:none">
+    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>Equipamentos incluídos</span>
+      <span id="equip-count-badge" style="font-size:12px;color:var(--primary);font-weight:700"></span>
+    </div>
+    <div style="margin-bottom:10px;display:flex;gap:8px">
+      <input type="search" id="equip-search" placeholder="🔍 Filtrar por TAG, marca ou local…" oninput="filterEquipList()" style="font-size:13px;padding:8px 12px">
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn-sm btn-outline" onclick="selectAllEquip()">✅ Todos</button>
+      <button class="btn-sm btn-secondary" onclick="deselectAllEquip()">☐ Nenhum</button>
+    </div>
+    <div id="equip-list" style="max-height:280px;overflow-y:auto"></div>
+  </div>
+
+  <div class="action-bar">
+    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
+    <button class="btn btn-primary" onclick="savePlan()">📋 Criar plano</button>
+  </div>
+</div>
+
+<!-- ── SCREEN: EXECUTION ── -->
+<div id="screen-exec" class="screen">
+  <div id="exec-header-info" class="card" style="margin-bottom:12px"></div>
+  <div class="summary-grid">
+    <div class="summary-card"><div class="summary-val" id="exec-total">0</div><div class="summary-label">Equipamentos</div></div>
+    <div class="summary-card"><div class="summary-val" id="exec-done">0</div><div class="summary-label">Concluídos</div></div>
+    <div class="summary-card"><div class="summary-val" id="exec-pct">0%</div><div class="summary-label">Progresso</div></div>
+  </div>
+  <div id="exec-list"></div>
+  <div class="action-bar">
+    <button class="btn btn-secondary" onclick="switchTab('list')">← Voltar</button>
+    <button class="btn btn-success" onclick="finalizePlan()">✅ Finalizar</button>
+    <button class="btn btn-primary" onclick="printExecPDF()">🖨️ PDF</button>
+  </div>
+</div>
+
+<!-- ── SCREEN: HISTORY ── -->
+<div id="screen-hist" class="screen">
+  <div style="padding-bottom:8px" id="hist-content"></div>
+</div>
+
+<!-- ── FAB ── -->
+<button class="fab" id="fab" onclick="startNew()">+</button>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+    Planos
+  </button>
+  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Novo
+  </button>
+  <button class="nav-btn" onclick="switchTab('hist')" id="nav-hist">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    Histórico
+  </button>
+</nav>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // URL do backend Render — altere para a sua URL
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Checklist definitions ──
+const CHECKLIST = {
+  1: [
+    "Verificação geral de funcionamento do equipamento (ligamento, refrigeração e ruídos anormais)",
+    "Limpeza superficial dos filtros de ar",
+    "Limpeza externa do gabinete da evaporadora",
+    "Inspeção visual de possíveis anomalias aparentes (vazamentos, sujeira excessiva, obstruções)",
+    "Conferência do controle remoto e ajustes básicos de operação",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  2: [
+    "Lavagem dos filtros de ar com água corrente",
+    "Limpeza detalhada do gabinete da evaporadora, cantos, frestas e entalhes",
+    "Verificação do dreno e possível desobstrução simples com água corrente",
+    "Avaliação básica da vazão de ar e temperaturas para verificar o rendimento da máquina",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  3: [
+    "Lavagem completa dos filtros de ar",
+    "Limpeza das serpentinas da evaporadora (com uso de produto adequado e água sob pressão)",
+    "Limpeza do gabinete interno da evaporadora",
+    "Limpeza da serpentina e gabinete da condensadora",
+    "Verificação do estado de conservação dos componentes (hélice, motor ventilador, isolamentos)",
+    "Inspeção e limpeza do sistema de drenagem com produto adequado e água sob pressão",
+    "Verificação de pressão de fluido refrigerante, temperatura e corrente elétrica de refrigeração",
+    "Reaperto de conexões elétricas aparentes e isolamento de emendas quando necessário",
+    "Reaperto de sistemas de fixação da condensadora e substituição do coxim se necessário",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+};
+
+const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'Nível 3 — Pesada'};
+const LEVEL_COLOR = {1:'#2563eb', 2:'#d97706', 3:'#dc2626'};
+const LEVEL_BG    = {1:'#eff6ff',  2:'#fffbeb', 3:'#fef2f2'};
+const LEVEL_BADGE = {1:'badge-n1', 2:'badge-n2', 3:'badge-n3'};
+
+// ── State ──
+let plans = JSON.parse(localStorage.getItem('prev_plans') || '[]');
+let currentPlanId = null;
+let selectedLevel = null;
+let selectedEquip = new Set();
+let allEquipForContract = [];
+let fMonth='', fContract='', fStatus='', fLevel='';
+
+const genId = () => 'PV' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,4).toUpperCase();
+const today = () => new Date().toISOString().slice(0,7);
+const fmtMonth = m => { if(!m) return '—'; const [y,mo]=m.split('-'); return new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); };
+const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
+
+function getEffDB() {
+  const c = localStorage.getItem('smm_custom_db');
+  if (c) { try { return JSON.parse(c); } catch {} }
+  return typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+}
+
+function persist() {
+  localStorage.setItem('prev_plans', JSON.stringify(plans));
+  const last = plans[0];
+  if (last) DB.save('preventiva', last).catch(e => console.warn('Sync preventiva:', e.message));
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Auth ──
+(function() {
+  const user = getCurrentUser();
+  if (!user) { window.location.href = 'index.html'; return; }
+  const role = ROLES[user.role];
+  if (!role || !role.modules.includes('registro')) { window.location.href = 'index.html'; return; }
+  document.getElementById('auth-overlay').style.display = 'none';
+  // Carrega dados do backend (mantém localStorage como cache)
+  DB.getAll('preventiva').then(data => {
+    if (data && data.length > 0) {
+      plans = data;
+      localStorage.setItem('prev_plans', JSON.stringify(data));
+      persist();
+    }
+  }).catch(() => {});
+  const chip = document.getElementById('user-chip');
+  const r = ROLES[user.role] || {};
+  chip.innerHTML = `
+    <div onclick="document.getElementById('umenu').classList.toggle('hidden')" style="cursor:pointer">
+      ${user.picture ? `<img src="${user.picture}" class="user-chip img" style="width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.4);object-fit:cover">` : `<div class="user-chip-ph">${r.icon||'👤'}</div>`}
+    </div>
+    <div class="user-menu hidden" id="umenu">
+      <div class="user-menu-header">
+        <div class="un">${user.name}</div>
+        <div class="ue">${user.email}</div>
+        <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
+      </div>
+      <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
+      <hr style="border:none;border-top:1px solid var(--border)">
+      <button class="user-menu-item danger" onclick="logout()">🚪 Sair</button>
+    </div>`;
+  document.addEventListener('click', e => { if (!e.target.closest('.user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
+  window._user = user; window._role = role;
+  if (!role.canCreate) {
+    document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  }
+})();
+
+// ── Navigation ──
+function switchTab(tab) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const sid = tab==='list'?'screen-list':tab==='new'?'screen-new':tab==='exec'?'screen-exec':'screen-hist';
+  const nid = tab==='list'?'nav-list':tab==='new'?'nav-new':tab==='hist'?'nav-hist':null;
+  document.getElementById(sid).classList.add('active');
+  if (nid) document.getElementById(nid).classList.add('active');
+  document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
+  if (tab === 'list') renderPlansList();
+  if (tab === 'hist') renderHistory();
+}
+
+// ── Filters ──
+function buildFilterOptions() {
+  const months = new Set();
+  plans.forEach(p => { if(p.period) months.add(p.period); });
+  const mSel = document.getElementById('f-month');
+  const cur = mSel.value;
+  mSel.innerHTML = '<option value="">📅 Todos os meses</option>' +
+    [...months].sort().reverse().map(m => `<option value="${m}" ${cur===m?'selected':''}>${fmtMonth(m)}</option>`).join('');
+}
+function applyFilters() {
+  fMonth=document.getElementById('f-month').value;
+  fContract=document.getElementById('f-contract').value;
+  fStatus=document.getElementById('f-status').value;
+  fLevel=document.getElementById('f-level').value;
+  renderPlansList();
+}
+function clearFilters() {
+  fMonth=fContract=fStatus=fLevel='';
+  ['f-month','f-contract','f-status','f-level'].forEach(id=>document.getElementById(id).value='');
+  renderPlansList();
+}
+function getFiltered() {
+  return plans.filter(p => {
+    const mM = !fMonth    || p.period===fMonth;
+    const cM = !fContract || p.client===fContract;
+    const sM = !fStatus   || getPlanStatus(p)===fStatus;
+    const lM = !fLevel    || String(p.level)===fLevel;
+    return mM&&cM&&sM&&lM;
+  }).sort((a,b)=>b.createdAt-a.createdAt);
+}
+
+function getPlanStatus(plan) {
+  if (!plan.equipments || !plan.equipments.length) return 'pending';
+  const done = plan.equipments.filter(e => isEquipDone(e, plan.level)).length;
+  if (done === 0) return 'pending';
+  if (done === plan.equipments.length) return 'done';
+  return 'partial';
+}
+
+function isEquipDone(equip, level) {
+  const items = getChecklistItems(level);
+  return items.every((_,i) => equip.checks && equip.checks[i] !== undefined && equip.checks[i] !== null);
+}
+
+function getChecklistItems(level) {
+  if (level === 1) return CHECKLIST[1];
+  if (level === 2) return [...CHECKLIST[1], ...CHECKLIST[2]];
+  return [...CHECKLIST[1], ...CHECKLIST[2], ...CHECKLIST[3]];
+}
+
+function getEquipProgress(equip, level) {
+  const items = getChecklistItems(level);
+  if (!equip.checks) return {done:0, total:items.length};
+  const done = items.filter((_,i) => equip.checks[i] !== undefined && equip.checks[i] !== null).length;
+  return {done, total:items.length};
+}
+
+// ── Plans list ──
+function renderPlansList() {
+  buildFilterOptions();
+  const filtered = getFiltered();
+  const list = document.getElementById('plans-list');
+  const empty = document.getElementById('plans-empty');
+  const active = [fMonth,fContract,fStatus,fLevel].filter(Boolean).length;
+  document.getElementById('filter-label').innerHTML = active
+    ? `<strong>${filtered.length}</strong> plano${filtered.length!==1?'s':''} encontrado${filtered.length!==1?'s':''}`
+    : `<strong>${filtered.length}</strong> plano${filtered.length!==1?'s':''} no total`;
+
+  if (!filtered.length) { list.innerHTML=''; empty.style.display=''; return; }
+  empty.style.display='none';
+
+  const statusInfo = {
+    pending:{ label:'Pendente',    badge:'badge-pending' },
+    partial:{ label:'Em andamento',badge:'badge-partial' },
+    done:   { label:'Concluída',   badge:'badge-done'    },
+  };
+
+  list.innerHTML = filtered.map(p => {
+    const st = getPlanStatus(p);
+    const si = statusInfo[st];
+    const done = p.equipments ? p.equipments.filter(e=>isEquipDone(e,p.level)).length : 0;
+    const total = p.equipments ? p.equipments.length : 0;
+    const pct = total ? Math.round(done/total*100) : 0;
+    return `<div class="plan-card" onclick="openPlan('${p.id}')">
+      <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
+      <div class="plan-info">
+        <div class="plan-title">Contrato ${p.client} · ${fmtMonth(p.period)}</div>
+        <div class="plan-meta">${LEVEL_LABEL[p.level]} · ${total} equipamentos · ${p.tech||'—'}</div>
+        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+          <div style="flex:1;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:${LEVEL_COLOR[p.level]};border-radius:99px"></div>
+          </div>
+          <span style="font-size:11px;font-weight:700;color:${LEVEL_COLOR[p.level]}">${done}/${total}</span>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <span class="plan-badge ${LEVEL_BADGE[p.level]}">N${p.level}</span>
+        <span class="plan-badge ${si.badge}">${si.label}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── New plan ──
+function startNew() {
+  selectedLevel = null; selectedEquip = new Set(); allEquipForContract = [];
+  document.getElementById('f-client').value='';
+  document.getElementById('f-period').value=today();
+  document.getElementById('f-tech').value = window._user?.name || '';
+  document.getElementById('f-obs').value='';
+  document.getElementById('equip-selector').style.display='none';
+  document.getElementById('equip-list').innerHTML='';
+  [1,2,3].forEach(n => { const b=document.getElementById('lb'+n); b.className='level-btn'; });
+  switchTab('new');
+}
+function cancelNew() { switchTab('list'); }
+
+function selectLevel(n) {
+  selectedLevel = n;
+  [1,2,3].forEach(i => {
+    const b = document.getElementById('lb'+i);
+    b.className = 'level-btn' + (i===n ? ` active-n${n}` : '');
+  });
+}
+
+function onContractChange() {
+  const contract = document.getElementById('f-client').value;
+  if (!contract) { document.getElementById('equip-selector').style.display='none'; return; }
+  const db = getEffDB();
+  allEquipForContract = (db[contract] || []);
+  selectedEquip = new Set(allEquipForContract.map(e=>e.tag));
+  document.getElementById('equip-selector').style.display='';
+  updateEquipCount();
+  renderEquipList();
+}
+
+function renderEquipList(filter='') {
+  const q = filter.toLowerCase();
+  const list = document.getElementById('equip-list');
+  const items = allEquipForContract.filter(e =>
+    !q || e.tag.includes(q) || e.marca.toLowerCase().includes(q) ||
+    e.estabelecimento.toLowerCase().includes(q) || e.recinto.toLowerCase().includes(q)
+  );
+  list.innerHTML = items.map(e => `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--border)">
+      <div onclick="toggleEquip('${e.tag}')" style="width:22px;height:22px;border:2px solid ${selectedEquip.has(e.tag)?'var(--primary)':'var(--border)'};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;background:${selectedEquip.has(e.tag)?'var(--primary)':'var(--surface)'}">
+        ${selectedEquip.has(e.tag)?'<span style="color:#fff;font-size:12px;font-weight:700">✓</span>':''}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">TAG ${e.tag}</div>
+        <div style="font-size:11px;color:var(--text-2)">${e.marca} ${e.tipo}${e.capacidade?' · '+e.capacidade+' BTU':''}</div>
+        <div style="font-size:11px;color:var(--text-3)">${e.estabelecimento} · ${e.recinto}</div>
+      </div>
+    </div>`).join('') || '<p style="font-size:13px;color:var(--text-3);padding:12px 0;text-align:center">Nenhum equipamento encontrado</p>';
+}
+
+function toggleEquip(tag) {
+  if (selectedEquip.has(tag)) selectedEquip.delete(tag); else selectedEquip.add(tag);
+  updateEquipCount();
+  renderEquipList(document.getElementById('equip-search').value);
+}
+function selectAllEquip()   { selectedEquip = new Set(allEquipForContract.map(e=>e.tag)); updateEquipCount(); renderEquipList(document.getElementById('equip-search').value); }
+function deselectAllEquip() { selectedEquip = new Set(); updateEquipCount(); renderEquipList(document.getElementById('equip-search').value); }
+function updateEquipCount() {
+  document.getElementById('equip-count-badge').textContent = `${selectedEquip.size} selecionado${selectedEquip.size!==1?'s':''}`;
+}
+function filterEquipList() { renderEquipList(document.getElementById('equip-search').value); }
+
+function savePlan() {
+  const client = document.getElementById('f-client').value;
+  const period = document.getElementById('f-period').value;
+  if (!client) { showToast('Selecione o contrato'); return; }
+  if (!period) { showToast('Informe o período'); return; }
+  if (!selectedLevel) { showToast('Selecione o nível de manutenção'); return; }
+  if (!selectedEquip.size) { showToast('Selecione pelo menos um equipamento'); return; }
+
+  const db = getEffDB();
+  const equipList = (db[client]||[]).filter(e => selectedEquip.has(e.tag));
+
+  const plan = {
+    id: genId(),
+    client, period,
+    level: selectedLevel,
+    tech: document.getElementById('f-tech').value,
+    obs: document.getElementById('f-obs').value,
+    createdAt: Date.now(),
+    equipments: equipList.map(e => ({
+      tag: e.tag, marca: e.marca, tipo: e.tipo,
+      capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
+      checks: {}, obsItems: {},
+    })),
+  };
+
+  plans.unshift(plan);
+  persist();
+  showToast('Plano criado! Iniciando execução…');
+  openPlan(plan.id);
+}
+
+// ── Execution ──
+function openPlan(id) {
+  currentPlanId = id;
+  const plan = plans.find(p=>p.id===id);
+  if (!plan) return;
+
+  document.getElementById('exec-header-info').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="font-size:24px">${plan.level===1?'🟢':plan.level===2?'🟡':'🔴'}</div>
+      <div>
+        <div style="font-size:15px;font-weight:700">Contrato ${plan.client}</div>
+        <div style="font-size:13px;color:var(--text-2)">${fmtMonth(plan.period)} · ${LEVEL_LABEL[plan.level]}</div>
+        ${plan.tech?`<div style="font-size:12px;color:var(--text-3)">👷 ${plan.tech}</div>`:''}
+      </div>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}')">🗑️</button>
+      </div>
+    </div>
+    ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;
+
+  renderExecList(plan);
+  switchTab('exec');
+}
+
+function renderExecList(plan) {
+  const items = getChecklistItems(plan.level);
+  let totalDone = 0;
+
+  document.getElementById('exec-total').textContent = plan.equipments.length;
+
+  document.getElementById('exec-list').innerHTML = plan.equipments.map((equip, ei) => {
+    const prog = getEquipProgress(equip, plan.level);
+    const done = isEquipDone(equip, plan.level);
+    if (done) totalDone++;
+    const pct = Math.round(prog.done/prog.total*100);
+
+    // Build checklist by level sections
+    let checkHtml = '';
+    let idx = 0;
+
+    const levels = plan.level >= 1 ? [1] : [];
+    if (plan.level >= 2) levels.push(2);
+    if (plan.level >= 3) levels.push(3);
+
+    levels.forEach(lv => {
+      const lvItems = CHECKLIST[lv];
+      checkHtml += `<div class="chk-level-title">
+        <span style="width:16px;height:16px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
+        ${LEVEL_LABEL[lv]}
+      </div>`;
+      lvItems.forEach(item => {
+        const i = idx;
+        const val = equip.checks[i];
+        const obs = equip.obsItems[i] || '';
+        checkHtml += `
+          <div class="chk-item" id="chk-${ei}-${i}">
+            <div class="chk-content">
+              <div class="chk-text">${item}</div>
+              <div class="chk-actions">
+                <button class="chk-btn ${val===true?'active-ok':''}" onclick="setCheck(${ei},${i},true)">✓ Feito</button>
+                <button class="chk-btn ${val===false?'active-na':''}" onclick="setCheck(${ei},${i},false)">N/A</button>
+                <button class="chk-btn" onclick="toggleObs(${ei},${i})">📝 Obs</button>
+              </div>
+              <div class="chk-obs" id="obs-${ei}-${i}" style="${obs?'':'display:none'}">
+                <textarea rows="2" placeholder="Observação…" oninput="saveObs(${ei},${i},this.value)">${obs}</textarea>
+              </div>
+            </div>
+          </div>`;
+        idx++;
+      });
+    });
+
+    return `<div class="exec-card">
+      <div class="exec-header" onclick="toggleExecBody(${ei})">
+        <div class="exec-equip-name">
+          <div class="exec-equip-tag">TAG ${equip.tag}</div>
+          <div class="exec-equip-info">${equip.marca} ${equip.tipo}${equip.capacidade?' · '+equip.capacidade+' BTU':''}</div>
+          <div class="exec-equip-info" style="color:var(--text-3)">${equip.estabelecimento} · ${equip.recinto}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <div class="exec-progress">${prog.done}/${prog.total}</div>
+          ${done?'<span style="font-size:11px;font-weight:700;color:var(--success)">✅ OK</span>':''}
+        </div>
+      </div>
+      <div class="exec-body ${ei===0?'open':''}" id="exec-body-${ei}">
+        <div class="exec-progress-bar"><div class="exec-progress-fill" id="pbar-${ei}" style="width:${pct}%"></div></div>
+        ${checkHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  const pct = plan.equipments.length ? Math.round(totalDone/plan.equipments.length*100) : 0;
+  document.getElementById('exec-done').textContent = totalDone;
+  document.getElementById('exec-pct').textContent = pct + '%';
+}
+
+function toggleExecBody(ei) {
+  const body = document.getElementById(`exec-body-${ei}`);
+  body.classList.toggle('open');
+}
+
+function setCheck(ei, itemIdx, value) {
+  const plan = plans.find(p=>p.id===currentPlanId);
+  if (!plan) return;
+  const equip = plan.equipments[ei];
+  // Toggle: click same value to deselect
+  equip.checks[itemIdx] = equip.checks[itemIdx] === value ? null : value;
+  persist();
+  updateCheckUI(ei, itemIdx, equip.checks[itemIdx]);
+  updateEquipProgress(ei, plan);
+  updatePlanSummary(plan);
+}
+
+function updateCheckUI(ei, i, val) {
+  const row = document.getElementById(`chk-${ei}-${i}`);
+  if (!row) return;
+  const btns = row.querySelectorAll('.chk-btn');
+  btns[0].className = 'chk-btn' + (val===true?' active-ok':'');
+  btns[1].className = 'chk-btn' + (val===false?' active-na':'');
+}
+
+function toggleObs(ei, i) {
+  const el = document.getElementById(`obs-${ei}-${i}`);
+  if (!el) return;
+  el.style.display = el.style.display==='none' ? '' : 'none';
+}
+
+function saveObs(ei, i, text) {
+  const plan = plans.find(p=>p.id===currentPlanId);
+  if (!plan) return;
+  plan.equipments[ei].obsItems[i] = text;
+  persist();
+}
+
+function updateEquipProgress(ei, plan) {
+  const equip = plan.equipments[ei];
+  const prog = getEquipProgress(equip, plan.level);
+  const pct = Math.round(prog.done/prog.total*100);
+  const pbar = document.getElementById(`pbar-${ei}`);
+  if (pbar) pbar.style.width = pct+'%';
+  const progEl = document.querySelector(`#exec-body-${ei}`)?.previousElementSibling?.querySelector('.exec-progress');
+  if (progEl) progEl.textContent = `${prog.done}/${prog.total}`;
+}
+
+function updatePlanSummary(plan) {
+  const totalDone = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
+  const pct = plan.equipments.length ? Math.round(totalDone/plan.equipments.length*100) : 0;
+  document.getElementById('exec-done').textContent = totalDone;
+  document.getElementById('exec-pct').textContent = pct+'%';
+}
+
+function finalizePlan() {
+  const plan = plans.find(p=>p.id===currentPlanId);
+  if (!plan) return;
+  const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
+  const total = plan.equipments.length;
+  if (done < total) {
+    if (!confirm(`${total-done} equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?`)) return;
+  }
+  plan.finalizedAt = Date.now();
+  persist();
+  showToast('Preventiva finalizada!');
+  switchTab('list');
+}
+
+function deletePlan(id) {
+  if (!confirm('Excluir este plano de preventiva?')) return;
+  plans = plans.filter(p=>p.id!==id);
+  persist();
+  showToast('Plano excluído');
+  switchTab('list');
+}
+
+// ── History ──
+function renderHistory() {
+  const done = plans.filter(p=>getPlanStatus(p)==='done').sort((a,b)=>b.createdAt-a.createdAt);
+  const el = document.getElementById('hist-content');
+  if (!done.length) {
+    el.innerHTML = '<div class="empty"><span class="empty-icon">📊</span><h3>Nenhuma preventiva concluída</h3><p>O histórico aparece aqui<br>quando uma preventiva for finalizada</p></div>';
+    return;
+  }
+  el.innerHTML = '<div style="padding:12px">' + done.map(p => {
+    const equip = p.equipments || [];
+    const total = equip.length;
+    const done2 = equip.filter(e=>isEquipDone(e,p.level)).length;
+    return `<div class="plan-card" onclick="openPlan('${p.id}')">
+      <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
+      <div class="plan-info">
+        <div class="plan-title">Contrato ${p.client} · ${fmtMonth(p.period)}</div>
+        <div class="plan-meta">${LEVEL_LABEL[p.level]} · ${p.tech||'—'}</div>
+        <div class="plan-meta">Concluída em ${fmtDate(p.finalizedAt||p.createdAt)} · ${done2}/${total} equipamentos</div>
+      </div>
+      <div><span class="plan-badge badge-done">✅ Concluída</span></div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+// ── PDF: individual plan ──
+function printExecPDF() {
+  const plan = plans.find(p=>p.id===currentPlanId);
+  if (!plan) return;
+  generatePlanPDF(plan);
+}
+
+function generatePlanPDF(plan) {
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const W=210, M=16, CW=W-M*2;
+  let y = M;
+  const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
+  const color = LEVEL_COLOR[plan.level].replace('#','');
+  const r = parseInt(color.slice(0,2),16), g=parseInt(color.slice(2,4),16), b=parseInt(color.slice(4,6),16);
+
+  function header(label) {
+    doc.setFillColor(r,g,b);
+    doc.rect(0,0,W,38,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.text(co, M, 14);
+    doc.setFontSize(10); doc.text('MANUTENÇÃO PREVENTIVA', W-M, 14, {align:'right'});
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text(`Contrato ${plan.client} · ${fmtMonth(plan.period)}`, M, 20);
+    doc.text(`${LEVEL_LABEL[plan.level]}`, M, 26);
+    doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDate(plan.finalizedAt||plan.createdAt)}`, M, 32);
+    doc.text(`${label}`, W-M, 26, {align:'right'});
+    y = 46;
+  }
+
+  // Cover
+  header('Relatório de Execução');
+  const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
+  const total = plan.equipments.length;
+  const pct = total ? Math.round(done/total*100) : 0;
+
+  doc.setFillColor(240,249,255);
+  doc.rect(M,y,CW,28,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('RESUMO DA EXECUÇÃO', M+4, y+7);
+  doc.setFontSize(11); doc.setFont('helvetica','normal');
+  doc.text(`Equipamentos concluídos: ${done} de ${total} (${pct}%)`, M+4, y+15);
+  doc.text(`Status: ${pct===100?'Concluída':'Em andamento'}`, M+4, y+22);
+  if(plan.obs) doc.text(`Obs: ${plan.obs}`, M+CW/2, y+22);
+  y += 36;
+
+  // Summary table of equipment
+  doc.setFillColor(r,g,b);
+  doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('TAG', M+3, y+5.5);
+  doc.text('EQUIPAMENTO', M+CW*0.18, y+5.5);
+  doc.text('ESTABELECIMENTO', M+CW*0.52, y+5.5);
+  doc.text('ITENS', M+CW*0.80, y+5.5);
+  doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
+  y+=8;
+
+  plan.equipments.forEach((eq,idx) => {
+    if(y>272){doc.addPage();y=M;header('(continuação)');}
+    if(idx%2===0){doc.setFillColor(240,249,255); doc.rect(M,y,CW,7,'F');}
+    const prog = getEquipProgress(eq, plan.level);
+    const eqDone = isEquipDone(eq, plan.level);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text(eq.tag, M+3, y+4.8);
+    doc.text(`${eq.marca} ${eq.tipo}`.slice(0,24), M+CW*0.18, y+4.8);
+    doc.text(eq.estabelecimento.slice(0,22), M+CW*0.52, y+4.8);
+    doc.text(`${prog.done}/${prog.total}`, M+CW*0.80, y+4.8);
+    doc.setFont('helvetica','bold');
+    doc.setTextColor(eqDone?22:220, eqDone?163:38, eqDone?74:38);
+    doc.text(eqDone?'✓ OK':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    y+=7;
+  });
+
+  // Detail pages per equipment
+  plan.equipments.forEach(eq => {
+    doc.addPage(); y=M; header(`TAG ${eq.tag}`);
+    doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
+    doc.setTextColor(30,30,30); doc.setFontSize(8); doc.setFont('helvetica','bold');
+    doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text(`TAG ${eq.tag}  ·  Contrato ${plan.client}`, M+4, y+14);
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text(`${eq.marca} ${eq.tipo}${eq.capacidade?' · '+eq.capacidade+' BTU':''}`, M+4, y+20);
+    doc.text(`${eq.estabelecimento} · ${eq.recinto}`, M+CW/2, y+20);
+    y+=32;
+
+    const items = getChecklistItems(plan.level);
+    let globalIdx = 0;
+    const levelGroups = [{lv:1, items:CHECKLIST[1]}];
+    if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
+    if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
+
+    levelGroups.forEach(({lv, items:lvItems}) => {
+      if(y>260){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
+      const lc = LEVEL_COLOR[lv].replace('#','');
+      const lr=parseInt(lc.slice(0,2),16), lg=parseInt(lc.slice(2,4),16), lb2=parseInt(lc.slice(4,6),16);
+      doc.setFillColor(lr,lg,lb2); doc.rect(M,y,CW,7,'F');
+      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.text(LEVEL_LABEL[lv].toUpperCase(), M+3, y+4.8);
+      y+=7;
+
+      lvItems.forEach(item => {
+        if(y>268){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
+        const val = eq.checks[globalIdx];
+        const obs = eq.obsItems[globalIdx]||'';
+        const rowH = obs ? 14 : 8;
+        if(val===true){doc.setFillColor(240,253,244);}
+        else if(val===false){doc.setFillColor(248,250,252);}
+        else{doc.setFillColor(255,251,235);}
+        doc.rect(M,y,CW,rowH,'F');
+        // Status indicator
+        const fr=val===true?22:val===false?148:217; const fg=val===true?163:val===false?163:119; const fb=val===true?74:val===false?184:10; doc.setFillColor(fr,fg,fb);
+        doc.rect(M,y,3,rowH,'F');
+        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        const itemLines = doc.splitTextToSize(item, CW-36);
+        doc.text(itemLines[0]||'', M+6, y+5.5);
+        doc.setFont('helvetica','bold');
+        const tc1=val===true?22:(val===false?100:180); const tc2=val===true?163:(val===false?100:120); const tc3=val===true?74:(val===false?100:0); doc.setTextColor(tc1,tc2,tc3);
+        doc.text(val===true?'✓ FEITO':val===false?'N/A':'PENDENTE', M+CW-3, y+5.5, {align:'right'});
+        if(obs){ doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(7.5); doc.text(`Obs: ${obs}`, M+6, y+11); }
+        y+=rowH+1;
+        globalIdx++;
+      });
+      y+=3;
+    });
+  });
+
+  // Footer on each page
+  const pageCount = doc.getNumberOfPages();
+  for(let i=1;i<=pageCount;i++){
+    doc.setPage(i);
+    doc.setFillColor(r,g,b); doc.rect(0,285,W,14,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text('Sistema de Gestão de Manutenção Preventiva', W/2, 293, {align:'center'});
+    doc.text(`Página ${i} de ${pageCount}`, W-M, 293, {align:'right'});
+  }
+
+  doc.save(`preventiva-${plan.client}-${plan.period}-N${plan.level}.pdf`);
+  showToast('PDF gerado!');
+}
+
+// ── PDF: filtered report ──
+function printFilteredPDF() {
+  const filtered = getFiltered();
+  if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
+  const {jsPDF} = window.jspdf;
+  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const W=210, M=16, CW=W-M*2; let y=M;
+  const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
+
+  doc.setFillColor(3,105,161); doc.rect(0,0,W,60,'F');
+  doc.setTextColor(255,255,255);
+  doc.setFontSize(20); doc.setFont('helvetica','bold'); doc.text(co, M, 20);
+  doc.setFontSize(14); doc.text('RELATÓRIO DE MANUTENÇÃO PREVENTIVA', M, 32);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} plano${filtered.length!==1?'s':''}`, M, 40);
+  y=68;
+
+  doc.setFillColor(224,242,254); doc.rect(M,y,CW,34,'F');
+  doc.setTextColor(30,30,30); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('FILTROS APLICADOS', M+4, y+7);
+  doc.setFont('helvetica','normal');
+  doc.text(`Período: ${fMonth?fmtMonth(fMonth):'Todos'}`, M+4, y+14);
+  doc.text(`Contrato: ${fContract?'Contrato '+fContract:'Todos'}`, M+4, y+20);
+  doc.text(`Status: ${fStatus||'Todos'}   Nível: ${fLevel?'N'+fLevel:'Todos'}`, M+4, y+26);
+  const totDone = filtered.filter(p=>getPlanStatus(p)==='done').length;
+  doc.text(`Concluídas: ${totDone}/${filtered.length}`, M+4, y+32);
+  y+=42;
+
+  doc.setFillColor(3,105,161); doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.text('CONTRATO', M+3, y+5.5);
+  doc.text('PERÍODO', M+CW*0.18, y+5.5);
+  doc.text('NÍVEL', M+CW*0.35, y+5.5);
+  doc.text('TÉCNICO', M+CW*0.50, y+5.5);
+  doc.text('EQUIP', M+CW*0.73, y+5.5);
+  doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
+  y+=8;
+
+  filtered.forEach((p,i) => {
+    if(y>275){doc.addPage();y=M;}
+    if(i%2===0){doc.setFillColor(240,249,255);doc.rect(M,y,CW,7,'F');}
+    const st=getPlanStatus(p);
+    const done=p.equipments.filter(e=>isEquipDone(e,p.level)).length;
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text(`Cto. ${p.client}`, M+3, y+4.8);
+    doc.text(fmtMonth(p.period).slice(0,14), M+CW*0.18, y+4.8);
+    doc.text(`N${p.level}`, M+CW*0.35, y+4.8);
+    doc.text((p.tech||'—').slice(0,16), M+CW*0.50, y+4.8);
+    doc.text(`${done}/${p.equipments.length}`, M+CW*0.73, y+4.8);
+    doc.setFont('helvetica','bold');
+    const sr=st==='done'?22:(st==='partial'?217:100); const sg=st==='done'?163:(st==='partial'?119:100); const sb=st==='done'?74:(st==='partial'?10:100); doc.setTextColor(sr,sg,sb);
+    doc.text(st==='done'?'Concluída':st==='partial'?'Parcial':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    y+=7;
+  });
+
+  const pc = doc.getNumberOfPages();
+  for(let i=1;i<=pc;i++){
+    doc.setPage(i);
+    doc.setFillColor(3,105,161); doc.rect(0,285,W,14,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.text('Sistema de Gestão de Manutenção Preventiva', W/2,293,{align:'center'});
+    doc.text(`Página ${i} de ${pc}`, W-M,293,{align:'right'});
+  }
+  doc.save(`relatorio-preventiva-${new Date().toISOString().slice(0,7)}.pdf`);
+  showToast('Relatório gerado!');
+}
+
+// ── Init ──
+renderPlansList();
+</script>
+</body>
+</html>
