@@ -983,6 +983,26 @@ if (_user) {
 } else {
   renderLogin();
 }
+
+// ── Compatibilidade v4 — substitui funções do auth.js antigo ─────
+function getUsers()         { return JSON.parse(localStorage.getItem('smm_users_cache') || '[]'); }
+function saveUsers(u)       { localStorage.setItem('smm_users_cache', JSON.stringify(u)); }
+function getWhitelist()     { return JSON.parse(localStorage.getItem('smm_whitelist_cache') || '[]'); }
+function saveWhitelist(w)   { localStorage.setItem('smm_whitelist_cache', JSON.stringify(w)); }
+function isAdminDevice()    { return getCurrentUser()?.role === 'admin'; }
+function markAsAdminDevice(){ /* v4: handled by backend */ }
+function getAdminEmail()    { return null; }
+function isSetupDone()      { return true; }
+
+// Carrega users e whitelist do backend para o cache local
+async function syncUsersFromBackend() {
+  try {
+    const [users, wl] = await Promise.all([DB.getUsers(), DB.getWhitelist()]);
+    if (users) localStorage.setItem('smm_users_cache', JSON.stringify(users));
+    if (wl)    localStorage.setItem('smm_whitelist_cache', JSON.stringify(wl));
+    return { users: users||[], wl: wl||[] };
+  } catch(e) { return { users: [], wl: [] }; }
+}
 </script>
 </body>
 </html>
