@@ -581,11 +581,18 @@ function renderUsersTab(el) {
 
 // ── Tab: Pré-autorizar (whitelist) ──
 function renderWhitelistTab(el) {
-  const wl = getWhitelist();
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
+  DB.getWhitelist().then(wl => {
+    _renderWLContent(el, wl || []);
+  }).catch(() => {
+    _renderWLContent(el, getWhitelist());
+  });
+}
+function _renderWLContent(el, wl) {
   el.innerHTML = `
     <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.5">
-      Cadastre o e-mail e o perfil. Depois gere o <strong>token de acesso</strong> e envie
-      ao usuário — ele cola o token no dispositivo dele antes do primeiro login.
+      Cadastre o e-mail e o perfil do usuário. Após cadastrar, o usuário
+      pode entrar diretamente com a conta Google — sem token ou configuração adicional.
     </p>
     <div class="add-wl-form">
       <input type="email" id="wl-email" placeholder="email@dominio.com">
@@ -603,95 +610,49 @@ function renderWhitelistTab(el) {
               <div class="wl-email" title="${e.email}" style="font-weight:600">${e.name||e.email}</div>
               <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
             </div>
-            <select class="role-select" onchange="changeWLRole(${i},this.value)">
+            <select class="role-select" onchange="changeWLRole('${e.email}',this.value)">
               ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
             </select>
             <span class="wl-status ${e.usedAt?'used':'pending'}">${e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
-            <button onclick="gerarToken(${i})" style="padding:4px 10px;border-radius:6px;border:1px solid #2563eb;background:#eff6ff;color:#1e40af;font-size:12px;font-weight:600;cursor:pointer">
-              🔑 Gerar token
-            </button>
-            <button class="btn-icon-sm" onclick="removeWLEntry(${i})" title="Remover">✕</button>
+            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
           </div>`).join('')
     }
-    <div id="token-output" style="display:none;margin-top:14px;padding:14px;background:#f0fdf4;border-radius:10px;border:1px solid #bbf7d0">
-      <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px">🔑 Token de acesso gerado</div>
-      <div style="font-size:11px;color:#166534;margin-bottom:8px">Envie este token ao usuário por WhatsApp ou e-mail:</div>
-      <textarea id="token-value" rows="3" readonly style="font-size:11px;font-family:monospace;background:#fff;color:#0f172a;border:1px solid #bbf7d0;border-radius:6px;padding:8px;width:100%;resize:none"></textarea>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button onclick="copyToken()" style="flex:1;padding:8px;border-radius:7px;border:1px solid #86efac;background:#fff;font-size:12px;font-weight:600;color:#15803d;cursor:pointer">📋 Copiar token</button>
-        <button onclick="shareToken()" style="flex:1;padding:8px;border-radius:7px;border:none;background:#16a34a;font-size:12px;font-weight:600;color:#fff;cursor:pointer">📤 Compartilhar</button>
-      </div>
-      <div style="font-size:11px;color:#15803d;margin-top:8px">⚠️ Token válido por 30 dias. Gere um novo se expirar.</div>
-    </div>`;
+`;
 }
 
-async function gerarToken(idx) {
-  const wl = getWhitelist();
-  const e  = wl[idx];
-  if (!e) return;
-  try {
-    const token = await generateAccessToken(e.email, e.role, e.name || e.email);
-    const out   = document.getElementById('token-output');
-    const val   = document.getElementById('token-value');
-    val.value = token;
-    out.style.display = '';
-    out.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    showToast(`Token gerado para ${e.name || e.email}`);
-  } catch(err) { showToast('Erro: ' + err.message); }
-}
 
-function copyToken() {
-  const v = document.getElementById('token-value')?.value;
-  if (!v) return;
-  navigator.clipboard.writeText(v).then(() => showToast('Token copiado! ✅'));
-}
 
-function shareToken() {
-  const v = document.getElementById('token-value')?.value;
-  if (!v) return;
-  const msg = `Seu token de acesso ao Sistema de Manutenção:\n\n${v}\n\nCole este token em "Inserir token de acesso" na tela de login.`;
-  if (navigator.share) {
-    navigator.share({ title: 'Token de acesso — Sistema de Manutenção', text: msg }).catch(()=>{});
-  } else {
-    navigator.clipboard.writeText(msg).then(() => showToast('Mensagem copiada!'));
-  }
-}
 
-function addWhitelistEntry() {
+async function addWhitelistEntry() {
   const email = document.getElementById('wl-email').value.trim().toLowerCase();
   const name  = document.getElementById('wl-name').value.trim();
   const role  = document.getElementById('wl-role').value;
   if (!email || !email.includes('@')) { showToast('E-mail inválido'); return; }
-  const wl = getWhitelist();
-  if (wl.find(e=>e.email===email)) { showToast('E-mail já cadastrado'); return; }
-  wl.push({ email, name, role, addedAt: Date.now() });
-  saveWhitelist(wl);
-  const users = getUsers();
-  const u = users.find(u=>u.email===email);
-  if (u) { u.role = role; saveUsers(users); }
-  showToast('Usuário adicionado! Agora gere o token de acesso.');
-  renderAdminTab();
+  try {
+    await DB.addWhitelist(email, role, name);
+    showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role}`);
+    await syncUsersFromBackend();
+    renderAdminTab();
+  } catch(e) { showToast('Erro: ' + e.message); }
 }
 
-function changeWLRole(idx, role) {
-  const wl = getWhitelist();
-  if (!wl[idx]) return;
-  wl[idx].role = role;
-  saveWhitelist(wl);
-  const users = getUsers();
-  const u = users.find(u=>u.email===wl[idx].email);
-  if (u) { u.role = role; saveUsers(users); }
-  showToast('Perfil atualizado — gere um novo token para o usuário');
+async function changeWLRole(email, role) {
+  try {
+    await DB.addWhitelist(email, role, '');
+    showToast('Perfil atualizado');
+    await syncUsersFromBackend();
+    renderAdminTab();
+  } catch(e) { showToast('Erro: ' + e.message); }
 }
 
-function removeWLEntry(idx) {
-  const wl = getWhitelist();
-  if (!wl[idx]) return;
-  if (!confirm(`Remover acesso de ${wl[idx].name || wl[idx].email}?`)) return;
-  wl.splice(idx, 1);
-  saveWhitelist(wl);
-  showToast('Acesso removido');
-  renderAdminTab();
+async function removeWLEntry(email) {
+  if (!confirm(`Remover acesso de ${email}?`)) return;
+  try {
+    await DB.removeWhitelist(email);
+    showToast('Acesso removido');
+    await syncUsersFromBackend();
+    renderAdminTab();
+  } catch(e) { showToast('Erro: ' + e.message); }
 }
 
 // ── Tab: Banco de dados ──
