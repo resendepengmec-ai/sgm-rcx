@@ -89,10 +89,21 @@ async function loginWithGoogleToken(googleToken) {
   return data.user;
 }
 
-function startGoogleLogin() {
-  const clientId = localStorage.getItem(CLIENT_ID_KEY);
+async function startGoogleLogin() {
+  // Client ID: tenta cache local → busca do backend
+  let clientId = localStorage.getItem(CLIENT_ID_KEY);
   if (!clientId) {
-    if (typeof showToast === 'function') showToast('Client ID não configurado');
+    try {
+      const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
+      const json = await res.json();
+      if (json.ok && json.data.clientId) {
+        clientId = json.data.clientId;
+        localStorage.setItem(CLIENT_ID_KEY, clientId);
+      }
+    } catch(e) { console.warn('Não foi possível buscar Client ID do backend:', e.message); }
+  }
+  if (!clientId) {
+    if (typeof showToast === 'function') showToast('Client ID não disponível. Contate o administrador.');
     return;
   }
   const base = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
@@ -105,6 +116,20 @@ function startGoogleLogin() {
   });
   window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
 }
+
+// Carrega Client ID do backend silenciosamente ao iniciar
+async function loadClientIdFromBackend() {
+  if (localStorage.getItem(CLIENT_ID_KEY)) return; // já tem em cache
+  try {
+    const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
+    const json = await res.json();
+    if (json.ok && json.data.clientId) {
+      localStorage.setItem(CLIENT_ID_KEY, json.data.clientId);
+    }
+  } catch(e) {}
+}
+// Executa ao carregar o script
+loadClientIdFromBackend();
 
 // ── Data API ──────────────────────────────────────────────────────
 const DB = {
