@@ -35,9 +35,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <header class="app-header">
   <span style="font-size:22px">🔔</span>
   <h1>Chamados de Manutenção</h1>
-  <button class="btn-icon" id="btn-drive-header" onclick="openDriveModal()" title="Google Drive">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28zm1.44 2h8.56l4.08 7H3.64L7.72 5zM7.5 14h9l-4.5 7.79L7.5 14z"/></svg>
-  </button>
+  
 </header>
 
 <!-- ── LIST ── -->
@@ -86,113 +84,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- ── NEW/EDIT ── -->
 <div id="screen-new" class="screen">
-  <div class="card">
-    <div class="card-title">Identificação do equipamento</div>
-    <div class="field">
-      <label>Contrato *</label>
-      <select id="f-client">
-        <option value="">Selecione o contrato…</option>
-        <option value="1020">1020</option>
-        <option value="1023">1023</option>
-        <option value="1123">1123</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>TAG do equipamento *</label>
-      <div style="position:relative">
-        <input id="f-equip" type="text" placeholder="Digite o número da TAG..." oninput="onTagInput()" autocomplete="off">
-        <div class="tag-suggestions" id="tag-suggestions"></div>
-      </div>
-    </div>
-    <div class="machine-info-box" id="machine-info">
-      <div class="mi-title">✅ Equipamento encontrado</div>
-      <div id="mi-marca"></div>
-      <div id="mi-tipo"></div>
-      <div id="mi-cap"></div>
-      <div id="mi-estab"></div>
-      <div id="mi-recinto"></div>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Detalhes do chamado</div>
-    <div class="field">
-      <label>Prioridade</label>
-      <select id="f-priority">
-        <option value="normal">🔵 Normal</option>
-        <option value="alta">🟡 Alta</option>
-        <option value="urgente">🔴 Urgente</option>
-        <option value="baixa">⚪ Baixa</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>Data de abertura</label>
-      <input id="f-date" type="date">
-    </div>
-    <div class="field">
-      <label>Solicitante</label>
-      <input id="f-requester" type="text" placeholder="Nome de quem está relatando">
-    </div>
-    <div class="field">
-      <label>Descrição do problema *</label>
-      <textarea id="f-desc" rows="4" placeholder="Descreva o problema encontrado com o maior nível de detalhe possível..."></textarea>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">
-      Fotos do problema
-      <span class="photo-count-badge" id="photo-badge" style="display:none">0</span>
-    </div>
-    <div class="photo-area" id="photo-area"
-      ondragover="event.preventDefault();this.classList.add('drag')"
-      ondragleave="this.classList.remove('drag')"
-      ondrop="handleDrop(event)">
-      <input type="file" id="photo-input" accept="image/*" multiple capture="environment" onchange="handlePhotoInput(event)">
-      <span class="photo-area-icon">📷</span>
-      <p>Toque para tirar foto ou escolher da galeria</p>
-      <small>Múltiplas fotos permitidas</small>
-    </div>
-    <div class="photo-grid" id="photo-grid"></div>
-  </div>
-
-  <div class="action-bar">
-    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
-    <button class="btn btn-primary" onclick="saveChamado()">📨 Abrir chamado</button>
-  </div>
-</div>
-
-<!-- ── SETTINGS ── -->
-<div id="screen-settings" class="screen">
-  <div class="card">
-    <div class="card-title">Empresa</div>
-    <div class="field"><label>Nome da empresa</label><input id="s-company" type="text" placeholder="Nome fantasia ou razão social"></div>
-    <div class="field"><label>CNPJ / CPF</label><input id="s-cnpj" type="text" placeholder="00.000.000/0001-00"></div>
-    <div class="field"><label>Telefone</label><input id="s-tel" type="tel" placeholder="(62) 99999-9999"></div>
-    <div class="field"><label>E-mail</label><input id="s-email" type="email" placeholder="contato@empresa.com"></div>
-    <div class="field"><label>Endereço</label><input id="s-addr" type="text" placeholder="Rua, número — Cidade/UF"></div>
-    <div class="field"><label>Texto de rodapé no PDF</label><textarea id="s-footer" rows="2" placeholder="Ex: Chamados atendidos em até 24 horas úteis."></textarea></div>
-    <div class="action-bar" style="margin-top:14px">
-      <button class="btn btn-primary" onclick="saveSettings()">Salvar configurações</button>
-    </div>
-  </div>
-  <div class="card">
-    <div class="card-title">Google Drive</div>
-    <div id="drive-status-badge" class="drive-status disconnected"><span>🔴</span><span>Não conectado ao Google Drive</span></div>
-    <button class="btn btn-secondary" onclick="connectDrive()" style="width:100%;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28z"/></svg>
-      Conectar com Google Drive
-    </button>
-  </div>
-  <div class="card">
-    <div class="card-title">Dados</div>
-    <div class="action-bar">
-      <button class="btn btn-secondary" onclick="exportData()">📤 Exportar JSON</button>
-      <button class="btn btn-secondary" onclick="importData()">📥 Importar JSON</button>
-    </div>
-    <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImport(event)">
-  </div>
-</div>
+  
 
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()">+</button>
@@ -205,22 +97,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
       <button class="btn btn-secondary btn-sm" onclick="editChamado(currentDetailId)" style="flex:1">✏️ Editar</button>
       <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
-      <button class="btn btn-secondary btn-sm" onclick="saveToDrive(currentDetailId)" style="flex:1;color:var(--success)">☁️ Drive</button>
+      
       <button class="btn btn-danger btn-sm" onclick="deleteChamado(currentDetailId)" style="flex:1">🗑️ Excluir</button>
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
   </div>
 </div>
 
-<!-- Drive modal -->
-<div class="modal-bg hidden" id="drive-modal">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Google Drive</div>
-    <div id="drive-modal-content"></div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('drive-modal').classList.add('hidden')">Fechar</button>
-  </div>
-</div>
 
 <!-- Lightbox -->
 <div class="lightbox hidden" id="lightbox" onclick="closeLightbox()">
@@ -310,8 +193,6 @@ let newPhotos = [];
 let editingId = null;
 let currentDetailId = null;
 let selectedMachine = null;
-let driveConnected = false;
-let gapiToken = null;
 let tagTimeout = null;
 let filterMonth = '';
 let filterContract = '';
@@ -435,7 +316,8 @@ function renderList() {
         <span class="badge ${s.cls}">${s.label}</span>
         <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span>
         ${c.photos&&c.photos.length?`<span style="font-size:12px;color:var(--text-3)">${c.photos.length}📷</span>`:''}
-      </div>
+        ${_sigTrail(c._signatures)}
+</div>
     </div>`;
   }).join('');
 }
@@ -473,7 +355,14 @@ function saveChamado() {
     createdAt: editingId ? (chamados.find(x=>x.id===editingId)?.createdAt||Date.now()) : Date.now(),
   };
   if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
-  else chamados.unshift(c);
+  else chamados.unshift(c)
+  // Assinatura digital
+  const _sid_c = c.id;
+  const _sedit_c = !!editingId;
+  signRecord(_sid_c, _sedit_c ? 'editado' : 'criado', 'chamados').then(sig => {
+    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['chamados']||[]].flat().find(x=>x.id===_sid_c);
+    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
+  }).catch(()=>{});;
   persist();
   showToast(editingId?'Chamado atualizado!':'Chamado aberto!');
   editingId=null; newPhotos=[]; switchTab('list');
@@ -516,7 +405,33 @@ function persist() {
 // ── Photos ──
 function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
 function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area').classList.remove('drag'); addPhotos(Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'))); }
-function addPhotos(files){ files.forEach(file=>{ const r=new FileReader(); r.onload=ev=>{ newPhotos.push({dataUrl:ev.target.result,name:file.name}); renderPhotoGrid(); }; r.readAsDataURL(file); }); }
+function addPhotos(files) {
+  const MAX = 3, MAX_PX = 800;
+  const slots = MAX - (newPhotos||[]).length;
+  if (slots <= 0) { showToast('Máximo de 3 fotos por registro'); return; }
+  const toAdd = files.filter(f=>f.type.startsWith('image/')).slice(0, slots);
+  if (files.length > slots) showToast('Limite de 3 fotos — algumas ignoradas');
+  toAdd.forEach(file => {
+    const r = new FileReader();
+    r.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w=img.width, h=img.height;
+        if (w>MAX_PX||h>MAX_PX) {
+          if(w>h){h=Math.round(h*MAX_PX/w);w=MAX_PX;}
+          else{w=Math.round(w*MAX_PX/h);h=MAX_PX;}
+        }
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        newPhotos.push({ dataUrl:canvas.toDataURL('image/jpeg',0.75), name:file.name });
+        renderPhotoGrid();
+      };
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
 function removePhoto(i){ newPhotos.splice(i,1); renderPhotoGrid(); }
 function renderPhotoGrid(){
   const grid=document.getElementById('photo-grid');
@@ -842,7 +757,6 @@ function loadSettings(){
   document.getElementById('s-email').value=settings.email||'';
   document.getElementById('s-addr').value=settings.addr||'';
   document.getElementById('s-footer').value=settings.footer||'';
-  updateDriveUI();
 }
 function saveSettings(){
   settings={company:document.getElementById('s-company').value,cnpj:document.getElementById('s-cnpj').value,tel:document.getElementById('s-tel').value,email:document.getElementById('s-email').value,addr:document.getElementById('s-addr').value,footer:document.getElementById('s-footer').value};
@@ -851,38 +765,6 @@ function saveSettings(){
 }
 
 // ── Drive ──
-function connectDrive(){
-  const cid=prompt('Informe seu Google OAuth Client ID:',localStorage.getItem('gdrive_client_id')||'');
-  if(!cid)return;
-  localStorage.setItem('gdrive_client_id',cid);
-  const p=new URLSearchParams({client_id:cid,redirect_uri:location.origin+location.pathname,response_type:'token',scope:'https://www.googleapis.com/auth/drive.file',include_granted_scopes:'true'});
-  window.open('https://accounts.google.com/o/oauth2/v2/auth?'+p,'_blank','width=500,height=600');
-  showToast('Janela aberta. Após login, cole o token.');
-  setTimeout(()=>{const t=prompt('Cole o access_token:');if(t){gapiToken=t;driveConnected=true;updateDriveUI();showToast('Drive conectado!');}},3000);
-}
-function updateDriveUI(){
-  const b=document.getElementById('drive-status-badge');
-  if(driveConnected){b.className='drive-status connected';b.innerHTML='<span>🟢</span><span>Google Drive conectado</span>';}
-  else{b.className='drive-status disconnected';b.innerHTML='<span>🔴</span><span>Não conectado ao Google Drive</span>';}
-}
-async function saveToDrive(id){
-  if(!driveConnected||!gapiToken){showToast('Conecte o Drive nas configurações');switchTab('settings');closeDetailModal();return;}
-  const c=chamados.find(x=>x.id===id);if(!c)return;
-  showToast('Enviando para o Drive…');
-  try{
-    const form=new FormData();
-    form.append('metadata',new Blob([JSON.stringify({name:`chamado-${c.id}.json`,mimeType:'application/json'})],{type:'application/json'}));
-    form.append('file',new Blob([JSON.stringify(c,null,2)],{type:'application/json'}));
-    const res=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',{method:'POST',headers:{Authorization:`Bearer ${gapiToken}`},body:form});
-    if(res.ok)showToast('Salvo no Drive! ✅');else throw new Error('Erro '+res.status);
-  }catch(e){showToast('Erro: '+e.message);}
-}
-function openDriveModal(){
-  document.getElementById('drive-modal-content').innerHTML=driveConnected
-    ?`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">✅ Conectado.</p><button class="btn btn-secondary" style="width:100%" onclick="gapiToken=null;driveConnected=false;updateDriveUI();document.getElementById('drive-modal').classList.add('hidden');showToast('Desconectado')">🔌 Desconectar</button>`
-    :`<p style="font-size:14px;color:var(--text-2);margin-bottom:14px">❌ Não conectado.</p><button class="btn btn-primary" style="width:100%" onclick="document.getElementById('drive-modal').classList.add('hidden');switchTab('settings')">Ir para Configurações</button>`;
-  document.getElementById('drive-modal').classList.remove('hidden');
-}
 
 // ── Export/Import ──
 function exportData(){
@@ -985,6 +867,18 @@ openDetail = function(id) {
     document.querySelectorAll('select[onchange*="updateStatus"]').forEach(s => s.disabled = true);
   }
 };
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
 </script>
 </body>
 </html>

@@ -133,7 +133,7 @@ const user = getCurrentUser();
 if (!user) { window.location.href='index.html'; }
 else {
   document.getElementById('auth-overlay').style.display='none';
-  if (!['admin','gestor'].includes(user.role)) {
+  if (!['admin','diretor','supervisor','gestor'].includes(user.role)) {
     showToast('Sem permissão para acessar relatórios');
     setTimeout(()=>window.location.href='index.html',1500);
   }

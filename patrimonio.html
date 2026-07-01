@@ -194,7 +194,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
-const isAdmin = user?.role === 'admin';
+const isAdmin = ['admin','diretor','supervisor'].includes(user?.role);
 if (!user) { window.location.href = 'index.html'; }
 else {
   document.getElementById('auth-overlay').style.display = 'none';
@@ -250,7 +250,7 @@ function renderList() {
   const pending = movimentos.filter(m=>m.status==='pendente');
 
   // Pending banner (admin only)
-  if (isAdmin && pending.length) {
+  if (isAdmin && pending.length) {  // isAdmin já inclui diretor e supervisor
     document.getElementById('pending-banner').style.display = '';
     document.getElementById('pending-count').textContent = pending.length;
     document.getElementById('pending-text').textContent =
@@ -545,6 +545,7 @@ function executeMovimento(id) {
   m.executadoEm = Date.now();
   m.executadoPor= user.name;
   saveData(m);
+  signRecord(m.id, 'executado', 'movimentacoes').catch(()=>{});
   DB.updateMovStatus(m.id, 'executada').catch(()=>{});
   showToast('✅ Banco de equipamentos atualizado!');
   renderList();
@@ -558,6 +559,18 @@ function showScreen(s) {
 
 // ── Init ──────────────────────────────────────────────────────────
 renderList();
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
 </script>
 </body>
 </html>

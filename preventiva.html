@@ -645,7 +645,14 @@ function savePlan() {
     })),
   };
 
-  plans.unshift(plan);
+  plans.unshift(plan)
+  // Assinatura digital
+  const _sid_plan = plan.id;
+  const _sedit_plan = false;
+  signRecord(_sid_plan, _sedit_plan ? 'editado' : 'criado', 'preventiva').then(sig => {
+    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['preventiva']||[]].flat().find(x=>x.id===_sid_plan);
+    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
+  }).catch(()=>{});;
   persist();
   showToast('Plano criado! Iniciando execução…');
   openPlan(plan.id);
@@ -1060,6 +1067,18 @@ function printFilteredPDF() {
 
 // ── Init ──
 renderPlansList();
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
 </script>
 </body>
 </html>

@@ -224,7 +224,7 @@ function renderList() {
   list.innerHTML = contracts.map(c => {
     const equip  = c.equipamentos || [];
     const docs   = c.documentos   || [];
-    const canEdit= user.role==='admin';
+    const canEdit= getCurrentUser()?.role==='admin';
     return `
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -246,6 +246,7 @@ function renderList() {
         <span class="tag-count">📊 ${equip.length} equipamentos</span>
         ${docs.map(d=>`<span class="doc-chip">📄 ${d.name}</span>`).join('')}
         ${equip.length ? `<button onclick="viewEquipamentos('${c.id}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
+      ${_sigTrail(c._signatures)}
       </div>
     </div>`;
   }).join('');
@@ -262,7 +263,8 @@ function switchFormTab(tab) {
 }
 
 function openNewContract() {
-  if (!['admin'].includes(user.role)) { showToast('Apenas o admin pode criar contratos'); return; }
+  const u = getCurrentUser();
+  if (!u || u.role !== 'admin') { showToast('Apenas o admin pode criar contratos'); return; }
   editId = null; pendingEquip = null; pendingDocs = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
@@ -274,7 +276,8 @@ function openNewContract() {
 }
 
 function openEdit(id) {
-  if (!['admin'].includes(user.role)) { showToast('Apenas o admin pode editar contratos'); return; }
+  const u = getCurrentUser();
+  if (!u || u.role !== 'admin') { showToast('Apenas o admin pode editar contratos'); return; }
   load();
   const c = contracts.find(x=>x.id===id);
   if (!c) return;
@@ -302,7 +305,7 @@ function openEdit(id) {
 
 function cancelForm() { showScreen('list'); }
 
-function saveContract() {
+async function saveContract() {
   const numero = document.getElementById('f-numero').value.trim();
   const razao  = document.getElementById('f-razao').value.trim();
   const inicio = document.getElementById('f-inicio').value;
@@ -328,17 +331,29 @@ function saveContract() {
   const idx = contracts.findIndex(x=>x.id===editId);
   if (idx>=0) contracts[idx]=c; else contracts.push(c);
   save();
+  // Assinatura digital
+  const _sedit_c = !!editId;
+  signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos').then(sig => {
+    const _idx = contracts.findIndex(x=>x.id===c.id);
+    if (_idx>=0) { contracts[_idx]._signatures = contracts[_idx]._signatures||[]; contracts[_idx]._signatures.push(sig); }
+  }).catch(()=>{});
+
   // Sync backend
-  DB.saveContrato(c).catch(e => console.warn('Sync contrato:', e.message));
+  try {
+    await DB.saveContrato(c);
+    showToast(`✅ Contrato ${c.numero} salvo no servidor!`);
+  } catch(e) {
+    showToast(`Contrato ${c.numero} salvo localmente (sem sync com servidor)`);
+  }
 
   // Sync machine DB com os equipamentos do contrato
   if (c.equipamentos.length) {
     const mdb = getEffDB() || {};
     mdb[c.numero] = c.equipamentos;
     localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
+    DB.saveMachineDB(mdb).catch(()=>{});
   }
 
-  showToast(`Contrato ${c.numero} salvo!`);
   showScreen('list');
   renderList();
 }
@@ -449,7 +464,30 @@ function showScreen(s) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
+// Carrega do localStorage primeiro (imediato) depois sincroniza com backend
+load();
 renderList();
+DB.getContratos().then(data => {
+  if (data && data.length) {
+    contracts = data;
+    localStorage.setItem(CONTRACTS_KEY, JSON.stringify(data));
+    renderList();
+  }
+}).catch(() => {
+  // fallback já carregado do localStorage
+});
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
 </script>
 </body>
 </html>

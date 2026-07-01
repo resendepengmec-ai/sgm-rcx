@@ -115,6 +115,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .module-card.contratos{border-color:#0f766e;}
 .module-card.patrimonio{border-color:#7c3aed;}
 .module-card.relatorios{border-color:#1d4ed8;}
+.module-card.dashboard{border-color:#7c3aed;}
 .module-card.admin{border-color:#dc2626;}
 .module-icon{font-size:28px;line-height:1;}
 .module-name{font-size:var(--fs-sm);font-weight:700;word-break:break-word;}
@@ -127,6 +128,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .module-card.contratos .module-count{background:#f0fdfa;color:#0f766e;}
 .module-card.patrimonio .module-count{background:#ede9fe;color:#5b21b6;}
 .module-card.relatorios .module-count{background:#dbeafe;color:#1e3a8a;}
+.module-card.dashboard .module-count{background:#ede9fe;color:#5b21b6;}
 .module-card.admin .module-count{background:#fee2e2;color:#991b1b;}
 
 /* ── Activity ── */
@@ -328,12 +330,82 @@ let pendingDB = null;
 
 // ── Login ──
 function renderLogin() {
+  // Se já passou pelo About nesta sessão, vai direto para o login
+  if (sessionStorage.getItem('smm_about_seen')) {
+    renderLoginScreen();
+  } else {
+    renderAbout();
+  }
+}
+
+function renderAbout() {
+  // Carrega dados de contato do backend/cache
+  const cfg = JSON.parse(localStorage.getItem('smm_about_config') || '{}');
+  const company = cfg.company || 'SGM-RCX';
+  const email   = cfg.contact_email || '';
+  const phone   = cfg.contact_phone || '';
+  const address = cfg.address || '';
+  const desc    = cfg.description || 'Sistema de Gestão de Manutenção para controle de chamados, orçamentos, preventiva e patrimônio.';
+
+  // Busca config do backend em background
+  DB.getConfig().then(c => {
+    if (!c) return;
+    const updated = {
+      company:       c.company       || company,
+      contact_email: c.contact_email || email,
+      contact_phone: c.contact_phone || phone,
+      address:       c.address       || address,
+      description:   c.description   || desc,
+    };
+    localStorage.setItem('smm_about_config', JSON.stringify(updated));
+    // Re-render se ainda estiver na tela About
+    if (app.querySelector('.about-screen')) renderAbout();
+  }).catch(()=>{});
+
+  app.innerHTML =
+    '<div class="about-screen">' +
+      '<div class="about-hero">' +
+        '<div class="about-logo">🔧</div>' +
+        '<div class="about-name">' + company + '</div>' +
+        '<div class="about-tagline">Sistema de Gestão de Manutenção</div>' +
+        '<p class="about-desc">' + desc + '</p>' +
+        '<div class="about-features">' +
+          '<div class="about-feat"><div class="about-feat-icon">📋</div><div class="about-feat-label">Chamados e O.S.</div></div>' +
+          '<div class="about-feat"><div class="about-feat-icon">🔧</div><div class="about-feat-label">Registros</div></div>' +
+          '<div class="about-feat"><div class="about-feat-icon">📊</div><div class="about-feat-label">Dashboard</div></div>' +
+          '<div class="about-feat"><div class="about-feat-icon">📋</div><div class="about-feat-label">Preventiva</div></div>' +
+          '<div class="about-feat"><div class="about-feat-icon">📑</div><div class="about-feat-label">Contratos</div></div>' +
+          '<div class="about-feat"><div class="about-feat-icon">🏭</div><div class="about-feat-label">Patrimônio</div></div>' +
+        '</div>' +
+        (email || phone || address ? `
+        <div class="about-contact">
+          <div class="about-contact-title">Contato do Administrador</div>
+          ${email   ? '<div class="about-contact-row"><span>✉</span><span>' + email + '</span></div>' : ''}
+          ${phone   ? '<div class="about-contact-row"><span>☎</span><span>' + phone + '</span></div>' : ''}
+          ${address ? '<div class="about-contact-row"><span>📍</span><span>' + address + '</span></div>' : ''}
+        </div>` : '') +
+        '<div class="about-btn-row">' +
+          '<button class="about-btn-primary" onclick="proceedToLogin()">Entrar no sistema</button>' +
+          '<button class="about-btn-secondary" onclick="renderAbout()">↻</button>' +
+        '</div>' +
+        '<div class="about-version">SGM-RCX v4 · ' + new Date().getFullYear() + '</div>' +
+      '</div>' +
+      '<button class="admin-footer-link" onclick="openAdminLogin()">Administrador</button>' +
+    '</div>';
+}
+
+function proceedToLogin() {
+  sessionStorage.setItem('smm_about_seen', '1');
+  renderLoginScreen();
+}
+
+function renderLoginScreen() {
   app.innerHTML =
     '<div class="login-bg" style="min-height:100vh;position:relative">' +
     '<div class="login-header" style="padding-top:56px">' +
     '<div class="login-logo">&#128295;</div>' +
     '<div class="login-title">Sistema de Manutencao</div>' +
-    '<div class="login-subtitle">Chamados &middot; Registros &middot; Orcamentos &middot; Preventiva</div>' +
+    '<div class="login-subtitle">Acesso restrito a usuarios autorizados</div>' +
     '</div>' +
     '<div class="login-card">' +
     '<h2>Entrar no sistema</h2>' +
@@ -341,54 +413,20 @@ function renderLogin() {
     '<button class="btn-google" onclick="startGoogleLogin()">' +
     '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' +
     'Entrar com Google</button>' +
+    '<button onclick="goBack()" style="width:100%;margin-top:10px;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;font-size:var(--fs-sm);color:var(--text-3);cursor:pointer">← Voltar</button>' +
     '</div>' +
     '<button class="admin-footer-link" onclick="openAdminLogin()">Administrador</button>' +
     '</div>';
 }
 
+function goBack() {
+  sessionStorage.removeItem('smm_about_seen');
+  renderAbout();
+}
 
-// ── Admin panel functions ─────────────────────────────────────────
-function openAdminLogin() {
-  const cur = localStorage.getItem('smm_client_id') || '';
-  const el  = document.getElementById('admin-cid-input');
-  if (el) el.value = cur;
-  const btn = document.getElementById('admin-google-btn');
-  if (btn) btn.disabled = !cur;
-  const status = document.getElementById('admin-login-status');
-  if (status) {
-    if (cur) { status.style.display=''; status.innerHTML='Client ID configurado'; }
-    else status.style.display='none';
-  }
-  const overlay = document.getElementById('admin-login-overlay');
-  if (overlay) overlay.classList.remove('hidden');
-}
-function closeAdminLogin() {
-  const overlay = document.getElementById('admin-login-overlay');
-  if (overlay) overlay.classList.add('hidden');
-}
-async function saveAdminClientId() {
-  const id = document.getElementById('admin-cid-input').value.trim();
-  if (!id) { showToast('Informe o Client ID'); return; }
-  localStorage.setItem('smm_client_id', id);
-  localStorage.removeItem('smm_user_cid');
-  const btn = document.getElementById('admin-google-btn');
-  if (btn) btn.disabled = false;
-  // Salva no backend para que usuários não precisem configurar nada
-  try {
-    await fetch(`${window.SMM_API}/api/auth/config/client-id`, {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json',
-                 'Authorization': 'Bearer ' + (sessionStorage.getItem('smm_jwt')||'') },
-      body: JSON.stringify({ clientId: id })
-    });
-    showToast('Client ID salvo no servidor!');
-  } catch(e) { showToast('Client ID salvo localmente.'); }
-}
-function doAdminGoogleLogin() {
-  localStorage.removeItem('smm_user_cid');
-  closeAdminLogin();
-  startGoogleLogin();
-}
+function configClientId() { openAdminLogin(); }
+
+
 function configClientId() { openAdminLogin(); }
 
 
@@ -430,6 +468,7 @@ function renderDashboard(user) {
     {id:'contratos', icon:'📑',name:'Contratos',   desc:'Dados, equipamentos e documentos dos contratos', count:`${contratos.length} contrato${contratos.length!==1?'s':''}`, file:'contratos.html'},
     {id:'patrimonio',icon:'🏭',name:'Patrimônio',  desc:'Movimentações patrimoniais com aprovação', count:movPendentes>0?`${movPendentes} pendente${movPendentes!==1?'s':''}`:'Equipamentos', file:'patrimonio.html'},
     {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Relatório gerencial consolidado mensal',  count:'Consolidado',                                file:'relatorio.html'},
+    {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Métricas e KPIs de manutenção em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
     {id:'admin',    icon:'👑',name:'Administração',desc:'Usuários, permissões e banco de dados', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
   ].filter(m=>role.modules?.includes(m.id));
 
@@ -963,6 +1002,92 @@ async function syncUsersFromBackend() {
     if (wl)    localStorage.setItem('smm_whitelist_cache', JSON.stringify(wl));
     return { users: users||[], wl: wl||[] };
   } catch(e) { return { users: [], wl: [] }; }
+}
+
+// ── Tab: Auditoria ────────────────────────────────────────────────
+async function renderAuditTab(el) {
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando logs...</div>';
+  try {
+    const [summary, expired] = await Promise.all([
+      DB.getAuditSummary(),
+      DB.getExpiredAccess(90),
+    ]);
+
+    const expiredHtml = expired.length ? `
+      <div style="background:var(--warning-bg);border:1px solid #fde68a;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+        <div style="font-size:13px;font-weight:700;color:var(--warning);margin-bottom:8px">
+          ⚠️ ${expired.length} acesso(s) sem uso há mais de 90 dias
+        </div>
+        ${expired.map(e=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid #fde68a;font-size:12px">
+            <span>${e.email} · <strong>${e.role}</strong></span>
+            <button onclick="removeWLEntry('${e.email}')"
+              style="padding:3px 10px;border-radius:6px;border:1px solid var(--danger);background:none;color:var(--danger);font-size:11px;cursor:pointer">
+              Revogar acesso
+            </button>
+          </div>`).join('')}
+      </div>` : '<div style="background:var(--success-bg);border:1px solid #bbf7d0;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:var(--success)">✅ Nenhum acesso expirado</div>';
+
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:16px">
+        ${[
+          ['Logins (30d)', summary.logins_30d, '#7c3aed'],
+          ['Ações (30d)', summary.actions_30d, '#059669'],
+          ['Usuários ativos', summary.active_users, '#0284c7'],
+          ['Acessos expirados', summary.expired_access, summary.expired_access>0?'#dc2626':'#059669'],
+        ].map(([l,v,c])=>`
+          <div style="background:var(--surface);border-radius:10px;padding:14px;box-shadow:var(--shadow);text-align:center">
+            <div style="font-size:24px;font-weight:700;color:${c}">${v}</div>
+            <div style="font-size:11px;color:var(--text-3)">${l}</div>
+          </div>`).join('')}
+      </div>
+
+      ${expiredHtml}
+
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">Log de atividades recentes</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input id="audit-filter-email" type="text" placeholder="Filtrar por e-mail" style="flex:1;min-width:160px;font-size:12px;padding:6px 10px">
+        <select id="audit-filter-module" style="font-size:12px;padding:6px">
+          <option value="">Todos os módulos</option>
+          ${['chamados','registros','orcamentos','preventiva','contratos','movimentacoes','auth','users'].map(m=>`<option value="${m}">${m}</option>`).join('')}
+        </select>
+        <button onclick="loadAuditLog()" style="padding:6px 14px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:12px;cursor:pointer">Filtrar</button>
+      </div>
+      <div id="audit-log-list">
+        <div style="text-align:center;font-size:13px;color:var(--text-3);padding:16px">Clique em Filtrar para carregar os logs</div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--danger);padding:16px">Erro ao carregar auditoria: ' + e.message + '</div>';
+  }
+}
+
+async function loadAuditLog() {
+  const email  = document.getElementById('audit-filter-email')?.value.trim();
+  const module = document.getElementById('audit-filter-module')?.value;
+  const list   = document.getElementById('audit-log-list');
+  if (!list) return;
+  list.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-3)">Carregando...</div>';
+  try {
+    const logs = await DB.getAuditLog({ userEmail:email||undefined, module:module||undefined });
+    if (!logs.length) { list.innerHTML='<div style="text-align:center;padding:16px;color:var(--text-3)">Nenhum log encontrado</div>'; return; }
+    const ACTION_ICONS = {login:'🔑',logout:'🚪',criado:'✅',editado:'✏️',excluido:'🗑️',revoke_session:'🔒',aprovado:'✔️',executado:'⚙️'};
+    list.innerHTML = logs.slice(0,100).map(l=>{
+      const dt = new Date(l.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const icon = ACTION_ICONS[l.action]||'•';
+      return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start">
+        <span style="font-size:14px;flex-shrink:0">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <span style="font-weight:600">${l.user_email||'sistema'}</span>
+          <span style="color:var(--text-3)"> · ${l.user_role||''}</span>
+          <span style="margin-left:6px;padding:1px 6px;border-radius:4px;background:var(--bg);font-size:11px">${l.action}</span>
+          ${l.module?`<span style="color:var(--text-3)"> · ${l.module}${l.record_id?' #'+l.record_id.slice(-6):''}</span>`:''}
+        </div>
+        <span style="color:var(--text-3);white-space:nowrap">${dt}</span>
+      </div>`;
+    }).join('') + (logs.length>100?`<div style="text-align:center;font-size:12px;color:var(--text-3);padding:8px">Mostrando 100 de ${logs.length} registros</div>`:'');
+  } catch(e) {
+    list.innerHTML = '<div style="color:var(--danger)">Erro: ' + e.message + '</div>';
+  }
 }
 </script>
 </body>

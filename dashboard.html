@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="theme-color" content="#0f172a">
+<title>Dashboard — SGM-RCX</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root{
+  --primary:#7c3aed;--bg:#0f172a;--surface:#1e293b;--surface2:#273549;
+  --border:#334155;--text:#f1f5f9;--text2:#94a3b8;--text3:#475569;
+  --green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--cyan:#06b6d4;
+  --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding-bottom:32px;}
+
+/* Header */
+.dash-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;}
+.dash-title{font-size:16px;font-weight:700;flex:1;}
+.back-link{color:var(--text2);font-size:13px;text-decoration:none;display:flex;align-items:center;gap:4px;}
+
+/* Filters */
+.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.filters select,.filters input{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12px;}
+.period-pills{display:flex;gap:4px;}
+.period-pill{padding:6px 14px;border-radius:99px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
+.period-pill.active{background:var(--primary);border-color:var(--primary);color:#fff;}
+.btn-refresh{padding:7px 14px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;}
+
+/* Grid */
+.dash-grid{padding:16px;display:grid;gap:14px;}
+.row-4{grid-template-columns:repeat(4,1fr);}
+.row-3{grid-template-columns:repeat(3,1fr);}
+.row-2{grid-template-columns:repeat(2,1fr);}
+@media(max-width:640px){.row-4,.row-3,.row-2{grid-template-columns:1fr 1fr;}}
+@media(max-width:400px){.row-4,.row-3,.row-2{grid-template-columns:1fr;}}
+
+/* KPI Card */
+.kpi{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);position:relative;overflow:hidden;}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--primary));}
+.kpi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.kpi-val{font-size:32px;font-weight:700;line-height:1;color:var(--accent,var(--text));}
+.kpi-sub{font-size:11px;color:var(--text2);margin-top:6px;}
+.kpi-trend{position:absolute;top:14px;right:14px;font-size:20px;}
+.kpi-bar{height:4px;background:var(--border);border-radius:99px;margin-top:10px;overflow:hidden;}
+.kpi-bar-fill{height:100%;border-radius:99px;background:var(--accent,var(--primary));transition:width .6s ease;}
+
+/* Gauge */
+.gauge-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);text-align:center;}
+.gauge-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.gauge-wrap{position:relative;width:120px;height:70px;margin:0 auto 8px;}
+.gauge-svg{width:120px;height:70px;}
+.gauge-val{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:22px;font-weight:700;}
+.gauge-sub{font-size:11px;color:var(--text2);}
+
+/* Chart card */
+.chart-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2);}
+.chart-wrap{position:relative;}
+
+/* Priority list */
+.prio-list{list-style:none;}
+.prio-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);}
+.prio-item:last-child{border-bottom:none;}
+.prio-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.prio-name{flex:1;font-size:13px;}
+.prio-count{font-size:13px;font-weight:700;}
+.prio-bar-wrap{flex:1;background:var(--border);border-radius:99px;height:4px;overflow:hidden;}
+.prio-bar-inner{height:100%;border-radius:99px;}
+
+/* SLA meter */
+.sla-ring{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.sla-val{font-size:28px;font-weight:700;}
+.sla-label{font-size:11px;color:var(--text2);}
+
+/* Status pills */
+.status-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.status-pill{flex:1;min-width:70px;padding:10px 8px;border-radius:8px;text-align:center;background:var(--surface2);}
+.status-pill .sp-val{font-size:22px;font-weight:700;}
+.status-pill .sp-label{font-size:10px;color:var(--text2);margin-top:2px;}
+
+/* Table */
+.dash-table{width:100%;border-collapse:collapse;font-size:12px;}
+.dash-table th{padding:8px 10px;text-align:left;color:var(--text2);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.06em;border-bottom:1px solid var(--border);}
+.dash-table td{padding:8px 10px;border-bottom:1px solid var(--border);}
+.dash-table tr:last-child td{border-bottom:none;}
+.dash-table tr:hover td{background:var(--surface2);}
+
+.badge-sm{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;}
+.badge-aberto{background:#fef3c7;color:#92400e;}
+.badge-andamento{background:#dbeafe;color:#1e40af;}
+.badge-resolvido{background:#d1fae5;color:#065f46;}
+.badge-alta{background:#fee2e2;color:#991b1b;}
+.badge-urgente{background:#fce7f3;color:#9d174d;}
+.badge-normal{background:#f1f5f9;color:#475569;}
+.badge-baixa{background:#f0fdf4;color:#14532d;}
+
+.empty-state{text-align:center;padding:40px;color:var(--text3);}
+.loading{text-align:center;padding:40px;color:var(--text2);}
+
+.section-title{font-size:14px;font-weight:700;color:var(--text);padding:4px 0 10px;border-bottom:1px solid var(--border);margin-bottom:14px;}
+</style>
+</head>
+<body>
+<div class="auth-overlay" id="auth-overlay" style="position:fixed;inset:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999">
+  <div class="spinner" style="border-color:#334155;border-top-color:#7c3aed"></div>
+  <p style="color:#94a3b8;margin-top:12px;font-size:13px">Verificando acesso…</p>
+</div>
+
+<header class="dash-header">
+  <a href="index.html" class="back-link">← Início</a>
+  <span class="dash-title">Dashboard de Manutenção</span>
+  <span id="last-update" style="font-size:11px;color:var(--text2)"></span>
+</header>
+
+<!-- Filters -->
+<div class="filters">
+  <div class="period-pills">
+    <button class="period-pill active" onclick="setPeriod('day')">Hoje</button>
+    <button class="period-pill" onclick="setPeriod('week')">7 dias</button>
+    <button class="period-pill" onclick="setPeriod('month')">30 dias</button>
+    <button class="period-pill" onclick="setPeriod('quarter')">90 dias</button>
+  </div>
+  <select id="f-contract" onchange="render()">
+    <option value="">Todos os contratos</option>
+  </select>
+  <select id="f-estab" onchange="render()">
+    <option value="">Todos os estabelecimentos</option>
+  </select>
+  <input id="f-tag" type="text" placeholder="TAG…" style="width:90px" oninput="render()">
+  <button class="btn-refresh" onclick="loadData()">↻ Atualizar</button>
+</div>
+
+<!-- Main content -->
+<div id="dash-content" class="loading">Carregando dados…</div>
+
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Auth ──────────────────────────────────────────────────────────
+const user = getCurrentUser();
+if (!user) { window.location.href = 'index.html'; }
+else {
+  document.getElementById('auth-overlay').style.display = 'none';
+  if (!['admin','diretor','supervisor','gestor'].includes(user.role)) {
+    window.location.href = 'index.html';
+  }
+}
+
+// ── State ─────────────────────────────────────────────────────────
+let period   = 'month';
+let chamados = [], registros = [], preventiva = [], contratos = [];
+let charts   = {};
+
+const SLA_HOURS = { urgente:4, alta:8, normal:24, baixa:72 };
+
+// ── Period ────────────────────────────────────────────────────────
+function setPeriod(p) {
+  period = p;
+  document.querySelectorAll('.period-pill').forEach(b =>
+    b.classList.toggle('active', b.textContent.toLowerCase().includes(
+      {day:'hoje',week:'7',month:'30',quarter:'90'}[p]
+    ))
+  );
+  render();
+}
+
+function periodStart() {
+  const now = new Date();
+  const d = {
+    day:     new Date(now.getFullYear(), now.getMonth(), now.getDate()),
+    week:    new Date(Date.now() - 7*86400000),
+    month:   new Date(Date.now() - 30*86400000),
+    quarter: new Date(Date.now() - 90*86400000),
+  };
+  return d[period] || d.month;
+}
+
+function inPeriod(dateStr) {
+  if (!dateStr) return false;
+  return new Date(dateStr + 'T00:00:00') >= periodStart();
+}
+
+// ── Filters ───────────────────────────────────────────────────────
+function getFilters() {
+  return {
+    contract: document.getElementById('f-contract')?.value || '',
+    estab:    document.getElementById('f-estab')?.value    || '',
+    tag:      document.getElementById('f-tag')?.value.trim().toLowerCase() || '',
+  };
+}
+
+function matchFilters(c) {
+  const f = getFilters();
+  if (f.contract && (c.client||c.contract||c.contrato) !== f.contract) return false;
+  if (f.estab && (c.machine?.estabelecimento||'').toLowerCase() !== f.estab.toLowerCase()) return false;
+  if (f.tag && !(c.equip||c.tag||'').toLowerCase().includes(f.tag)) return false;
+  return true;
+}
+
+// ── Load data ─────────────────────────────────────────────────────
+async function loadData() {
+  document.getElementById('last-update').textContent = '';
+  document.getElementById('dash-content').innerHTML = '<div class="loading">Sincronizando com o servidor…</div>';
+  try {
+    [chamados, registros, preventiva, contratos] = await Promise.all([
+      DB.getAll('chamados').catch(()=>[]),
+      DB.getAll('registros').catch(()=>[]),
+      DB.getAll('preventiva').catch(()=>[]),
+      DB.getContratos().catch(()=>[]),
+    ]);
+    // Fallback to localStorage
+    if (!chamados.length)  chamados  = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+    if (!registros.length) registros = JSON.parse(localStorage.getItem('registro_records')||'[]');
+    if (!preventiva.length)preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]');
+    if (!contratos.length) contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  } catch(e) {
+    chamados  = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+    registros = JSON.parse(localStorage.getItem('registro_records')||'[]');
+    preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]');
+    contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  }
+  // Populate contract filter
+  const sel = document.getElementById('f-contract');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Todos os contratos</option>' +
+    contratos.map(c=>`<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao}</option>`).join('');
+  // Populate estab filter
+  const estabs = [...new Set(chamados.map(c=>c.machine?.estabelecimento).filter(Boolean))].sort();
+  const selE = document.getElementById('f-estab');
+  const curE = selE.value;
+  selE.innerHTML = '<option value="">Todos os estabelecimentos</option>' +
+    estabs.map(e=>`<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
+
+  document.getElementById('last-update').textContent =
+    'Atualizado: ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  render();
+}
+
+// ── KPIs calculation ──────────────────────────────────────────────
+function calcKPIs() {
+  const filtered = chamados.filter(c => inPeriod(c.date) && matchFilters(c));
+  const total     = filtered.length;
+  const abertos   = filtered.filter(c=>(c.status||'aberto')==='aberto').length;
+  const andamento = filtered.filter(c=>c.status==='andamento').length;
+  const resolvidos= filtered.filter(c=>c.status==='resolvido').length;
+  const cancelados= filtered.filter(c=>c.status==='cancelado').length;
+
+  // SLA: chamado resolvido dentro do prazo (por prioridade)
+  let slaOk = 0, slaTotal = 0;
+  filtered.filter(c=>c.status==='resolvido').forEach(c => {
+    const prazoH = SLA_HOURS[c.priority||'normal'] || 24;
+    const abertoEm  = c.createdAt || new Date(c.date+'T08:00:00').getTime();
+    const resolvidoEm = c.resolvedAt || c.updatedAt || abertoEm + prazoH*3600000;
+    const duracaoH  = (resolvidoEm - abertoEm) / 3600000;
+    slaTotal++;
+    if (duracaoH <= prazoH) slaOk++;
+  });
+  const slaRate = slaTotal > 0 ? Math.round(slaOk / slaTotal * 100) : 0;
+
+  // MTTR: tempo médio de resolução (horas)
+  let mttrSum = 0, mttrCount = 0;
+  filtered.filter(c=>c.status==='resolvido').forEach(c => {
+    const abertoEm   = c.createdAt || new Date(c.date+'T08:00:00').getTime();
+    const resolvidoEm= c.resolvedAt || c.updatedAt || 0;
+    if (resolvidoEm > abertoEm) { mttrSum += (resolvidoEm-abertoEm)/3600000; mttrCount++; }
+  });
+  const mttr = mttrCount > 0 ? (mttrSum/mttrCount).toFixed(1) : '—';
+
+  // Backlog preventiva
+  const prevPlans = preventiva.filter(p => matchFilters({
+    client: p.client||p.contrato, machine:{ estabelecimento: p.machine?.estabelecimento||'' },
+    equip: p.tag||''
+  }));
+  const prevTotal  = prevPlans.length;
+  const prevExec   = prevPlans.filter(p=>(p.execucoes||[]).some(e=>inPeriod((e.data||'').slice(0,10)))).length;
+  const prevBacklog= prevTotal - prevExec;
+  const prevRate   = prevTotal > 0 ? Math.round(prevExec/prevTotal*100) : 0;
+
+  // Prioridade breakdown
+  const prios = { urgente:0, alta:0, normal:0, baixa:0 };
+  filtered.forEach(c => { const p = c.priority||'normal'; if (prios[p]!==undefined) prios[p]++; });
+
+  // Evolução por dia (últimos N dias)
+  const days = period==='day'?1 : period==='week'?7 : period==='month'?30 : 90;
+  const evolution = [];
+  for (let i=days-1; i>=0; i--) {
+    const d = new Date(Date.now()-i*86400000);
+    const ds = d.toISOString().slice(0,10);
+    const label = d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    evolution.push({
+      label,
+      abertos:   chamados.filter(c=>c.date===ds&&(c.status||'aberto')==='aberto'&&matchFilters(c)).length,
+      resolvidos:chamados.filter(c=>c.date===ds&&c.status==='resolvido'&&matchFilters(c)).length,
+    });
+  }
+
+  // Top TAGs com mais chamados
+  const tagCount = {};
+  filtered.forEach(c => { const t=c.equip||c.tag||'Sem TAG'; tagCount[t]=(tagCount[t]||0)+1; });
+  const topTags = Object.entries(tagCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
+
+  return { total, abertos, andamento, resolvidos, cancelados,
+           slaRate, slaOk, slaTotal, mttr,
+           prevTotal, prevExec, prevBacklog, prevRate,
+           prios, evolution, topTags, filtered };
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function render() {
+  const kpi = calcKPIs();
+  const slaColor = kpi.slaRate>=90?'var(--green)':kpi.slaRate>=70?'var(--yellow)':'var(--red)';
+  const prevColor= kpi.prevRate>=80?'var(--green)':kpi.prevRate>=60?'var(--yellow)':'var(--red)';
+
+  document.getElementById('dash-content').innerHTML = `
+  <!-- KPIs principais -->
+  <div class="dash-grid row-4">
+    <div class="kpi" style="--accent:var(--blue)">
+      <div class="kpi-label">Total de chamados</div>
+      <div class="kpi-val">${kpi.total}</div>
+      <div class="kpi-sub">no período selecionado</div>
+      <div class="status-row" style="margin-top:10px">
+        <div class="status-pill"><div class="sp-val" style="color:#eab308">${kpi.abertos}</div><div class="sp-label">Abertos</div></div>
+        <div class="status-pill"><div class="sp-val" style="color:#3b82f6">${kpi.andamento}</div><div class="sp-label">Andamento</div></div>
+        <div class="status-pill"><div class="sp-val" style="color:var(--green)">${kpi.resolvidos}</div><div class="sp-label">Resolvidos</div></div>
+      </div>
+    </div>
+
+    <div class="kpi" style="--accent:${slaColor}">
+      <div class="kpi-label">SLA de atendimento</div>
+      <div class="kpi-val" style="color:${slaColor}">${kpi.slaRate}%</div>
+      <div class="kpi-sub">${kpi.slaOk} de ${kpi.slaTotal} dentro do prazo</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${kpi.slaRate}%;background:${slaColor}"></div></div>
+      <div class="kpi-trend">${kpi.slaRate>=90?'✅':kpi.slaRate>=70?'⚠️':'🔴'}</div>
+    </div>
+
+    <div class="kpi" style="--accent:var(--cyan)">
+      <div class="kpi-label">MTTR médio</div>
+      <div class="kpi-val" style="color:var(--cyan)">${kpi.mttr}</div>
+      <div class="kpi-sub">horas para resolução</div>
+      <div class="kpi-trend">⏱️</div>
+    </div>
+
+    <div class="kpi" style="--accent:${prevColor}">
+      <div class="kpi-label">Backlog preventiva</div>
+      <div class="kpi-val" style="color:${kpi.prevBacklog>0?'var(--yellow)':'var(--green)'}">${kpi.prevBacklog}</div>
+      <div class="kpi-sub">${kpi.prevExec}/${kpi.prevTotal} planos executados (${kpi.prevRate}%)</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:${kpi.prevRate}%;background:${prevColor}"></div></div>
+    </div>
+  </div>
+
+  <!-- Gráfico de evolução + Prioridades -->
+  <div class="dash-grid row-2">
+    <div class="chart-card">
+      <div class="chart-title">Evolução de chamados no período</div>
+      <div class="chart-wrap"><canvas id="chart-evolucao" height="180"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Distribuição por prioridade</div>
+      <ul class="prio-list" style="margin-top:8px">
+        ${[
+          ['urgente','#dc2626','Urgente'],
+          ['alta','#f97316','Alta'],
+          ['normal','#3b82f6','Normal'],
+          ['baixa','#22c55e','Baixa'],
+        ].map(([p,c,l]) => {
+          const count = kpi.prios[p]||0;
+          const pct   = kpi.total > 0 ? Math.round(count/kpi.total*100) : 0;
+          return `<li class="prio-item">
+            <div class="prio-dot" style="background:${c}"></div>
+            <div class="prio-name">${l}</div>
+            <div class="prio-bar-wrap"><div class="prio-bar-inner" style="width:${pct}%;background:${c}"></div></div>
+            <div class="prio-count" style="color:${c}">${count}</div>
+          </li>`;
+        }).join('')}
+      </ul>
+      <!-- SLA por prioridade -->
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">SLA por prioridade</div>
+        ${[['urgente','4h','#dc2626'],['alta','8h','#f97316'],['normal','24h','#3b82f6'],['baixa','72h','#22c55e']].map(([p,sla,c])=>`
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="color:${c}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>
+            <span style="color:var(--text2)">Prazo: ${sla}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <!-- Top TAGs + Chamados recentes -->
+  <div class="dash-grid row-2">
+    <div class="chart-card">
+      <div class="chart-title">Top 5 equipamentos com mais chamados</div>
+      ${kpi.topTags.length ? `
+      <canvas id="chart-tags" height="160"></canvas>` : '<div class="empty-state">Sem dados no período</div>'}
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Chamados abertos por prioridade</div>
+      <table class="dash-table">
+        <thead><tr><th>TAG</th><th>Contrato</th><th>Prioridade</th><th>Dias aberto</th></tr></thead>
+        <tbody>
+          ${kpi.filtered.filter(c=>(c.status||'aberto')==='aberto').sort((a,b)=>{
+            const po={urgente:0,alta:1,normal:2,baixa:3};
+            return (po[a.priority||'normal']||2)-(po[b.priority||'normal']||2);
+          }).slice(0,8).map(c => {
+            const dias = Math.floor((Date.now()-(c.createdAt||Date.now()))/86400000);
+            const po   = c.priority||'normal';
+            const poCor= {urgente:'badge-urgente',alta:'badge-alta',normal:'badge-normal',baixa:'badge-baixa'}[po];
+            return `<tr>
+              <td style="font-weight:600">${c.equip||c.tag||'—'}</td>
+              <td style="color:var(--text2)">${c.client||'—'}</td>
+              <td><span class="badge-sm ${poCor}">${po}</span></td>
+              <td style="color:${dias>3?'var(--red)':dias>1?'var(--yellow)':'var(--green)'}">${dias}d</td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Nenhum chamado aberto</td></tr>'}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Preventiva por contrato -->
+  <div class="dash-grid">
+    <div class="chart-card">
+      <div class="section-title">Execução de preventiva por contrato</div>
+      ${contratos.length ? `
+      <table class="dash-table">
+        <thead><tr><th>Contrato</th><th>Contratante</th><th>Planos</th><th>Executados</th><th>Backlog</th><th>Aderência</th></tr></thead>
+        <tbody>
+          ${contratos.map(cont => {
+            const plans = preventiva.filter(p=>(p.client||p.contrato)===cont.numero);
+            const exec  = plans.filter(p=>(p.execucoes||[]).some(e=>inPeriod((e.data||'').slice(0,10)))).length;
+            const back  = plans.length-exec;
+            const rate  = plans.length>0?Math.round(exec/plans.length*100):0;
+            return `<tr>
+              <td style="font-weight:600">${cont.numero}</td>
+              <td style="color:var(--text2)">${cont.razao?.slice(0,30)||'—'}</td>
+              <td>${plans.length}</td>
+              <td style="color:var(--green)">${exec}</td>
+              <td style="color:${back>0?'var(--yellow)':'var(--text2)'}">${back}</td>
+              <td>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <div style="flex:1;background:var(--border);border-radius:99px;height:6px;overflow:hidden">
+                    <div style="width:${rate}%;height:100%;background:${rate>=80?'var(--green)':rate>=60?'var(--yellow)':'var(--red)'};border-radius:99px"></div>
+                  </div>
+                  <span style="font-size:11px;font-weight:700;color:${rate>=80?'var(--green)':rate>=60?'var(--yellow)':'var(--red)'}">${rate}%</span>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>` : '<div class="empty-state">Nenhum contrato cadastrado</div>'}
+    </div>
+  </div>`;
+
+  // Render charts
+  requestAnimationFrame(() => {
+    renderEvolucaoChart(kpi.evolution);
+    if (kpi.topTags.length) renderTagsChart(kpi.topTags);
+  });
+}
+
+// ── Charts ────────────────────────────────────────────────────────
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+function renderEvolucaoChart(evolution) {
+  destroyChart('evolucao');
+  const ctx = document.getElementById('chart-evolucao');
+  if (!ctx) return;
+  charts['evolucao'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: evolution.map(e=>e.label),
+      datasets: [
+        { label:'Abertos',   data:evolution.map(e=>e.abertos),   backgroundColor:'rgba(234,179,8,.7)',  borderRadius:4 },
+        { label:'Resolvidos',data:evolution.map(e=>e.resolvidos),backgroundColor:'rgba(34,197,94,.7)', borderRadius:4 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ labels:{ color:'#94a3b8', font:{size:11} } } },
+      scales:{
+        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#1e293b'} },
+        y:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#334155'}, beginAtZero:true },
+      }
+    }
+  });
+}
+
+function renderTagsChart(topTags) {
+  destroyChart('tags');
+  const ctx = document.getElementById('chart-tags');
+  if (!ctx) return;
+  charts['tags'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: topTags.map(([t])=>t),
+      datasets:[{ label:'Chamados',
+        data:topTags.map(([,n])=>n),
+        backgroundColor:['#7c3aed','#3b82f6','#06b6d4','#22c55e','#eab308'].map(c=>c+'cc'),
+        borderRadius:4 }]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
+      scales:{
+        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#334155'}, beginAtZero:true },
+        y:{ ticks:{color:'#94a3b8',font:{size:11}}, grid:{display:false} },
+      }
+    }
+  });
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+loadData();
+setInterval(loadData, 5 * 60 * 1000); // auto-refresh 5 min
+</script>
+</body>
+</html>

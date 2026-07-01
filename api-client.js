@@ -15,10 +15,35 @@ const SMM_API_URL = (() => {
 const SESSION_KEY = 'smm_jwt';
 
 const ROLES = {
-  admin:       { label:'Administrador', icon:'👑', color:'#7c3aed', modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'], canCreate:true, canEdit:true, canDelete:true, canViewPrices:true },
-  gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7', modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],         canCreate:false,canEdit:false,canDelete:false,canViewPrices:true },
-  tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669', modules:['chamados','registro','preventiva','patrimonio'],                                              canCreate:true, canEdit:true, canDelete:false,canViewPrices:false },
-  solicitante: { label:'Solicitante',   icon:'📋', color:'#d97706', modules:['chamados'],                                                                                  canCreate:true, canEdit:false,canDelete:false,canViewPrices:false },
+  admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
+                 modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'],
+                 canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
+                 canApprove:true, canManageUsers:true },
+
+  diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
+                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
+                 canApprove:true, canManageUsers:false },
+
+  supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
+                 modules:['chamados','registro','relatorios','preventiva','contratos','patrimonio'],
+                 canCreate:true, canEdit:true, canDelete:false, canViewPrices:true,
+                 canApprove:true, canManageUsers:false },
+
+  gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
+                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 canCreate:false, canEdit:false, canDelete:false, canViewPrices:true,
+                 canApprove:false, canManageUsers:false },
+
+  tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669',
+                 modules:['chamados','registro','preventiva','patrimonio'],
+                 canCreate:true, canEdit:true, canDelete:false, canViewPrices:false,
+                 canApprove:false, canManageUsers:false },
+
+  solicitante: { label:'Solicitante',   icon:'📋', color:'#d97706',
+                 modules:['chamados'],
+                 canCreate:true, canEdit:false, canDelete:false, canViewPrices:false,
+                 canApprove:false, canManageUsers:false },
 };
 
 // ── HTTP client ───────────────────────────────────────────────────
@@ -70,7 +95,8 @@ function saveSession(token, user) {
   _currentUser = user;
 }
 
-function logout() {
+async function logout() {
+  try { await DB.logout(); } catch(e) {}
   sessionStorage.removeItem(SESSION_KEY);
   _currentUser = null;
   window.location.href = 'index.html';
@@ -178,6 +204,18 @@ const DB = {
   saveConfig:         cfg   => API.post('/config', { config:cfg }),
   getStats:           ()    => API.get('/stats'),
   ping:               ()    => API.get('/../ping').then(()=>true).catch(()=>false),
+
+  // Auditoria formal
+  getAuditLog:        (filters={}) => API.get('/audit?' + new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([,v])=>v))).toString()),
+  getAuditSummary:    ()           => API.get('/audit/summary'),
+  getExpiredAccess:   (days=90)    => API.get(`/audit/expired-access?days=${days}`),
+  revokeUserSession:  (userId)     => API.delete(`/users/${userId}/session`),
+  logout:             ()           => API.post('/auth/logout', {}),
+
+  // Assinaturas digitais
+  sign:         (recordId, action, module) => API.post('/sign', { recordId, action, module }),
+  getSignatures:(recordId)                 => API.get(`/sign/${recordId}`),
+
 };
 
 // ── Machine DB local fallback ──────────────────────────────────────
@@ -196,4 +234,67 @@ function getEffDB() {
   const c = localStorage.getItem('smm_custom_db');
   if (c) try { return JSON.parse(c); } catch {}
   return typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+}
+
+// ── Assinaturas digitais ──────────────────────────────────────────
+const SIG_ICONS = {
+  criado:    '✅',
+  editado:   '✏️',
+  aprovado:  '✔️',
+  rejeitado: '✕',
+  executado: '⚙️',
+  concluido: '🏁',
+  gerado:    '📋',
+  excluido:  '🗑️',
+};
+
+const SIG_ROLES = {
+  admin:'Administrador', gestor:'Gestor',
+  tecnico:'Técnico', solicitante:'Solicitante',
+};
+
+// Assina um registro e retorna a assinatura (para inserir no objeto antes de salvar)
+async function signRecord(recordId, action, module) {
+  try {
+    return await DB.sign(recordId, action, module);
+  } catch(e) {
+    // Fallback local se backend offline
+    const user = getCurrentUser();
+    const ts   = Date.now();
+    return {
+      recordId, module, action,
+      by:   user?.name  || '?',
+      role: user?.role  || '?',
+      email:user?.email || '?',
+      at:   ts,
+      hash: Math.random().toString(36).slice(2,8),
+      offline: true,
+    };
+  }
+}
+
+// Renderiza linha de assinaturas para exibir no card
+function renderSignatures(sigs) {
+  if (!sigs || !sigs.length) return '';
+  return '<div class="sig-trail">' +
+    sigs.map(s => {
+      const icon = SIG_ICONS[s.action] || '•';
+      const role = SIG_ROLES[s.role]   || s.role;
+      const dt   = new Date(s.at).toLocaleString('pt-BR',
+        {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const hash = (s.hash||'').slice(0,6);
+      return `<span class="sig-entry">${icon} <strong>${s.by_name||s.by}</strong> · ${role} · ${dt} <code class="sig-hash">[${hash}]</code></span>`;
+    }).join('<span class="sig-sep">|</span>') +
+  '</div>';
+}
+
+// Carrega e exibe assinaturas no elemento informado
+async function loadAndRenderSigs(recordId, containerEl) {
+  if (!containerEl) return;
+  try {
+    const sigs = await DB.getSignatures(recordId);
+    containerEl.innerHTML = renderSignatures(sigs);
+  } catch(e) {
+    containerEl.innerHTML = '';
+  }
 }

@@ -40,9 +40,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <header class="app-header">
   <span class="header-icon">🔧</span>
   <h1>Orçamentos de Serviços</h1>
-  <button class="btn-icon" onclick="openDriveModal()" title="Google Drive">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28zm1.44 2h8.56l4.08 7H3.64L7.72 5zM7.5 14h9l-4.5 7.79L7.5 14z"/></svg>
-  </button>
+  
 </header>
 
 <!-- Screens -->
@@ -87,132 +85,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <div id="screen-new" class="screen">
   <!-- Client info -->
-  <div class="card">
-    <div class="card-title">Dados do Contrato</div>
-    <div class="field">
-      <label>Contrato *</label>
-      <select id="f-client">
-        <option value="">Selecione o contrato…</option>
-        <option value="1020">1020</option>
-        <option value="1023">1023</option>
-        <option value="1123">1123</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>TAG do equipamento *</label>
-      <div style="position:relative">
-        <input id="f-equip" type="text" placeholder="Digite o número da TAG..." oninput="onTagInput()" autocomplete="off">
-        <div id="tag-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--primary);border-top:none;border-radius:0 0 8px 8px;max-height:220px;overflow-y:auto;z-index:50;box-shadow:var(--shadow-md)"></div>
-      </div>
-    </div>
-    <!-- Auto-filled fields (read-only) -->
-    <div id="machine-info" style="display:none;background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-top:10px;font-size:13px;line-height:1.8">
-      <div style="font-weight:600;color:var(--primary);margin-bottom:4px">✅ Equipamento encontrado</div>
-      <div id="mi-marca"></div>
-      <div id="mi-tipo"></div>
-      <div id="mi-cap"></div>
-      <div id="mi-estab"></div>
-      <div id="mi-recinto"></div>
-    </div>
-    <input type="hidden" id="f-phone">
-    <input type="hidden" id="f-address">
-    <input type="hidden" id="f-validity">
-    <input type="hidden" id="f-payment">
-    <div class="field">
-      <label>Data</label>
-      <input id="f-date" type="date">
-    </div>
-  </div>
-
-  <!-- Services -->
-  <div class="card">
-    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-      <span>Serviços</span>
-      <button class="btn-sm btn-outline" onclick="openServiceModal()">+ Adicionar serviço</button>
-    </div>
-    <div id="new-items-list">
-      <div class="empty" style="padding:24px 0">
-        <p>Nenhum serviço adicionado</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- Notes -->
-  <div class="card">
-    <div class="card-title">Observações</div>
-    <textarea id="f-notes" rows="3" placeholder="Prazo de execução, garantia, condições especiais..."></textarea>
-  </div>
-
-  <!-- Totals -->
-  <div class="card" id="totals-card" style="display:none">
-    <div class="card-title">Resumo</div>
-    <div class="totals-row"><span>Subtotal</span><span id="t-sub">R$ 0,00</span></div>
-    <div class="totals-row"><span>Impostos (~20%)</span><span id="t-tax">R$ 0,00</span></div>
-    <div class="totals-row main"><span>Total</span><span id="t-total">R$ 0,00</span></div>
-  </div>
-
-  <div class="action-bar">
-    <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
-    <button class="btn btn-primary" onclick="saveQuote()">💾 Salvar orçamento</button>
-  </div>
-</div>
-
-<div id="screen-settings" class="screen">
-  <div class="card">
-    <div class="card-title">Empresa</div>
-    <div class="field"><label>Nome da empresa</label><input id="s-company" type="text" placeholder="Nome fantasia ou razão social"></div>
-    <div class="field"><label>CNPJ / CPF</label><input id="s-cnpj" type="text" placeholder="00.000.000/0001-00"></div>
-    <div class="field"><label>Telefone</label><input id="s-tel" type="tel" placeholder="(62) 99999-9999"></div>
-    <div class="field"><label>E-mail</label><input id="s-email" type="email" placeholder="contato@empresa.com"></div>
-    <div class="field"><label>Endereço</label><input id="s-addr" type="text" placeholder="Rua, número — Cidade/UF"></div>
-    <div class="field"><label>Logo URL (opcional)</label><input id="s-logo" type="url" placeholder="https://..."></div>
-    <div class="field"><label>Texto de rodapé no PDF</label><textarea id="s-footer" rows="2" placeholder="Ex: Garantia de 90 dias em peças e serviços."></textarea></div>
-    <div class="action-bar" style="margin-top:14px">
-      <button class="btn btn-primary" onclick="saveSettings()">Salvar configurações</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Textos do orçamento consolidado</div>
-    <div class="field">
-      <label>Texto padrão de apresentação</label>
-      <textarea id="s-intro" rows="4" placeholder="Texto exibido antes da tabela orçamentária. Ex: Apresentamos a seguir o orçamento para os serviços de manutenção identificados nos equipamentos relacionados, conforme diagnóstico técnico realizado em campo..."></textarea>
-    </div>
-    <div class="field">
-      <label>Ressalvas finais</label>
-      <textarea id="s-ressalvas" rows="4" placeholder="Texto exibido após a tabela orçamentária. Ex: Os valores apresentados são válidos por 15 dias. Eventuais divergências encontradas durante a execução poderão implicar em ajuste de valores, mediante comunicação prévia ao contratante..."></textarea>
-    </div>
-    <div class="action-bar" style="margin-top:14px">
-      <button class="btn btn-primary" onclick="saveSettings()">Salvar textos</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Google Drive</div>
-    <div id="drive-status-badge" class="drive-status disconnected">
-      <span>🔴</span><span>Não conectado ao Google Drive</span>
-    </div>
-    <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:14px">
-      Conecte sua conta Google para salvar os orçamentos automaticamente na nuvem e acessar de qualquer dispositivo.
-    </p>
-    <button class="btn btn-secondary" onclick="connectDrive()" id="btn-drive-connect" style="width:100%;margin-bottom:8px">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M6.28 3L1 12.5 6.5 22h11l5.5-9.5L17.72 3H6.28z"/></svg>
-      Conectar com Google Drive
-    </button>
-    <p style="font-size:12px;color:var(--text-3);text-align:center">
-      Para usar o Drive, abra o app em um servidor web (não como arquivo local) e configure o Client ID da Google Cloud Console.
-    </p>
-  </div>
-
-  <div class="card">
-    <div class="card-title">Dados</div>
-    <div class="action-bar">
-      <button class="btn btn-secondary" onclick="exportData()">📤 Exportar JSON</button>
-      <button class="btn btn-secondary" onclick="importData()">📥 Importar JSON</button>
-    </div>
-    <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImport(event)">
-  </div>
-</div>
+  
 
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()" title="Novo orçamento">+</button>
@@ -239,22 +112,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
       <button class="btn btn-secondary btn-sm" onclick="editQuote(currentDetailId)" style="flex:1">✏️ Editar</button>
       <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
-      <button class="btn btn-success btn-sm" onclick="saveToDrive(currentDetailId)" style="flex:1">☁️ Drive</button>
+      
       <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger)" onclick="deleteQuote(currentDetailId)">🗑️ Excluir</button>
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
   </div>
 </div>
 
-<!-- Drive modal -->
-<div class="modal-bg hidden" id="drive-modal">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Google Drive</div>
-    <div id="drive-modal-content"></div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="document.getElementById('drive-modal').classList.add('hidden')">Fechar</button>
-  </div>
-</div>
 
 <!-- Consolidated report modal -->
 <div class="modal-bg hidden" id="consolidated-modal">
@@ -375,8 +239,6 @@ let settings = JSON.parse(localStorage.getItem('orcamento_settings') || '{}');
 let newItems = [];
 let editingId = null;
 let currentDetailId = null;
-let driveConnected = false;
-let gapiToken = null;
 
 const fmt = v => 'R$ ' + v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -550,7 +412,8 @@ function renderQuoteList() {
         <div class="qc-meta">${q.date || ''} · ${q.items.length} serviço(s) · <span class="badge ${sCls}">${sLabel}</span></div>
         ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${q.equip}${q.machine ? ' · '+q.machine.marca+' · '+q.machine.estabelecimento : ''}</div>` : ''}
       </div>
-      <div class="qc-total">${fmt(total)}</div>
+      <div class="qc-total">${fmt(total)}  ${_sigTrail(q._signatures)}
+</div>
     </div>`;
   }).join('');
 }
@@ -617,7 +480,14 @@ function saveQuote() {
     const idx = quotes.findIndex(x => x.id === editingId);
     quotes[idx] = q;
   } else {
-    quotes.unshift(q);
+    quotes.unshift(q)
+  // Assinatura digital
+  const _sid_q = q.id;
+  const _sedit_q = !!editingId;
+  signRecord(_sid_q, _sedit_q ? 'editado' : 'criado', 'orcamentos').then(sig => {
+    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['orcamentos']||[]].flat().find(x=>x.id===_sid_q);
+    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
+  }).catch(()=>{});;
   }
   persist();
   showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
@@ -1121,7 +991,6 @@ function loadSettings() {
   document.getElementById('s-footer').value = settings.footer || '';
   document.getElementById('s-intro').value = settings.intro || '';
   document.getElementById('s-ressalvas').value = settings.ressalvas || '';
-  updateDriveUI();
 }
 function saveSettings() {
   settings = {
@@ -1139,79 +1008,8 @@ function saveSettings() {
   showToast('Configurações salvas!');
 }
 
-// ── Google Drive (OAuth PKCE) ──
-const GDRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
-const CLIENT_ID = localStorage.getItem('gdrive_client_id') || '';
 
-function connectDrive() {
-  const cid = prompt('Informe seu Google OAuth Client ID:\n(Configure em console.cloud.google.com → APIs → Credenciais)', CLIENT_ID);
-  if (!cid) return;
-  localStorage.setItem('gdrive_client_id', cid);
-  const params = new URLSearchParams({
-    client_id: cid, redirect_uri: location.origin + location.pathname,
-    response_type: 'token', scope: GDRIVE_SCOPE, include_granted_scopes: 'true',
-  });
-  window.open('https://accounts.google.com/o/oauth2/v2/auth?' + params, '_blank', 'width=500,height=600');
-  showToast('Janela de login aberta. Após autorizar, cole o token.');
-  setTimeout(() => {
-    const token = prompt('Cole o access_token retornado pela URL após o login:');
-    if (token) { gapiToken = token; driveConnected = true; updateDriveUI(); showToast('Google Drive conectado!'); }
-  }, 3000);
-}
 
-function updateDriveUI() {
-  const badge = document.getElementById('drive-status-badge');
-  if (driveConnected) {
-    badge.className = 'drive-status connected';
-    badge.innerHTML = '<span>🟢</span><span>Google Drive conectado</span>';
-  } else {
-    badge.className = 'drive-status disconnected';
-    badge.innerHTML = '<span>🔴</span><span>Não conectado ao Google Drive</span>';
-  }
-}
-
-async function saveToDrive(id) {
-  if (!driveConnected || !gapiToken) {
-    showToast('Conecte o Google Drive primeiro nas configurações');
-    switchTab('settings');
-    closeDetailModal();
-    return;
-  }
-  const q = quotes.find(x => x.id === id);
-  if (!q) return;
-  showToast('Enviando para o Drive…');
-  try {
-    const content = JSON.stringify(q, null, 2);
-    const fileName = `orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.json`;
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify({ name: fileName, mimeType: 'application/json' })], { type: 'application/json' }));
-    form.append('file', new Blob([content], { type: 'application/json' }));
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST', headers: { Authorization: `Bearer ${gapiToken}` }, body: form,
-    });
-    if (res.ok) { showToast('Salvo no Drive! ✅'); }
-    else { throw new Error('Erro ' + res.status); }
-  } catch(e) { showToast('Erro ao salvar no Drive: ' + e.message); }
-}
-
-function openDriveModal() {
-  document.getElementById('drive-modal-content').innerHTML = `
-    <p style="font-size:14px;color:var(--text-2);line-height:1.6;margin-bottom:14px">
-      ${driveConnected ? '✅ Conectado ao Google Drive. Os orçamentos podem ser enviados individualmente.' : '❌ Não conectado. Configure nas <strong>Configurações</strong>.'}
-    </p>
-    ${driveConnected ? `
-      <button class="btn btn-success" style="width:100%;margin-bottom:8px" onclick="saveAllToDrive()">☁️ Salvar todos os orçamentos</button>
-      <button class="btn btn-secondary" style="width:100%" onclick="gapiToken=null;driveConnected=false;updateDriveUI();document.getElementById('drive-modal').classList.add('hidden');showToast('Desconectado')">🔌 Desconectar</button>
-    ` : `<button class="btn btn-primary" style="width:100%" onclick="document.getElementById('drive-modal').classList.add('hidden');switchTab('settings')">Ir para Configurações</button>`}
-  `;
-  document.getElementById('drive-modal').classList.remove('hidden');
-}
-
-async function saveAllToDrive() {
-  for (const q of quotes) await saveToDrive(q.id);
-  showToast(`${quotes.length} orçamento(s) enviados!`);
-  document.getElementById('drive-modal').classList.add('hidden');
-}
 
 // ── Export / Import ──
 function exportData() {
@@ -1264,6 +1062,18 @@ openDetail = function(id) {
     document.querySelectorAll('.qc-total, #t-sub, #t-tax, #t-total').forEach(el => el.textContent = '—');
   }
 };
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
 </script>
 </body>
 </html>
