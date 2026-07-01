@@ -90,7 +90,7 @@ async function loginWithGoogleToken(googleToken) {
 }
 
 async function startGoogleLogin() {
-  // Client ID: tenta cache local → busca do backend
+  // Get Client ID from cache or backend
   let clientId = localStorage.getItem(CLIENT_ID_KEY);
   if (!clientId) {
     try {
@@ -100,22 +100,28 @@ async function startGoogleLogin() {
         clientId = json.data.clientId;
         localStorage.setItem(CLIENT_ID_KEY, clientId);
       }
-    } catch(e) { console.warn('Não foi possível buscar Client ID do backend:', e.message); }
+    } catch(e) {}
   }
   if (!clientId) {
-    if (typeof showToast === 'function') showToast('Client ID não disponível. Contate o administrador.');
+    if (typeof showToast === 'function') showToast('Client ID nao disponivel. Contate o administrador.');
     return;
   }
-  const base = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
+  // Use standard OAuth2 implicit flow with token
+  // Note: for new Google Cloud projects, ensure "Web application" type is selected
+  // and the redirect URI is registered exactly as shown
+  const base   = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
+  const redir  = base + 'auth-callback.html';
   const params = new URLSearchParams({
-    client_id:    clientId,
-    redirect_uri: base + 'auth-callback.html',
-    response_type:'token',
-    scope:        'openid email profile',
-    include_granted_scopes:'true',
+    client_id:              clientId,
+    redirect_uri:           redir,
+    response_type:          'token',
+    scope:                  'openid email profile',
+    include_granted_scopes: 'true',
+    prompt:                 'select_account',
   });
   window.location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + params;
 }
+
 
 // Carrega Client ID do backend silenciosamente ao iniciar
 async function loadClientIdFromBackend() {
