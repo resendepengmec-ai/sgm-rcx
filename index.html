@@ -330,82 +330,12 @@ let pendingDB = null;
 
 // ── Login ──
 function renderLogin() {
-  // Se já passou pelo About nesta sessão, vai direto para o login
-  if (sessionStorage.getItem('smm_about_seen')) {
-    renderLoginScreen();
-  } else {
-    renderAbout();
-  }
-}
-
-function renderAbout() {
-  // Carrega dados de contato do backend/cache
-  const cfg = JSON.parse(localStorage.getItem('smm_about_config') || '{}');
-  const company = cfg.company || 'SGM-RCX';
-  const email   = cfg.contact_email || '';
-  const phone   = cfg.contact_phone || '';
-  const address = cfg.address || '';
-  const desc    = cfg.description || 'Sistema de Gestão de Manutenção para controle de chamados, orçamentos, preventiva e patrimônio.';
-
-  // Busca config do backend em background
-  DB.getConfig().then(c => {
-    if (!c) return;
-    const updated = {
-      company:       c.company       || company,
-      contact_email: c.contact_email || email,
-      contact_phone: c.contact_phone || phone,
-      address:       c.address       || address,
-      description:   c.description   || desc,
-    };
-    localStorage.setItem('smm_about_config', JSON.stringify(updated));
-    // Re-render se ainda estiver na tela About
-    if (app.querySelector('.about-screen')) renderAbout();
-  }).catch(()=>{});
-
-  app.innerHTML =
-    '<div class="about-screen">' +
-      '<div class="about-hero">' +
-        '<div class="about-logo">🔧</div>' +
-        '<div class="about-name">' + company + '</div>' +
-        '<div class="about-tagline">Sistema de Gestão de Manutenção</div>' +
-        '<p class="about-desc">' + desc + '</p>' +
-        '<div class="about-features">' +
-          '<div class="about-feat"><div class="about-feat-icon">📋</div><div class="about-feat-label">Chamados e O.S.</div></div>' +
-          '<div class="about-feat"><div class="about-feat-icon">🔧</div><div class="about-feat-label">Registros</div></div>' +
-          '<div class="about-feat"><div class="about-feat-icon">📊</div><div class="about-feat-label">Dashboard</div></div>' +
-          '<div class="about-feat"><div class="about-feat-icon">📋</div><div class="about-feat-label">Preventiva</div></div>' +
-          '<div class="about-feat"><div class="about-feat-icon">📑</div><div class="about-feat-label">Contratos</div></div>' +
-          '<div class="about-feat"><div class="about-feat-icon">🏭</div><div class="about-feat-label">Patrimônio</div></div>' +
-        '</div>' +
-        (email || phone || address ? `
-        <div class="about-contact">
-          <div class="about-contact-title">Contato do Administrador</div>
-          ${email   ? '<div class="about-contact-row"><span>✉</span><span>' + email + '</span></div>' : ''}
-          ${phone   ? '<div class="about-contact-row"><span>☎</span><span>' + phone + '</span></div>' : ''}
-          ${address ? '<div class="about-contact-row"><span>📍</span><span>' + address + '</span></div>' : ''}
-        </div>` : '') +
-        '<div class="about-btn-row">' +
-          '<button class="about-btn-primary" onclick="proceedToLogin()">Entrar no sistema</button>' +
-          '<button class="about-btn-secondary" onclick="renderAbout()">↻</button>' +
-        '</div>' +
-        '<div class="about-version">SGM-RCX v4 · ' + new Date().getFullYear() + '</div>' +
-      '</div>' +
-      '<button class="admin-footer-link" onclick="openAdminLogin()">Administrador</button>' +
-    '</div>';
-}
-
-function proceedToLogin() {
-  sessionStorage.setItem('smm_about_seen', '1');
-  renderLoginScreen();
-}
-
-function renderLoginScreen() {
   app.innerHTML =
     '<div class="login-bg" style="min-height:100vh;position:relative">' +
     '<div class="login-header" style="padding-top:56px">' +
     '<div class="login-logo">&#128295;</div>' +
-    '<div class="login-title">Sistema de Manutencao</div>' +
-    '<div class="login-subtitle">Acesso restrito a usuarios autorizados</div>' +
+    '<div class="login-title">SGM-RCX</div>' +
+    '<div class="login-subtitle">Sistema de Gestão de Manutenção</div>' +
     '</div>' +
     '<div class="login-card">' +
     '<h2>Entrar no sistema</h2>' +
@@ -413,16 +343,13 @@ function renderLoginScreen() {
     '<button class="btn-google" onclick="startGoogleLogin()">' +
     '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' +
     'Entrar com Google</button>' +
-    '<button onclick="goBack()" style="width:100%;margin-top:10px;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;font-size:var(--fs-sm);color:var(--text-3);cursor:pointer">← Voltar</button>' +
     '</div>' +
     '<button class="admin-footer-link" onclick="openAdminLogin()">Administrador</button>' +
     '</div>';
 }
 
-function goBack() {
-  sessionStorage.removeItem('smm_about_seen');
-  renderAbout();
-}
+function configClientId() { openAdminLogin(); }
+
 
 function configClientId() { openAdminLogin(); }
 
