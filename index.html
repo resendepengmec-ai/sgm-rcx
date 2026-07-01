@@ -506,13 +506,6 @@ function cancelAdminFlow() {
   renderLogin();
 }
 
-function clearToken() {
-  localStorage.removeItem(USER_TOKEN_KEY);
-  localStorage.removeItem(USER_CID_KEY);
-  renderLogin();
-  showToast('Token removido');
-}
-
 // ── Dashboard ──
 function renderDashboard(user) {
   const role = ROLES[user.role] || {};
