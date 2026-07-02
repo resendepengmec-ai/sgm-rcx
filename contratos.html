@@ -74,6 +74,17 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <!-- Tab: Dados gerais -->
     <div id="tab-dados">
+      <!-- Vinculação com cliente existente -->
+      <div id="cliente-existente-box" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px;display:none">
+        <div style="font-size:12px;color:#1e40af;font-weight:600;margin-bottom:6px">
+          🔗 Cliente com equipamentos já cadastrados
+        </div>
+        <div style="font-size:12px;color:#334155;margin-bottom:8px">
+          Este CNPJ já foi usado em contratos anteriores. Você pode reutilizar os equipamentos:
+        </div>
+        <div id="clientes-anteriores"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div class="field" style="grid-column:1/-1">
           <label>Número do contrato *</label>
@@ -81,11 +92,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         </div>
         <div class="field" style="grid-column:1/-1">
           <label>Razão social do contratante *</label>
-          <input id="f-razao" type="text" placeholder="Nome da empresa">
+          <input id="f-razao" type="text" placeholder="Nome da empresa" oninput="checkExistingClient()">
         </div>
         <div class="field">
           <label>CNPJ</label>
-          <input id="f-cnpj" type="text" placeholder="00.000.000/0000-00">
+          <input id="f-cnpj" type="text" placeholder="00.000.000/0000-00" oninput="checkExistingClient()">
         </div>
         <div class="field">
           <label>Telefone</label>
@@ -235,7 +246,7 @@ function renderList() {
   list.innerHTML = contracts.map(c => {
     const equip  = c.equipamentos || [];
     const docs   = c.documentos   || [];
-    const canEdit= getCurrentUser()?.role==='admin';
+    const canEdit= ['admin','diretor'].includes(getCurrentUser()?.role);
     return `
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -275,20 +286,22 @@ function switchFormTab(tab) {
 
 function openNewContract() {
   const u = getCurrentUser();
-  if (!u || u.role !== 'admin') { showToast('Apenas o admin pode criar contratos'); return; }
-  editId = null; pendingEquip = null; pendingDocs = [];
+  if (!u || !['admin','diretor'].includes(u.role)) { showToast('Apenas admin ou diretor pode criar contratos'); return; }
+  editId = null; pendingEquip = []; pendingDocs = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
   document.getElementById('equip-preview').style.display = 'none';
   document.getElementById('docs-list').innerHTML = '';
+  const box = document.getElementById('cliente-existente-box');
+  if (box) box.style.display = 'none';
   switchFormTab('dados');
   showScreen('form');
 }
 
 function openEdit(id) {
   const u = getCurrentUser();
-  if (!u || u.role !== 'admin') { showToast('Apenas o admin pode editar contratos'); return; }
+  if (!u || !['admin','diretor'].includes(u.role)) { showToast('Apenas admin ou diretor pode editar contratos'); return; }
   load();
   const c = contracts.find(x=>x.id===id);
   if (!c) return;
@@ -582,6 +595,77 @@ function renderBancoTab(el) {
       </button>
       ${customDb?`<button class="btn btn-danger" style="width:100%;font-size:13px" onclick="resetDB()">🔄 Restaurar banco original</button>`:''}
     </div>`;
+}
+
+// Detecta se CNPJ ou razão social já existem em outros contratos
+function checkExistingClient() {
+  const cnpj  = document.getElementById('f-cnpj').value.trim().replace(/\D/g,'');
+  const razao = document.getElementById('f-razao').value.trim().toLowerCase();
+  const box   = document.getElementById('cliente-existente-box');
+  const list  = document.getElementById('clientes-anteriores');
+  if ((!cnpj || cnpj.length < 8) && razao.length < 3) {
+    box.style.display = 'none';
+    return;
+  }
+  // Encontra contratos com CNPJ ou razão parecidos, excluindo o em edição
+  const found = contracts.filter(c => {
+    if (c.id === editId) return false;
+    const ccnpj = (c.cnpj||'').replace(/\D/g,'');
+    const crazao = (c.razao||'').toLowerCase();
+    return (cnpj && cnpj.length >= 8 && ccnpj === cnpj) ||
+           (razao.length >= 3 && crazao.includes(razao)) ||
+           (razao.length >= 3 && razao.includes(crazao) && crazao.length >= 3);
+  });
+
+  if (!found.length) {
+    box.style.display = 'none';
+    return;
+  }
+
+  // Agrupa equipamentos únicos por TAG (evita duplicatas entre contratos do mesmo cliente)
+  box.style.display = '';
+  list.innerHTML = found.map(c => {
+    const nEquip = (c.equipamentos||[]).filter(e=>!e._inativo).length;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:#fff;border-radius:6px;margin-bottom:6px;border:1px solid #e2e8f0">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${c.numero} — ${c.razao||''}</div>
+        <div style="font-size:11px;color:#64748b">${nEquip} equipamento(s) ativo(s)</div>
+      </div>
+      <button type="button" onclick="importFromContract('${c.id}')"
+        style="padding:5px 12px;border-radius:6px;border:1px solid #2563eb;background:#eff6ff;color:#1e40af;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">
+        Importar equipamentos
+      </button>
+    </div>`;
+  }).join('');
+}
+
+function importFromContract(cid) {
+  const src = contracts.find(c => c.id === cid);
+  if (!src || !src.equipamentos) { showToast('Contrato não encontrado'); return; }
+  const equips = src.equipamentos.filter(e => !e._inativo);
+  if (!equips.length) { showToast('Contrato origem sem equipamentos ativos'); return; }
+
+  // Merge com o que já está no formulário
+  const existing = pendingEquip || [];
+  const existingTags = new Set(existing.map(e => (e.tag||'').toUpperCase()));
+  let added = 0;
+  equips.forEach(e => {
+    const t = (e.tag||'').toUpperCase();
+    if (!existingTags.has(t)) {
+      existing.push({...e, _importedFrom: src.numero, _importedAt: Date.now()});
+      existingTags.add(t);
+      added++;
+    }
+  });
+  pendingEquip = existing;
+
+  document.getElementById('equip-count').textContent = pendingEquip.filter(e=>!e._inativo).length;
+  document.getElementById('equip-preview').style.display = '';
+  document.getElementById('equip-sample').innerHTML = `<div style="font-size:11px;color:#059669">
+    ✅ ${added} equipamento(s) importado(s) do contrato ${src.numero}
+    <br>Total: ${pendingEquip.filter(e=>!e._inativo).length} equipamento(s)
+  </div>`;
+  showToast(`${added} equipamentos importados de ${src.numero}`);
 }
 
 function switchContTab(tab) {

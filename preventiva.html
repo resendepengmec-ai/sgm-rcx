@@ -263,6 +263,19 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     </div>
   </div>
 
+  <!-- Modo lote por estabelecimento -->
+  <div class="card" style="padding:14px;margin:14px 0">
+    <button type="button" id="batch-toggle-btn" onclick="toggleBatchMode()"
+      style="width:100%;padding:10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-size:13px;font-weight:600;cursor:pointer">
+      📋 Criar planos separados por estabelecimento (N1/N2/N3 diferentes)
+    </button>
+    <div id="batch-panel" style="display:none;margin-top:10px;padding:12px;background:#f1f5f9;border-radius:10px"></div>
+    <button type="button" id="save-batch-btn" onclick="saveBatchPlans()"
+      style="display:none;width:100%;margin-top:8px;padding:10px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
+      💾 Salvar planos em lote
+    </button>
+  </div>
+
   <div class="card" id="equip-selector" style="display:none">
     <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
       <span>Equipamentos incluídos</span>
@@ -577,8 +590,119 @@ function selectLevel(n) {
   });
 }
 
+// ── Modo lote: cria planos por estabelecimento com níveis diferentes ─
+let batchMode = false;
+let batchAssignments = {}; // { estabelecimento: level }
+
+function toggleBatchMode() {
+  batchMode = !batchMode;
+  const btn = document.getElementById('batch-toggle-btn');
+  const panel = document.getElementById('batch-panel');
+  if (btn) btn.textContent = batchMode ? '✓ Modo lote ativado' : '📋 Criar planos por estabelecimento';
+  if (btn) btn.style.background = batchMode ? '#d1fae5' : '';
+  if (panel) panel.style.display = batchMode ? '' : 'none';
+  const saveBtn = document.getElementById('save-batch-btn');
+  if (saveBtn) saveBtn.style.display = batchMode ? '' : 'none';
+  // Esconde/mostra a seleção normal
+  const normal = document.getElementById('equip-selector');
+  if (normal) normal.style.display = batchMode ? 'none' : '';
+  if (batchMode) renderBatchPanel();
+}
+
+function renderBatchPanel() {
+  const panel = document.getElementById('batch-panel');
+  if (!panel) return;
+  const contract = document.getElementById('f-client').value;
+  if (!contract) {
+    panel.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:12px;text-align:center">Selecione um contrato primeiro</div>';
+    return;
+  }
+  const db = getEffDB();
+  const equips = (db[contract] || []).filter(e=>!e._inativo);
+  const byEstab = {};
+  equips.forEach(e => {
+    const est = e.estabelecimento || 'Sem estabelecimento';
+    byEstab[est] = byEstab[est] || [];
+    byEstab[est].push(e);
+  });
+  const estabs = Object.keys(byEstab).sort();
+  if (!estabs.length) {
+    panel.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:12px;text-align:center">Nenhum equipamento no contrato</div>';
+    return;
+  }
+  panel.innerHTML = `
+    <div style="font-size:12px;color:#334155;margin-bottom:10px;line-height:1.5">
+      Defina o nível N1/N2/N3 para cada estabelecimento. Ao salvar, um plano será criado para cada estabelecimento com o nível escolhido.
+    </div>
+    ${estabs.map(est => {
+      const n = batchAssignments[est] || '';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:#fff;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px">
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600">${est}</div>
+          <div style="font-size:11px;color:#64748b">${byEstab[est].length} equipamento(s)</div>
+        </div>
+        <div style="display:flex;gap:4px">
+          ${[1,2,3].map(lv => `<button type="button" onclick="setBatchLevel('${est.replace(/'/g,"\\'")}',${lv})"
+            style="padding:4px 10px;border-radius:6px;border:1px solid ${n===lv?'#7c3aed':'#cbd5e1'};background:${n===lv?'#ede9fe':'#fff'};color:${n===lv?'#5b21b6':'#334155'};font-size:11px;font-weight:600;cursor:pointer">N${lv}</button>`).join('')}
+          <button type="button" onclick="setBatchLevel('${est.replace(/'/g,"\\'")}','')"
+            style="padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#94a3b8;font-size:11px;cursor:pointer" title="Não gerar plano">—</button>
+        </div>
+      </div>`;
+    }).join('')}
+  `;
+}
+
+function setBatchLevel(estab, level) {
+  if (level === '') { delete batchAssignments[estab]; }
+  else batchAssignments[estab] = level;
+  renderBatchPanel();
+}
+
+function saveBatchPlans() {
+  const client = document.getElementById('f-client').value;
+  const period = document.getElementById('f-period').value;
+  const tech   = document.getElementById('f-tech').value;
+  const obs    = document.getElementById('f-obs').value;
+  if (!client) { showToast('Selecione o contrato'); return; }
+  if (!period) { showToast('Informe o período'); return; }
+  const entries = Object.entries(batchAssignments).filter(([,l])=>l);
+  if (!entries.length) { showToast('Defina o nível para pelo menos um estabelecimento'); return; }
+
+  const db = getEffDB();
+  const equips = (db[client] || []).filter(e=>!e._inativo);
+  let created = 0;
+  entries.forEach(([est, level]) => {
+    const items = equips.filter(e => (e.estabelecimento||'Sem estabelecimento') === est);
+    if (!items.length) return;
+    const plan = {
+      id: genId(),
+      client, period, level, tech, obs,
+      createdAt: Date.now(),
+      _batchEstab: est,
+      equipments: items.map(e => ({
+        tag: e.tag, marca: e.marca, tipo: e.tipo,
+        capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
+        checks: {}, obsItems: {},
+      })),
+    };
+    plans.unshift(plan);
+    signRecord(plan.id, 'criado', 'preventiva').then(sig => {
+      const r = plans.find(x=>x.id===plan.id);
+      if (r) { r._signatures = r._signatures||[]; r._signatures.push(sig); }
+    }).catch(()=>{});
+    created++;
+  });
+
+  persist();
+  showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
+  batchAssignments = {};
+  batchMode = false;
+  switchTab('list');
+}
+
 function onContractChange() {
   const contract = document.getElementById('f-client').value;
+  if (batchMode) { renderBatchPanel(); return; }
   if (!contract) { document.getElementById('equip-selector').style.display='none'; return; }
   const db = getEffDB();
   allEquipForContract = (db[contract] || []);
@@ -650,7 +774,7 @@ function savePlan() {
   const _sid_plan = plan.id;
   const _sedit_plan = false;
   signRecord(_sid_plan, _sedit_plan ? 'editado' : 'criado', 'preventiva').then(sig => {
-    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['preventiva']||[]].flat().find(x=>x.id===_sid_plan);
+    const _rec = plans.find(x=>x.id===_sid_plan);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
   }).catch(()=>{});;
   persist();

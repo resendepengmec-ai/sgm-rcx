@@ -485,7 +485,7 @@ function saveQuote() {
   const _sid_q = q.id;
   const _sedit_q = !!editingId;
   signRecord(_sid_q, _sedit_q ? 'editado' : 'criado', 'orcamentos').then(sig => {
-    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['orcamentos']||[]].flat().find(x=>x.id===_sid_q);
+    const _rec = quotes.find(x=>x.id===_sid_q);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
   }).catch(()=>{});;
   }

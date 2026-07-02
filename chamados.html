@@ -360,9 +360,9 @@ function saveChamado() {
   const _sid_c = c.id;
   const _sedit_c = !!editingId;
   signRecord(_sid_c, _sedit_c ? 'editado' : 'criado', 'chamados').then(sig => {
-    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['chamados']||[]].flat().find(x=>x.id===_sid_c);
+    const _rec = chamados.find(x=>x.id===_sid_c);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});;
+  }).catch(()=>{});
   persist();
   showToast(editingId?'Chamado atualizado!':'Chamado aberto!');
   editingId=null; newPhotos=[]; switchTab('list');

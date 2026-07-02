@@ -108,6 +108,14 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       </select>
     </div>
 
+    <!-- Info do contrato selecionado -->
+    <div id="contract-info-panel" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;color:#1e40af;font-weight:600;margin-bottom:8px">
+        📍 Estabelecimentos deste contrato
+      </div>
+      <div id="contract-estabs-list" style="font-size:12px;color:#334155;line-height:1.7"></div>
+    </div>
+
     <!-- TAG existente (realocar / baixar) -->
     <div id="field-tag-existente" style="display:none" class="field">
       <label>TAG do equipamento *</label>
@@ -371,9 +379,43 @@ function loadTagsByContract() {
   const equip = (db[num]||[]).filter(e=>!e._inativo);
   const dl  = document.getElementById('tag-suggestions');
   dl.innerHTML = equip.map(e=>`<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${e.tipo||''} ${e.marca||''}</option>`).join('');
+
+  // Agrupa por estabelecimento
+  const byEstab = {};
+  equip.forEach(e => {
+    const est = e.estabelecimento || e['estabelecimento'] || 'Sem estabelecimento';
+    const rec = e.recinto || e['recinto'] || '';
+    byEstab[est] = byEstab[est] || {recintos: new Set(), count: 0};
+    byEstab[est].count++;
+    if (rec) byEstab[est].recintos.add(rec);
+  });
+  const estabs = Object.keys(byEstab).sort();
+
+  // Datalist para autocomplete
   const dlE = document.getElementById('estab-suggestions');
-  const estabs = [...new Set(equip.map(e=>e.estabelecimento||e['estabelecimento']||'').filter(Boolean))];
   dlE.innerHTML = estabs.map(e=>`<option value="${e}">`).join('');
+
+  // Painel visível
+  const panel = document.getElementById('contract-info-panel');
+  const list  = document.getElementById('contract-estabs-list');
+  if (panel && list) {
+    if (!num || !estabs.length) {
+      panel.style.display = 'none';
+    } else {
+      panel.style.display = '';
+      list.innerHTML = estabs.map(est => {
+        const info = byEstab[est];
+        const recs = [...info.recintos].sort();
+        const badge = `<span onclick="fillEstabDestino('${est.replace(/'/g,"\\'")}')"
+          style="display:inline-block;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;margin:2px;cursor:pointer;font-size:11px"
+          onmouseover="this.style.background='#dbeafe'"
+          onmouseout="this.style.background='#fff'">
+          <strong>${est}</strong> · ${info.count} equip.
+        </span>`;
+        return badge;
+      }).join('');
+    }
+  }
 
   document.getElementById('f-tag').addEventListener('input', function() {
     const found = equip.find(e=>(e.tag||e['tag'])===this.value);
@@ -383,6 +425,13 @@ function loadTagsByContract() {
       info.textContent = `${found.tipo||''} ${found.marca||''} — ${found.estabelecimento||''} / ${found.recinto||''}`;
     } else { info.style.display='none'; }
   });
+}
+
+// Preenche o campo de estabelecimento destino ao clicar no badge
+function fillEstabDestino(estab) {
+  const inp = document.getElementById('f-estab-destino');
+  if (inp) { inp.value = estab; inp.focus(); }
+  showToast(`Estabelecimento "${estab}" selecionado`);
 }
 
 function cancelForm() { showScreen('list'); renderList(); }

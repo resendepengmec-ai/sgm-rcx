@@ -646,14 +646,14 @@ function saveRecord() {
     createdAt: editingId ? (records.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
   };
   if (editingId) { const i = records.findIndex(x=>x.id===editingId); records[i] = r; }
-  else { records.unshift(r)
+  else { records.unshift(r); }
   // Assinatura digital
   const _sid_r = r.id;
   const _sedit_r = !!editingId;
   signRecord(_sid_r, _sedit_r ? 'editado' : 'criado', 'registros').then(sig => {
-    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['registros']||[]].flat().find(x=>x.id===_sid_r);
+    const _rec = records.find(x=>x.id===_sid_r);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});; }
+  }).catch(()=>{});
   persist();
   showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
   // Se havia uma O.S. vinculada, marcar como concluída e fechar o chamado
