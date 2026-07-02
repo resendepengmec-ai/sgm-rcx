@@ -477,9 +477,13 @@ function showMachineInfo(m){
   document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
   document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
 }
-function hideMachineInfo(){ selectedMachine=null; document.getElementById('machine-info').style.display='none'; }
-document.addEventListener('click',e=>{ if(!e.target.closest('#f-equip')&&!e.target.closest('#tag-suggestions')) document.getElementById('tag-suggestions').style.display='none'; });
-document.getElementById('f-client').addEventListener('change',()=>{ document.getElementById('f-equip').value=''; hideMachineInfo(); });
+function hideMachineInfo(){ selectedMachine=null; const el=document.getElementById('machine-info'); if(el) el.style.display='none'; }
+document.addEventListener('click',e=>{
+  const sug = document.getElementById('tag-suggestions');
+  if(sug && !e.target.closest('#f-equip') && !e.target.closest('#tag-suggestions')) sug.style.display='none';
+});
+const _fClient = document.getElementById('f-client');
+if (_fClient) _fClient.addEventListener('change',()=>{ const eq=document.getElementById('f-equip'); if(eq) eq.value=''; hideMachineInfo(); });
 
 // ── Detail modal ──
 function openDetail(id){

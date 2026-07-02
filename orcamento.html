@@ -294,20 +294,25 @@ function showMachineInfo(m) {
 
 function hideMachineInfo() {
   selectedMachine = null;
-  document.getElementById('machine-info').style.display = 'none';
+  const el = document.getElementById('machine-info');
+  if (el) el.style.display = 'none';
 }
 
 // Close suggestions on outside click
 document.addEventListener('click', e => {
-  if (!e.target.closest('#f-equip') && !e.target.closest('#tag-suggestions'))
-    document.getElementById('tag-suggestions').style.display = 'none';
+  const sug = document.getElementById('tag-suggestions');
+  if (sug && !e.target.closest('#f-equip') && !e.target.closest('#tag-suggestions'))
+    sug.style.display = 'none';
 });
 
 // Re-filter suggestions when contract changes
-document.getElementById('f-client').addEventListener('change', () => {
-  document.getElementById('f-equip').value = '';
+const _fClientO = document.getElementById('f-client');
+if (_fClientO) _fClientO.addEventListener('change', () => {
+  const eq = document.getElementById('f-equip');
+  if (eq) eq.value = '';
   hideMachineInfo();
-  document.getElementById('tag-suggestions').style.display = 'none';
+  const sug = document.getElementById('tag-suggestions');
+  if (sug) sug.style.display = 'none';
 });
 
 
