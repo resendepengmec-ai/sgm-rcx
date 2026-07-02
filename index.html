@@ -523,7 +523,6 @@ function showAdminPanel() {
       <div class="admin-tabs">
         <button class="admin-tab ${adminTab==='usuarios'?'active':''}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
         <button class="admin-tab ${adminTab==='whitelist'?'active':''}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
-        <button class="admin-tab ${adminTab==='banco'?'active':''}" onclick="setAdminTab('banco')">📦 Banco</button>
         <button class="admin-tab ${adminTab==='config'?'active':''}" onclick="setAdminTab('config')">⚙️ Config</button>
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
@@ -540,7 +539,6 @@ function setAdminTab(tab) {
     b.classList.toggle('active',
       (tab==='usuarios' && t.includes('usu')) ||
       (tab==='whitelist' && t.includes('pr')) ||
-      (tab==='banco' && t.includes('ban')) ||
       (tab==='config' && t.includes('con'))
     );
   });
@@ -552,21 +550,33 @@ function renderAdminTab() {
   if (!content) return;
   if (adminTab === 'usuarios') renderUsersTab(content);
   else if (adminTab === 'whitelist') renderWhitelistTab(content);
-  else if (adminTab === 'banco') renderBancoTab(content);
   else renderConfigTab(content);
 }
 
 // ── Tab: Usuários cadastrados ──
 function renderUsersTab(el) {
   const currentUser = getCurrentUser();
-  const users = getUsers();
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
+  DB.getUsers().then(freshUsers => {
+    if (freshUsers && freshUsers.length) {
+      localStorage.setItem('smm_users_cache', JSON.stringify(freshUsers));
+    }
+    _renderUsersList(el, freshUsers || getUsers(), currentUser);
+  }).catch(() => _renderUsersList(el, getUsers(), currentUser));
+}
+
+function _renderUsersList(el, users, currentUser) {
   if (!users.length) {
     el.innerHTML = '<p style="font-size:13px;color:var(--text-3);text-align:center;padding:24px 0">Nenhum usuário registrado ainda.</p>';
     return;
   }
   el.innerHTML = users.map(u => {
     const r = ROLES[u.role] || {};
-    const lastLogin = u.lastLogin ? `Último acesso: ${fmtDate(u.lastLogin)}` : 'Nunca acessou';
+    // Aceita last_login (backend) ou lastLogin (cache legado)
+    const ll = u.last_login || u.lastLogin;
+    const lastLogin = ll
+      ? `Último acesso: ${new Date(ll).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}`
+      : 'Nunca acessou';
     return `<div class="user-row">
       ${u.picture
         ? `<img src="${u.picture}" alt="">`
@@ -638,16 +648,25 @@ function _renderWLContent(el, wl) {
     ${wl.length === 0
       ? `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:16px 0">Nenhum usuário pré-autorizado.</p>`
       : `
+      ${pendentes.length
+        ? `<div style="font-size:11px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
+            ⏳ Aguardando primeiro acesso (${pendentes.length})
+          </div>
+          ${pendentes.map(renderRow).join('')}`
+        : `<p style="font-size:13px;color:var(--success);text-align:center;padding:16px 0">✅ Todos os usuários pré-autorizados já acessaram o sistema.</p>`}
       ${ativos.length ? `
-        <div style="font-size:11px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
-          ✅ Ativos (${ativos.length})
+        <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-top:14px;border-top:1px solid var(--border)">
+          Já acessaram (${ativos.length}) — gerenciados em Usuários
         </div>
-        ${ativos.map(renderRow).join('')}` : ''}
-      ${pendentes.length ? `
-        <div style="font-size:11px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
-          ⏳ Aguardando primeiro acesso (${pendentes.length})
-        </div>
-        ${pendentes.map(renderRow).join('')}` : ''}
+        ${ativos.map(e => `
+          <div class="wl-row" style="opacity:.6;flex-wrap:wrap;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:13px">${e.name||e.email}</div>
+              <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
+            </div>
+            <span class="wl-status used">✅ Ativo — ver em Usuários</span>
+            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover da whitelist">✕</button>
+          </div>`).join('')}` : ''}
       `
     }
 `;

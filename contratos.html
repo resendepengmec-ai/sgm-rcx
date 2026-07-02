@@ -46,12 +46,19 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <!-- Lista de contratos -->
 <div id="screen-list" class="screen active" style="padding:12px">
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px;overflow-x:auto">
+    <button class="stab active" id="cont-tab-lista" onclick="switchContTab('lista')">📑 Contratos</button>
+    <button class="stab" id="cont-tab-banco" onclick="switchContTab('banco')">📦 Banco de dados</button>
+  </div>
+  <div id="cont-lista-content">
   <div id="contracts-list"></div>
   <div id="contracts-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📋</div>
     <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhum contrato cadastrado</div>
     <div style="font-size:13px">Clique em + para adicionar o primeiro contrato</div>
   </div>
+  </div><!-- /cont-lista-content -->
+  <div id="cont-banco-content" style="display:none"></div>
 </div>
 
 <!-- Form de contrato -->
@@ -118,8 +125,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <!-- Tab: Equipamentos -->
     <div id="tab-equipamentos" style="display:none">
       <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
-        Faça upload do banco de equipamentos em formato <strong>CSV ou XLS</strong>.
+        Faça upload do banco de equipamentos em formato <strong>CSV</strong>.
         Colunas esperadas: TAG · Marca · Tipo · Capacidade · Estabelecimento · Recinto
+        <br><span style="color:var(--success);font-size:12px">
+          ✅ Merge inteligente: novos equipamentos são adicionados, existentes atualizados,
+          equipamentos baixados via Patrimônio são preservados automaticamente.
+        </span>
       </p>
       <div class="upload-zone" id="equip-drop" style="position:relative">
         <input type="file" accept=".csv,.xlsx,.xls" onchange="handleEquipFile(event)">
@@ -362,28 +373,78 @@ async function saveContract() {
 function handleEquipFile(e) {
   const file = e.target.files[0]; if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
-  if (ext === 'csv') {
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const rows = ev.target.result.split('\n').filter(r=>r.trim());
-      const headers = rows[0].split(',').map(h=>h.trim().toLowerCase());
-      const data = rows.slice(1).map(row => {
-        const cols = row.split(',');
-        const obj = {};
-        headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
-        return obj;
-      }).filter(r => r.tag || r['tag']);
-      pendingEquip = data;
-      document.getElementById('equip-count').textContent = data.length;
-      document.getElementById('equip-preview').style.display = '';
-      document.getElementById('equip-sample').textContent =
-        'Prévia: ' + data.slice(0,3).map(r=>r.tag||r['tag']).join(', ') + (data.length>3?'…':'');
-      showToast(`${data.length} equipamentos carregados`);
-    };
-    reader.readAsText(file);
-  } else {
-    showToast('Para XLS/XLSX, converta para CSV antes de carregar.');
-  }
+  if (ext !== 'csv') { showToast('Converta o arquivo para CSV antes de carregar.'); return; }
+
+  const reader = new FileReader();
+  reader.onload = ev => {
+    // Parse CSV
+    const rows    = ev.target.result.split('\n').filter(r=>r.trim());
+    const headers = rows[0].split(',').map(h=>h.trim().toLowerCase().replace(/['"]/g,''));
+    const csvData = rows.slice(1).map(row => {
+      const cols = row.split(',');
+      const obj  = {};
+      headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
+      return obj;
+    }).filter(r => r.tag||r['tag']);
+
+    if (!csvData.length) { showToast('Nenhum equipamento válido encontrado no CSV'); return; }
+
+    // ── Merge inteligente ─────────────────────────────────────────
+    const existing = pendingEquip || [];
+    const result   = [...existing]; // cópia do banco atual
+
+    let adicionados = 0, atualizados = 0, ignorados = 0;
+
+    csvData.forEach(novo => {
+      const tag = (novo.tag||novo['tag']||'').toUpperCase().trim();
+      if (!tag) return;
+      novo.tag = tag; // normaliza
+
+      const idx = result.findIndex(e =>
+        (e.tag||e['tag']||'').toUpperCase().trim() === tag
+      );
+
+      if (idx === -1) {
+        // TAG nova — adiciona
+        result.push(novo);
+        adicionados++;
+      } else {
+        const existente = result[idx];
+        if (existente._inativo) {
+          // TAG baixada — não reativar automaticamente, apenas notificar
+          ignorados++;
+        } else {
+          // TAG existente — atualiza campos não-controlados pelo patrimônio
+          // Preserva: _inativo, _baixadoEm, _realocadoEm, _instaladoEm
+          const campos_patrimonio = ['_inativo','_baixadoEm','_baixadoPor','_motivoBaixa',
+                                     '_realocadoEm','_realocadoPor','_instaladoEm','_instaladoPor'];
+          const preservado = {};
+          campos_patrimonio.forEach(k => { if (existente[k]) preservado[k] = existente[k]; });
+          result[idx] = { ...existente, ...novo, ...preservado };
+          atualizados++;
+        }
+      }
+    });
+
+    pendingEquip = result;
+
+    // Atualiza preview
+    const ativos  = result.filter(r=>!r._inativo).length;
+    const inativos= result.filter(r=>r._inativo).length;
+    document.getElementById('equip-count').textContent = ativos;
+    document.getElementById('equip-preview').style.display = '';
+    document.getElementById('equip-sample').innerHTML =
+      `<div style="font-size:11px;line-height:1.8;color:var(--text-2)">
+        ✅ <strong>${adicionados}</strong> adicionados &nbsp;·&nbsp;
+        ✏️ <strong>${atualizados}</strong> atualizados &nbsp;·&nbsp;
+        ${inativos>0 ? `🔴 <strong>${inativos}</strong> baixados (preservados) &nbsp;·&nbsp;` : ''}
+        ${ignorados>0 ? `⚠️ <strong>${ignorados}</strong> ignorados (já baixados)` : ''}
+        <br>Total ativo: ${ativos} equipamentos
+      </div>`;
+
+    showToast(`Merge concluído: +${adicionados} novos, ${atualizados} atualizados${ignorados>0?`, ${ignorados} ignorados`:''}`);
+  };
+  reader.readAsText(file, 'UTF-8');
 }
 
 function handleDocFiles(e) {
@@ -487,6 +548,52 @@ function _sigTrail(sigs) {
     return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
   });
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
+
+// ── Banco de dados (integrado de contratos) ───────────────────────
+
+function renderBancoTab(el) {
+  const customDb = localStorage.getItem('smm_custom_db');
+  let dbInfo = '';
+  const sourceDb = customDb ? JSON.parse(customDb) : (typeof MACHINE_DB!=='undefined'?MACHINE_DB:{});
+  const contracts = Object.keys(sourceDb);
+  if (contracts.length) {
+    dbInfo = `<div class="db-info">
+      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${customDb?'📦 Banco personalizado':'📦 Banco original embutido'}</div>
+      ${contracts.map(c=>`
+        <div class="db-contract-row">
+          <span style="font-weight:600">Contrato ${c}</span>
+          <span style="color:var(--text-2)">${sourceDb[c].length} equipamentos</span>
+        </div>`).join('')}
+      <div style="font-size:12px;color:var(--text-3);margin-top:8px;text-align:right">
+        Total: ${contracts.reduce((s,c)=>s+sourceDb[c].length,0)} equipamentos
+      </div>
+    </div>`;
+  }
+  el.innerHTML = `
+    <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">
+      Importe um novo arquivo <strong>.xlsx</strong> para atualizar o banco de equipamentos de todos os contratos.
+      Cada aba = um contrato. Colunas: A=TAG · B=Marca · C=Tipo · D=Capacidade · E=Estabelecimento · F=Recinto
+    </p>
+    ${dbInfo}
+    <div class="action-bar" style="flex-direction:column;gap:8px">
+      <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('db-modal').classList.remove('hidden')">
+        📂 Importar novo arquivo .xlsx
+      </button>
+      ${customDb?`<button class="btn btn-danger" style="width:100%;font-size:13px" onclick="resetDB()">🔄 Restaurar banco original</button>`:''}
+    </div>`;
+}
+
+function switchContTab(tab) {
+  document.getElementById('cont-lista-content').style.display = tab==='lista' ? '' : 'none';
+  document.getElementById('cont-banco-content').style.display = tab==='banco' ? '' : 'none';
+  document.querySelectorAll('#screen-list .stab').forEach(b => {
+    b.classList.toggle('active',
+      (tab==='lista' && b.textContent.includes('Contrato')) ||
+      (tab==='banco' && b.textContent.includes('Banco'))
+    );
+  });
+  if (tab==='banco') renderBancoTab(document.getElementById('cont-banco-content'));
 }
 </script>
 </body>
