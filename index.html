@@ -241,6 +241,17 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <button class="a11y-btn" id="hc-btn" onclick="toggleHighContrast()" title="Alto contraste">◑</button>
 </div>
 
+
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+
+<!-- Barra de acessibilidade -->
+<div class="a11y-bar" id="a11y-bar">
+  <button class="a11y-btn" onclick="decreaseFont()" title="Diminuir fonte">A−</button>
+  <button class="a11y-btn" onclick="increaseFont()" title="Aumentar fonte">A+</button>
+  <button class="a11y-btn" id="hc-btn" onclick="toggleHighContrast()" title="Alto contraste">◑</button>
+</div>
+
 <!-- Admin master login overlay -->
 <div class="admin-login-overlay hidden" id="admin-login-overlay">
   <div class="admin-login-box">
@@ -334,8 +345,8 @@ function renderLogin() {
     '<div class="login-bg" style="min-height:100vh;position:relative">' +
     '<div class="login-header" style="padding-top:56px">' +
     '<div class="login-logo">&#128295;</div>' +
-    '<div class="login-title">SGM-RCX</div>' +
-    '<div class="login-subtitle">Sistema de Gestão de Manutenção</div>' +
+    '<div class="login-title">Sistema de Manutencao</div>' +
+    '<div class="login-subtitle">Chamados &middot; Registros &middot; Orcamentos &middot; Preventiva</div>' +
     '</div>' +
     '<div class="login-card">' +
     '<h2>Entrar no sistema</h2>' +
@@ -348,21 +359,53 @@ function renderLogin() {
     '</div>';
 }
 
-function configClientId() { openAdminLogin(); }
 
-
-function configClientId() { openAdminLogin(); }
-
-
-function configClientId() { openAdminLogin(); }
-
-
-
-function cancelAdminFlow() {
-  localStorage.removeItem(CLIENT_ID_KEY);
-  clearPinVerified();
-  renderLogin();
+// ── Admin panel functions ─────────────────────────────────────────
+function openAdminLogin() {
+  const cur = localStorage.getItem('smm_client_id') || '';
+  const el  = document.getElementById('admin-cid-input');
+  if (el) el.value = cur;
+  const btn = document.getElementById('admin-google-btn');
+  if (btn) btn.disabled = !cur;
+  const status = document.getElementById('admin-login-status');
+  if (status) {
+    if (cur) { status.style.display=''; status.innerHTML='Client ID configurado'; }
+    else status.style.display='none';
+  }
+  const overlay = document.getElementById('admin-login-overlay');
+  if (overlay) overlay.classList.remove('hidden');
 }
+function closeAdminLogin() {
+  const overlay = document.getElementById('admin-login-overlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+async function saveAdminClientId() {
+  const id = document.getElementById('admin-cid-input').value.trim();
+  if (!id) { showToast('Informe o Client ID'); return; }
+  localStorage.setItem('smm_client_id', id);
+  localStorage.removeItem('smm_user_cid');
+  const btn = document.getElementById('admin-google-btn');
+  if (btn) btn.disabled = false;
+  // Salva no backend para que usuários não precisem configurar nada
+  try {
+    await fetch(`${window.SMM_API}/api/auth/config/client-id`, {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json',
+                 'Authorization': 'Bearer ' + (sessionStorage.getItem('smm_jwt')||'') },
+      body: JSON.stringify({ clientId: id })
+    });
+    showToast('Client ID salvo no servidor!');
+  } catch(e) { showToast('Client ID salvo localmente.'); }
+}
+function doAdminGoogleLogin() {
+  localStorage.removeItem('smm_user_cid');
+  closeAdminLogin();
+  startGoogleLogin();
+}
+function configClientId() { openAdminLogin(); }
+
+
+
 
 // ── Dashboard ──
 function renderDashboard(user) {
@@ -555,6 +598,30 @@ function renderWhitelistTab(el) {
   });
 }
 function _renderWLContent(el, wl) {
+  // Cruzar whitelist com usuários já cadastrados
+  const users = getUsers();
+  const wlEnhanced = wl.map(e => ({
+    ...e,
+    hasAccount: !!users.find(u => u.email.toLowerCase() === e.email.toLowerCase()),
+    usedAt: e.usedAt || (users.find(u => u.email.toLowerCase() === e.email.toLowerCase())?.last_login),
+  }));
+
+  const ativos    = wlEnhanced.filter(e => e.hasAccount || e.usedAt);
+  const pendentes = wlEnhanced.filter(e => !e.hasAccount && !e.usedAt);
+
+  const renderRow = (e) => `
+    <div class="wl-row" style="flex-wrap:wrap;gap:8px">
+      <div style="flex:1;min-width:0">
+        <div class="wl-email" title="${e.email}" style="font-weight:600">${e.name||e.email}</div>
+        <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
+      </div>
+      <select class="role-select" onchange="changeWLRole('${e.email}',this.value)">
+        ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
+      </select>
+      <span class="wl-status ${e.hasAccount||e.usedAt?'used':'pending'}">${e.hasAccount||e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
+      <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
+    </div>`;
+
   el.innerHTML = `
     <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.5">
       Cadastre o e-mail e o perfil do usuário. Após cadastrar, o usuário
@@ -570,18 +637,18 @@ function _renderWLContent(el, wl) {
     </div>
     ${wl.length === 0
       ? `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:16px 0">Nenhum usuário pré-autorizado.</p>`
-      : wl.map((e,i) => `
-          <div class="wl-row" style="flex-wrap:wrap;gap:8px">
-            <div style="flex:1;min-width:0">
-              <div class="wl-email" title="${e.email}" style="font-weight:600">${e.name||e.email}</div>
-              <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
-            </div>
-            <select class="role-select" onchange="changeWLRole('${e.email}',this.value)">
-              ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
-            </select>
-            <span class="wl-status ${e.usedAt?'used':'pending'}">${e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
-            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
-          </div>`).join('')
+      : `
+      ${ativos.length ? `
+        <div style="font-size:11px;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
+          ✅ Ativos (${ativos.length})
+        </div>
+        ${ativos.map(renderRow).join('')}` : ''}
+      ${pendentes.length ? `
+        <div style="font-size:11px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
+          ⏳ Aguardando primeiro acesso (${pendentes.length})
+        </div>
+        ${pendentes.map(renderRow).join('')}` : ''}
+      `
     }
 `;
 }
