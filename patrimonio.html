@@ -64,6 +64,23 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <span class="pending-count" id="pending-count">0</span>
   </div>
 
+  <!-- Busca de equipamento -->
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:12px">
+    <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">
+      🔍 Consultar histórico de equipamento
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <select id="hist-contrato" onchange="loadHistTags()" style="flex:1;min-width:150px">
+        <option value="">Selecione o contrato…</option>
+      </select>
+      <input type="text" id="hist-tag" list="hist-tag-list" placeholder="TAG do equipamento" style="flex:1;min-width:150px">
+      <datalist id="hist-tag-list"></datalist>
+      <button onclick="openEquipHistory()" style="padding:8px 16px;background:#1e40af;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+        Ver histórico
+      </button>
+    </div>
+  </div>
+
   <div class="filter-row" id="filter-pills">
     <button class="filter-pill active" onclick="setFilter('todos')">Todas</button>
     <button class="filter-pill" onclick="setFilter('pendente')">⏳ Pendentes</button>
@@ -608,6 +625,7 @@ function showScreen(s) {
 
 // ── Init ──────────────────────────────────────────────────────────
 renderList();
+loadHistContratos();
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {
@@ -619,6 +637,172 @@ function _sigTrail(sigs) {
     return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
   });
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
+
+// ── Histórico do equipamento ─────────────────────────────────────
+async function loadHistContratos() {
+  const sel = document.getElementById('hist-contrato');
+  if (!sel) return;
+  try {
+    const conts = await DB.getContratos();
+    sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+      (conts||[]).map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+  } catch(e) {}
+}
+
+function loadHistTags() {
+  const contrato = document.getElementById('hist-contrato').value;
+  const dl = document.getElementById('hist-tag-list');
+  const db = getEffDB() || {};
+  const equips = db[contrato] || [];
+  if (dl) {
+    dl.innerHTML = equips.map(e => `<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${e.tipo||''} ${e.marca||''}${e._inativo?' (BAIXADO)':''}</option>`).join('');
+  }
+}
+
+async function openEquipHistory() {
+  const contrato = document.getElementById('hist-contrato').value.trim();
+  const tag = document.getElementById('hist-tag').value.trim().toUpperCase();
+  if (!contrato) { showToast('Selecione o contrato'); return; }
+  if (!tag) { showToast('Informe a TAG'); return; }
+
+  // Coleta eventos de todas as fontes
+  const events = [];
+
+  // 1. Dados do equipamento no banco
+  const db = getEffDB() || {};
+  const equipRaw = (db[contrato] || []).find(e => (e.tag||e['tag']||'').toUpperCase() === tag);
+
+  if (!equipRaw) {
+    showToast(`TAG "${tag}" não encontrada no contrato ${contrato}`);
+    return;
+  }
+
+  // Adiciona eventos de instalação/baixa a partir dos campos do equipamento
+  if (equipRaw._instaladoEm) {
+    events.push({ ts: equipRaw._instaladoEm, type: 'instalacao', icon:'📦', color:'#059669',
+      title: 'Equipamento instalado', desc: `Por ${equipRaw._instaladoPor||'—'}` });
+  }
+  if (equipRaw._realocadoEm) {
+    events.push({ ts: equipRaw._realocadoEm, type: 'realocacao', icon:'🔄', color:'#0891b2',
+      title: 'Equipamento realocado',
+      desc: `${equipRaw.estabelecimento||'—'} · ${equipRaw.recinto||'—'} · Por ${equipRaw._realocadoPor||'—'}` });
+  }
+  if (equipRaw._baixadoEm) {
+    events.push({ ts: equipRaw._baixadoEm, type: 'baixa', icon:'🔴', color:'#dc2626',
+      title: 'Equipamento baixado',
+      desc: `Motivo: ${equipRaw._motivoBaixa||'—'} · Por ${equipRaw._baixadoPor||'—'}` });
+  }
+
+  // 2. Chamados
+  try {
+    const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+    chamados.filter(c => c.client===contrato && (c.equip||'').toUpperCase()===tag).forEach(c => {
+      events.push({ ts: c.createdAt || new Date(c.date||Date.now()).getTime(), type:'chamado', icon:'🔔', color:'#d97706',
+        title: `Chamado — ${c.priority||'normal'}`,
+        desc: c.desc || c.description || 'Sem descrição',
+        extra: c.status ? `Status: ${c.status}` : '' });
+    });
+  } catch(e) {}
+
+  // 3. Registros de manutenção
+  try {
+    const regs = JSON.parse(localStorage.getItem('registro_records')||'[]');
+    regs.filter(r => (r.client||r.contract)===contrato && (r.equip||r.tag||'').toUpperCase()===tag).forEach(r => {
+      const svcs = (r.items||[]).map(i => i.name||i.service||String(i)).join(', ');
+      events.push({ ts: r.createdAt || new Date(r.date||Date.now()).getTime(), type:'registro', icon:'🔧', color:'#0284c7',
+        title: 'Manutenção executada',
+        desc: svcs || r.notes || 'Serviço registrado',
+        extra: r.tech ? `Técnico: ${r.tech}` : '' });
+    });
+  } catch(e) {}
+
+  // 4. Preventiva
+  try {
+    const plans = JSON.parse(localStorage.getItem('prev_plans')||'[]');
+    plans.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
+      (p.equipments||[]).filter(eq => (eq.tag||'').toUpperCase()===tag).forEach(eq => {
+        (p.execucoes||[]).forEach(ex => {
+          events.push({ ts: new Date(ex.data||Date.now()).getTime(), type:'preventiva', icon:'📋', color:'#7c3aed',
+            title: `Preventiva N${p.level||'?'} — ${p.period||''}`,
+            desc: `Executada em ${new Date(ex.data).toLocaleDateString('pt-BR')}`,
+            extra: ex.tecnico ? `Técnico: ${ex.tecnico}` : '' });
+        });
+      });
+    });
+  } catch(e) {}
+
+  // 5. Movimentações patrimoniais
+  const movsList = (movimentos||[]).filter(m => m.contrato===contrato && (m.tag||'').toUpperCase()===tag);
+  movsList.forEach(m => {
+    const tipos = { instalar:'📥 Instalação', realocar:'🔄 Realocação', baixar:'🔴 Baixa', adicionar:'➕ Adição' };
+    events.push({ ts: m.createdAt || Date.now(), type:'movimentacao', icon:'📋', color:'#7c3aed',
+      title: `Solicitação: ${tipos[m.tipo]||m.tipo}`,
+      desc: m.motivo || '—',
+      extra: `Status: ${m.status||'pendente'}${m.solicitadoPor?' · Solicitado por '+m.solicitadoPor:''}` });
+  });
+
+  // Ordena por data desc
+  events.sort((a,b) => b.ts - a.ts);
+
+  // Renderiza modal
+  renderEquipHistoryModal(equipRaw, contrato, events);
+}
+
+function renderEquipHistoryModal(equip, contrato, events) {
+  const isInativo = equip._inativo;
+  let modal = document.getElementById('equip-history-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'equip-history-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:#fff;width:100%;max-width:640px;max-height:90vh;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px;background:${isInativo?'#fef2f2':'#eff6ff'};border-bottom:1px solid #e2e8f0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a">
+              ${isInativo?'🔴 ':''}${equip.tag}
+              ${isInativo?'<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">BAIXADO</span>':''}
+            </div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">
+              ${equip.marca||''} ${equip.tipo||''} ${equip.capacidade||''}
+            </div>
+            <div style="font-size:12px;color:#64748b">
+              Contrato ${contrato} · ${equip.estabelecimento||'—'} · ${equip.recinto||'—'}
+            </div>
+          </div>
+          <button onclick="document.getElementById('equip-history-modal').remove()"
+            style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px">
+        <div style="font-size:12px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">
+          📅 Timeline (${events.length} evento${events.length!==1?'s':''})
+        </div>
+        ${events.length ? events.map(ev => {
+          const dt = new Date(ev.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+          return `<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9">
+            <div style="width:28px;height:28px;border-radius:50%;background:${ev.color}15;color:${ev.color};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px">
+              ${ev.icon}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:#0f172a">${ev.title}</div>
+              <div style="font-size:12px;color:#475569;margin-top:2px">${ev.desc}</div>
+              ${ev.extra?`<div style="font-size:11px;color:#94a3b8;margin-top:2px">${ev.extra}</div>`:''}
+              <div style="font-size:10px;color:#94a3b8;margin-top:4px">${dt}</div>
+            </div>
+          </div>`;
+        }).join('') : '<div style="text-align:center;color:#94a3b8;padding:40px;font-size:13px">Nenhum evento registrado para este equipamento</div>'}
+      </div>
+      <div style="padding:12px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;text-align:center">
+        Histórico consolidado a partir de chamados, registros, preventiva e movimentações
+      </div>
+    </div>
+  `;
 }
 </script>
 </body>

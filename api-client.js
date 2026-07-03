@@ -175,7 +175,7 @@ const DB = {
   updateUserRole:     (id, role)  => API.patch(`/users/${id}/role`, { role }),
   deactivateUser:     id          => API.delete(`/users/${id}`),
   getWhitelist:       ()          => API.get('/whitelist'),
-  addWhitelist:       (e,r,n)     => API.post('/whitelist', { email:e, role:r, name:n }),
+  addWhitelist:       (e,r,n,c)   => API.post('/whitelist', { email:e, role:r, name:n, contract:c||null }),
   removeWhitelist:    email       => API.delete(`/whitelist/${encodeURIComponent(email)}`),
 
   // Contratos

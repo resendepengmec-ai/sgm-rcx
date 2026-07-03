@@ -623,7 +623,10 @@ function _renderWLContent(el, wl) {
     <div class="wl-row" style="flex-wrap:wrap;gap:8px">
       <div style="flex:1;min-width:0">
         <div class="wl-email" title="${e.email}" style="font-weight:600">${e.name||e.email}</div>
-        <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
+        <div style="font-size:11px;color:var(--text-3)">
+          ${e.email}
+          ${e.contract?`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px">Contrato ${e.contract}</span>`:''}
+        </div>
       </div>
       <select class="role-select" onchange="changeWLRole('${e.email}',this.value)">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
@@ -637,11 +640,14 @@ function _renderWLContent(el, wl) {
       Cadastre o e-mail e o perfil do usuário. Após cadastrar, o usuário
       pode entrar diretamente com a conta Google — sem token ou configuração adicional.
     </p>
-    <div class="add-wl-form">
-      <input type="email" id="wl-email" placeholder="email@dominio.com">
+    <div class="add-wl-form" style="flex-wrap:wrap">
+      <input type="email" id="wl-email" placeholder="email@dominio.com" style="flex:1;min-width:150px">
       <input type="text" id="wl-name" placeholder="Nome" style="flex:1;min-width:100px">
-      <select id="wl-role">
+      <select id="wl-role" onchange="toggleWLContractField()">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
+      </select>
+      <select id="wl-contract" style="min-width:130px;display:none">
+        <option value="">— sem vínculo —</option>
       </select>
       <button onclick="addWhitelistEntry()">+ Adicionar</button>
     </div>
@@ -679,18 +685,44 @@ async function addWhitelistEntry() {
   const email = document.getElementById('wl-email').value.trim().toLowerCase();
   const name  = document.getElementById('wl-name').value.trim();
   const role  = document.getElementById('wl-role').value;
+  const contract = document.getElementById('wl-contract')?.value || null;
   if (!email || !email.includes('@')) { showToast('E-mail inválido'); return; }
   try {
-    await DB.addWhitelist(email, role, name);
-    showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role}`);
+    await DB.addWhitelist(email, role, name, contract);
+    const badge = contract ? ` — contrato ${contract}` : '';
+    showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role}${badge}`);
     await syncUsersFromBackend();
     renderAdminTab();
   } catch(e) { showToast('Erro: ' + e.message); }
 }
 
+// Ao selecionar solicitante, permite escolher contrato de vínculo
+async function toggleWLContractField() {
+  const role = document.getElementById('wl-role').value;
+  const sel  = document.getElementById('wl-contract');
+  if (!sel) return;
+  if (role === 'solicitante') {
+    sel.style.display = '';
+    // Carrega contratos se ainda estiver vazio
+    if (sel.options.length <= 1) {
+      try {
+        const conts = await DB.getContratos();
+        sel.innerHTML = '<option value="">— sem vínculo (vê todos) —</option>' +
+          (conts||[]).map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+      } catch(e) {}
+    }
+  } else {
+    sel.style.display = 'none';
+    sel.value = '';
+  }
+}
+
 async function changeWLRole(email, role) {
   try {
-    await DB.addWhitelist(email, role, '');
+    // Preserva contract e name existentes
+    const wl = getWhitelist();
+    const existing = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+    await DB.addWhitelist(email, role, existing?.name||'', existing?.contract||null);
     showToast('Perfil atualizado');
     await syncUsersFromBackend();
     renderAdminTab();

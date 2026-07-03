@@ -87,14 +87,37 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <span id="os-banner-text"></span>
     </div>
 
-    <div class="field">
+    <!-- Toggle avulso -->
+    <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px;margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="f-avulso" onchange="toggleAvulsoMode()">
+        <span>🔧 Atendimento avulso (sem contrato vinculado)</span>
+      </label>
+      <div id="avulso-info" style="display:none;font-size:11px;color:#92400e;margin-top:6px;padding-left:22px">
+        Use para reparos pontuais em equipamentos não cobertos por contrato.
+      </div>
+    </div>
+
+    <div class="field" id="field-client">
       <label>Contrato *</label>
       <select id="f-client">
         <option value="">Selecione um contrato…</option>
       </select>
     </div>
 
-    <div class="field">
+    <!-- Campos de cliente livre (só aparece quando avulso) -->
+    <div id="avulso-fields" style="display:none">
+      <div class="field">
+        <label>Cliente / Local *</label>
+        <input type="text" id="f-avulso-cliente" placeholder="Nome do cliente ou local do atendimento">
+      </div>
+      <div class="field">
+        <label>Endereço</label>
+        <input type="text" id="f-avulso-endereco" placeholder="Endereço do atendimento">
+      </div>
+    </div>
+
+    <div class="field" id="field-equip">
       <label>TAG do equipamento *</label>
       <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
@@ -104,6 +127,14 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         <div id="mi-cap"></div>
         <div id="mi-estab"></div>
         <div id="mi-recinto"></div>
+      </div>
+    </div>
+
+    <!-- Descrição livre do equipamento (avulso) -->
+    <div id="avulso-equip-field" style="display:none">
+      <div class="field">
+        <label>Descrição do equipamento *</label>
+        <input type="text" id="f-avulso-equip-desc" placeholder="Ex: Split 12000 BTU sala reunião">
       </div>
     </div>
 
@@ -458,10 +489,16 @@ function renderRecordList() {
     return header + `<div class="record-card" onclick="openDetail('${r.id}')">
       ${thumb}
       <div class="rc-info">
-        <div class="rc-client">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
+        <div class="rc-client">
+          ${r._avulso
+            ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${r.machine?.cliente||'Cliente avulso'} · ${r.equip}`
+            : `Contrato ${r.client} · TAG ${r.equip||'—'}`
+          }
+        </div>
         <div class="rc-meta">${r.date||'—'}${r.tech?' · 👷 '+r.tech:''}</div>
         <div class="rc-meta">${svcNames}</div>
-        ${r.machine?`<div class="rc-meta" style="color:var(--text-3)">${r.machine.estabelecimento}${r.machine.recinto?' · '+r.machine.recinto:''}</div>`:''}
+        ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${r.machine.estabelecimento}${r.machine.recinto?' · '+r.machine.recinto:''}</div>` : ''}
+        ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${r.machine.endereco}</div>` : ''}
       </div>
       <div class="rc-count">${r.photos?r.photos.length:0}📷</div>
     </div>`;
@@ -678,24 +715,70 @@ function startNew() {
   document.getElementById('f-date').value = today();
   document.getElementById('f-tech').value = settings.defaultTech || '';
   document.getElementById('f-notes').value = '';
+  // Reset avulso
+  const avulsoChk = document.getElementById('f-avulso');
+  if (avulsoChk) {
+    avulsoChk.checked = false;
+    ['f-avulso-cliente','f-avulso-endereco','f-avulso-equip-desc'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    toggleAvulsoMode();
+  }
   hideMachineInfo();
   renderNewItems();
   renderPhotoGrid();
   switchTab('new');
 }
 
+// Alterna entre modo contrato e modo avulso
+function toggleAvulsoMode() {
+  const isAvulso = document.getElementById('f-avulso')?.checked;
+  const info = document.getElementById('avulso-info');
+  const contractField = document.getElementById('field-client');
+  const equipField = document.getElementById('field-equip');
+  const avulsoFields = document.getElementById('avulso-fields');
+  const avulsoEquipField = document.getElementById('avulso-equip-field');
+
+  if (info) info.style.display = isAvulso ? '' : 'none';
+  if (contractField) contractField.style.display = isAvulso ? 'none' : '';
+  if (equipField) equipField.style.display = isAvulso ? 'none' : '';
+  if (avulsoFields) avulsoFields.style.display = isAvulso ? '' : 'none';
+  if (avulsoEquipField) avulsoEquipField.style.display = isAvulso ? '' : 'none';
+}
+
 function cancelNew() { switchTab('records'); }
 
 function saveRecord() {
-  const client = document.getElementById('f-client').value.trim();
-  const equip = document.getElementById('f-equip').value.trim();
-  if (!client) { showToast('Selecione o contrato'); return; }
-  if (!equip) { showToast('Informe a TAG do equipamento'); return; }
+  const isAvulso = document.getElementById('f-avulso')?.checked;
+  let client, equip, machine;
+
+  if (isAvulso) {
+    const cliente = document.getElementById('f-avulso-cliente').value.trim();
+    const equipDesc = document.getElementById('f-avulso-equip-desc').value.trim();
+    if (!cliente) { showToast('Informe o cliente/local do atendimento'); return; }
+    if (!equipDesc) { showToast('Descreva o equipamento'); return; }
+    client = '_avulso_';
+    equip = equipDesc;
+    machine = {
+      _avulso: true,
+      cliente,
+      endereco: document.getElementById('f-avulso-endereco').value.trim(),
+      descricao: equipDesc,
+    };
+  } else {
+    client = document.getElementById('f-client').value.trim();
+    equip = document.getElementById('f-equip').value.trim();
+    if (!client) { showToast('Selecione o contrato'); return; }
+    if (!equip) { showToast('Informe a TAG do equipamento'); return; }
+    machine = selectedMachine || null;
+  }
+
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
   const r = {
     id: editingId || genId(),
     client, equip,
-    machine: selectedMachine || null,
+    machine,
+    _avulso: isAvulso || false,
     date: document.getElementById('f-date').value,
     tech: document.getElementById('f-tech').value,
     notes: document.getElementById('f-notes').value,
@@ -1141,9 +1224,33 @@ function doImport(e){
 // ── Toast ──
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
+// Popula dropdowns de contrato (registros) — respeita vínculo
+async function populateContractDropdownsReg() {
+  try {
+    const contratos = await DB.getContratos();
+    const user = getCurrentUser();
+    const userContract = user?.contract;
+    const visible = userContract
+      ? contratos.filter(c => c.numero === userContract)
+      : contratos;
+    const formSel = document.getElementById('f-client');
+    if (formSel) {
+      formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
+        visible.map(c => `<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+    }
+    const filterSel = document.getElementById('f-filter-contract');
+    if (filterSel) {
+      const cur = filterSel.value;
+      filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao||''}</option>`).join('');
+    }
+  } catch(e) {}
+}
+
 // ── Init ──
 renderRecordList();
 buildFilterOptions();
+populateContractDropdownsReg();
 
 
 const _origOpenDetailR = openDetail;

@@ -311,6 +311,40 @@ function buildFilterOptions() {
   eSel.innerHTML = '<option value="">🏢 Todos os estabelecimentos</option>' +
     [...estabs].sort().map(e=>`<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
 }
+
+// Popula dropdowns de contrato com dados reais + respeita vínculo do usuário
+async function populateContractDropdowns() {
+  try {
+    const contratos = await DB.getContratos();
+    const user = getCurrentUser();
+    const userContract = user?.contract;
+
+    // Se solicitante com vínculo, filtra somente aquele contrato
+    const visible = userContract
+      ? contratos.filter(c => c.numero === userContract)
+      : contratos;
+
+    // Dropdown do formulário novo chamado
+    const formSel = document.getElementById('f-client');
+    if (formSel) {
+      formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
+        visible.map(c => `<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+      // Se solicitante com vínculo, pré-seleciona e trava
+      if (userContract && visible.length === 1) {
+        formSel.value = userContract;
+        formSel.disabled = true;
+      }
+    }
+
+    // Dropdown do filtro na lista
+    const filterSel = document.getElementById('f-filter-contract');
+    if (filterSel) {
+      const cur = filterSel.value;
+      filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao||''}</option>`).join('');
+    }
+  } catch(e) { /* backend offline: mantém dropdown vazio */ }
+}
 function applyFilters() {
   filterMonth    = document.getElementById('f-filter-month').value;
   filterContract = document.getElementById('f-filter-contract').value;
@@ -887,6 +921,7 @@ function gerarOS(chamadoId) {
 // ── Init ──
 buildFilterOptions();
 renderList();
+populateContractDropdowns();
 
 
 // Patch: solicitante only sees own chamados
