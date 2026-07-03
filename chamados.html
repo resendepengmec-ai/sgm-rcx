@@ -84,7 +84,70 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- ── NEW/EDIT ── -->
 <div id="screen-new" class="screen">
-  
+  <div class="card" style="margin:12px">
+    <div class="card-title">Novo chamado</div>
+
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione um contrato…</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <input type="text" id="f-equip" list="tag-suggestions" autocomplete="off" placeholder="Ex: FCU-01">
+      <datalist id="tag-suggestions"></datalist>
+      <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
+        <div id="mi-marca"></div>
+        <div id="mi-tipo"></div>
+        <div id="mi-cap"></div>
+        <div id="mi-estab"></div>
+        <div id="mi-recinto"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Data</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="field">
+      <label>Prioridade</label>
+      <select id="f-priority">
+        <option value="baixa">🟢 Baixa</option>
+        <option value="normal" selected>🔵 Normal</option>
+        <option value="alta">🟠 Alta</option>
+        <option value="urgente">🔴 Urgente</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Solicitante</label>
+      <input type="text" id="f-requester" placeholder="Nome de quem solicitou">
+    </div>
+
+    <div class="field">
+      <label>Descrição do problema *</label>
+      <textarea id="f-desc" rows="4" placeholder="Descreva o problema encontrado…"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Fotos (até 3, comprimidas automaticamente)</label>
+      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()">
+        <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
+        <div style="font-size:24px">📷</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px">Toque para adicionar fotos</div>
+      </div>
+      <div id="photo-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveChamado()" style="flex:2">💾 Salvar chamado</button>
+    </div>
+  </div>
+</div>
 
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()">+</button>
@@ -360,9 +423,9 @@ function saveChamado() {
   const _sid_c = c.id;
   const _sedit_c = !!editingId;
   signRecord(_sid_c, _sedit_c ? 'editado' : 'criado', 'chamados').then(sig => {
-    const _rec = chamados.find(x=>x.id===_sid_c);
+    const _rec = [{'chamados':chamados,'registros':records,'orcamentos':quotes,'preventiva':plans}['chamados']||[]].flat().find(x=>x.id===_sid_c);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});
+  }).catch(()=>{});;
   persist();
   showToast(editingId?'Chamado atualizado!':'Chamado aberto!');
   editingId=null; newPhotos=[]; switchTab('list');
@@ -477,13 +540,9 @@ function showMachineInfo(m){
   document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
   document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
 }
-function hideMachineInfo(){ selectedMachine=null; const el=document.getElementById('machine-info'); if(el) el.style.display='none'; }
-document.addEventListener('click',e=>{
-  const sug = document.getElementById('tag-suggestions');
-  if(sug && !e.target.closest('#f-equip') && !e.target.closest('#tag-suggestions')) sug.style.display='none';
-});
-const _fClient = document.getElementById('f-client');
-if (_fClient) _fClient.addEventListener('change',()=>{ const eq=document.getElementById('f-equip'); if(eq) eq.value=''; hideMachineInfo(); });
+function hideMachineInfo(){ selectedMachine=null; document.getElementById('machine-info').style.display='none'; }
+document.addEventListener('click',e=>{ if(!e.target.closest('#f-equip')&&!e.target.closest('#tag-suggestions')) document.getElementById('tag-suggestions').style.display='none'; });
+document.getElementById('f-client').addEventListener('change',()=>{ document.getElementById('f-equip').value=''; hideMachineInfo(); });
 
 // ── Detail modal ──
 function openDetail(id){

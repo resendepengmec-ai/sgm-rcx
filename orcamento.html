@@ -84,8 +84,51 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </div>
 
 <div id="screen-new" class="screen">
-  <!-- Client info -->
-  
+  <div class="card" style="margin:12px">
+    <div class="card-title">Novo orçamento</div>
+
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione um contrato…</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01">
+      <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
+      <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
+        <div id="mi-marca"></div>
+        <div id="mi-tipo"></div>
+        <div id="mi-cap"></div>
+        <div id="mi-estab"></div>
+        <div id="mi-recinto"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Data</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="field">
+      <label>Itens do orçamento *</label>
+      <div id="new-items-list" style="margin-bottom:8px"></div>
+      <button class="btn btn-secondary" onclick="openServiceModal()" style="width:100%;font-size:13px">+ Adicionar item</button>
+    </div>
+
+    <div class="field">
+      <label>Observações / condições</label>
+      <textarea id="f-notes" rows="3" placeholder="Prazo, validade, condições…"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveQuote()" style="flex:2">💾 Salvar orçamento</button>
+    </div>
+  </div>
+</div>
 
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()" title="Novo orçamento">+</button>
@@ -1047,7 +1090,8 @@ function showToast(msg) {
 }
 
 // ── Init ──
-document.getElementById('f-date').value = today();
+const _fDate = document.getElementById('f-date');
+if (_fDate) _fDate.value = today();
 buildFilterOptions();
 renderQuoteList();
 

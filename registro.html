@@ -79,8 +79,71 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- ── NEW/EDIT RECORD ── -->
 <div id="screen-new" class="screen">
-  <!-- Contrato + TAG -->
-  
+  <div class="card" style="margin:12px">
+    <div class="card-title">Novo registro de manutenção</div>
+
+    <!-- Banner de O.S. vinculada (opcional) -->
+    <div id="os-banner" style="display:none;background:var(--primary-light);border:1px solid var(--primary);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px">
+      <span id="os-banner-text"></span>
+    </div>
+
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-client">
+        <option value="">Selecione um contrato…</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>TAG do equipamento *</label>
+      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01">
+      <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
+      <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
+        <div id="mi-marca"></div>
+        <div id="mi-tipo"></div>
+        <div id="mi-cap"></div>
+        <div id="mi-estab"></div>
+        <div id="mi-recinto"></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Data do serviço</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="field">
+      <label>Técnico responsável</label>
+      <input type="text" id="f-tech" placeholder="Nome do técnico">
+    </div>
+
+    <div class="field">
+      <label>Serviços realizados *</label>
+      <div id="new-items-list" style="margin-bottom:8px"></div>
+      <button class="btn btn-secondary" onclick="openServiceModal()" style="width:100%;font-size:13px">+ Adicionar serviço</button>
+    </div>
+
+    <div class="field">
+      <label>Observações</label>
+      <textarea id="f-notes" rows="3" placeholder="Observações do serviço…"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Fotos (até 3)</label>
+      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()">
+        <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
+        <div style="font-size:24px">📷</div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px">Toque para adicionar fotos</div>
+      </div>
+      <div id="photo-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px"></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveRecord()" style="flex:2">💾 Salvar registro</button>
+    </div>
+  </div>
+</div>
 
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()">+</button>
