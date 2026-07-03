@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#0f766e">
 <title>Contratos — Sistema de Manutenção</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#0f766e;--primary-dark:#0d6460;--primary-light:#f0fdfa;
@@ -136,7 +137,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <!-- Tab: Equipamentos -->
     <div id="tab-equipamentos" style="display:none">
       <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
-        Faça upload do banco de equipamentos em formato <strong>CSV</strong>.
+        Faça upload do banco de equipamentos em formato <strong>CSV, XLS ou XLSX</strong>.
         Colunas esperadas: TAG · Marca · Tipo · Capacidade · Estabelecimento · Recinto
         <br><span style="color:var(--success);font-size:12px">
           ✅ Merge inteligente: novos equipamentos são adicionados, existentes atualizados,
@@ -386,49 +387,33 @@ async function saveContract() {
 function handleEquipFile(e) {
   const file = e.target.files[0]; if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
-  if (ext !== 'csv') { showToast('Converta o arquivo para CSV antes de carregar.'); return; }
 
-  const reader = new FileReader();
-  reader.onload = ev => {
-    // Parse CSV
-    const rows    = ev.target.result.split('\n').filter(r=>r.trim());
-    const headers = rows[0].split(',').map(h=>h.trim().toLowerCase().replace(/['"]/g,''));
-    const csvData = rows.slice(1).map(row => {
-      const cols = row.split(',');
-      const obj  = {};
-      headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
-      return obj;
-    }).filter(r => r.tag||r['tag']);
-
-    if (!csvData.length) { showToast('Nenhum equipamento válido encontrado no CSV'); return; }
+  const processarDados = (csvData) => {
+    if (!csvData.length) { showToast('Nenhum equipamento válido encontrado no arquivo'); return; }
 
     // ── Merge inteligente ─────────────────────────────────────────
     const existing = pendingEquip || [];
-    const result   = [...existing]; // cópia do banco atual
+    const result   = [...existing];
 
     let adicionados = 0, atualizados = 0, ignorados = 0;
 
     csvData.forEach(novo => {
-      const tag = (novo.tag||novo['tag']||'').toUpperCase().trim();
+      const tag = (novo.tag||novo['tag']||'').toString().toUpperCase().trim();
       if (!tag) return;
-      novo.tag = tag; // normaliza
+      novo.tag = tag;
 
-      const idx = result.findIndex(e =>
-        (e.tag||e['tag']||'').toUpperCase().trim() === tag
+      const idx = result.findIndex(eq =>
+        (eq.tag||eq['tag']||'').toString().toUpperCase().trim() === tag
       );
 
       if (idx === -1) {
-        // TAG nova — adiciona
         result.push(novo);
         adicionados++;
       } else {
         const existente = result[idx];
         if (existente._inativo) {
-          // TAG baixada — não reativar automaticamente, apenas notificar
           ignorados++;
         } else {
-          // TAG existente — atualiza campos não-controlados pelo patrimônio
-          // Preserva: _inativo, _baixadoEm, _realocadoEm, _instaladoEm
           const campos_patrimonio = ['_inativo','_baixadoEm','_baixadoPor','_motivoBaixa',
                                      '_realocadoEm','_realocadoPor','_instaladoEm','_instaladoPor'];
           const preservado = {};
@@ -441,7 +426,6 @@ function handleEquipFile(e) {
 
     pendingEquip = result;
 
-    // Atualiza preview
     const ativos  = result.filter(r=>!r._inativo).length;
     const inativos= result.filter(r=>r._inativo).length;
     document.getElementById('equip-count').textContent = ativos;
@@ -457,7 +441,72 @@ function handleEquipFile(e) {
 
     showToast(`Merge concluído: +${adicionados} novos, ${atualizados} atualizados${ignorados>0?`, ${ignorados} ignorados`:''}`);
   };
-  reader.readAsText(file, 'UTF-8');
+
+  if (ext === 'csv') {
+    // Parse CSV
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const rows    = ev.target.result.split('\n').filter(r=>r.trim());
+      if (!rows.length) { showToast('Arquivo CSV vazio'); return; }
+      const headers = rows[0].split(',').map(h=>h.trim().toLowerCase().replace(/['"]/g,''));
+      const csvData = rows.slice(1).map(row => {
+        const cols = row.split(',');
+        const obj  = {};
+        headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
+        return obj;
+      }).filter(r => r.tag||r['tag']);
+      processarDados(csvData);
+    };
+    reader.readAsText(file, 'UTF-8');
+
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    // Parse Excel
+    if (typeof XLSX === 'undefined') {
+      showToast('Biblioteca de leitura Excel não carregou. Recarregue a página.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const wb   = XLSX.read(data, {type:'array'});
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        if (!ws) { showToast('Nenhuma planilha encontrada no arquivo'); return; }
+
+        // Converte para array de objetos usando primeira linha como cabeçalho
+        const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+        if (!rowsArr.length) { showToast('Planilha vazia'); return; }
+
+        // Normaliza cabeçalhos (lowercase, sem espaços)
+        const headers = rowsArr[0].map(h => String(h||'').trim().toLowerCase());
+        const csvData = rowsArr.slice(1)
+          .map(row => {
+            const obj = {};
+            headers.forEach((h,i) => {
+              obj[h] = row[i] != null ? String(row[i]).trim() : '';
+            });
+            return obj;
+          })
+          .filter(r => r.tag || r['tag']);
+
+        if (!csvData.length) {
+          showToast('Nenhum equipamento válido. Verifique se há coluna "tag" no cabeçalho.');
+          return;
+        }
+        processarDados(csvData);
+      } catch(err) {
+        console.error('Erro ao processar Excel:', err);
+        showToast('Erro ao ler o arquivo Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+
+  } else {
+    showToast('Formato não suportado. Use CSV, XLSX ou XLS.');
+  }
+
+  // Reset input para permitir re-selecionar mesmo arquivo
+  e.target.value = '';
 }
 
 function handleDocFiles(e) {
