@@ -62,7 +62,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 </div>
 
 <!-- Form de contrato -->
-<div id="screen-form" class="screen" style="padding:12px;display:none">
+<div id="screen-form" class="screen" style="padding:12px">
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px">
     <h2 style="font-size:17px;font-weight:700;margin-bottom:16px" id="form-title">Novo contrato</h2>
 
@@ -179,7 +179,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 </div>
 
 <!-- Detalhe do contrato -->
-<div id="screen-detail" class="screen" style="padding:12px;display:none">
+<div id="screen-detail" class="screen" style="padding:12px">
   <div id="detail-content"></div>
 </div>
 
@@ -532,9 +532,12 @@ function viewEquipamentos(id) {
 
 // ── Screen nav ────────────────────────────────────────────────────
 function showScreen(s) {
-  document.getElementById('screen-list').style.display   = s==='list'   ? '' : 'none';
-  document.getElementById('screen-form').style.display   = s==='form'   ? '' : 'none';
-  document.getElementById('screen-detail').style.display = s==='detail' ? '' : 'none';
+  document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+  const target = document.getElementById('screen-' + s);
+  if (target) {
+    target.classList.add('active');
+    target.style.display = '';  // remove inline display:none dos elementos iniciais
+  }
 }
 
 // ── Init ──────────────────────────────────────────────────────────
