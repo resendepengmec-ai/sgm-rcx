@@ -230,10 +230,32 @@ async function loadMachineDB() {
   return _machineDBCache;
 }
 function getEffDB() {
+  // 1. Cache
   if (_machineDBCache) return _machineDBCache;
-  const c = localStorage.getItem('smm_custom_db');
-  if (c) try { return JSON.parse(c); } catch {}
-  return typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+
+  // 2. Constrói mapa contrato→equipamentos a partir de smm_contracts (fonte principal)
+  let db = {};
+  try {
+    const contracts = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+    contracts.forEach(c => {
+      if (c.numero && Array.isArray(c.equipamentos)) {
+        db[c.numero] = c.equipamentos;
+      }
+    });
+  } catch(e) {}
+
+  // 3. Se ainda vazio, tenta smm_custom_db (compatibilidade)
+  if (Object.keys(db).length === 0) {
+    const c = localStorage.getItem('smm_custom_db');
+    if (c) try { db = JSON.parse(c); } catch {}
+  }
+
+  // 4. Fallback final: MACHINE_DB global (mock)
+  if (Object.keys(db).length === 0) {
+    db = typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+  }
+
+  return db;
 }
 
 // ── Assinaturas digitais ──────────────────────────────────────────

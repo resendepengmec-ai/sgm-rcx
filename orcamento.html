@@ -611,11 +611,32 @@ function openServiceModal() {
   document.getElementById('service-modal').classList.remove('hidden');
 }
 function closeServiceModal() { document.getElementById('service-modal').classList.add('hidden'); }
+
+// Combina serviços do contrato + catálogo padrão
+function _getAvailableServices() {
+  const contract = document.getElementById('f-client')?.value;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const c = contracts.find(x => x.numero === contract);
+  const custom = (c?.servicos || []).map(s => ({
+    name: s.name,
+    price: s.price || 0,
+    taxRate: 0,
+    unit: s.unit,
+    _custom: true,
+  }));
+  return [...custom, ...SERVICES];
+}
+
 function filterServices() {
   const q = document.getElementById('svc-search').value.toLowerCase();
   const el = document.getElementById('svc-list');
-  el.innerHTML = SERVICES.filter(s => s.name.toLowerCase().includes(q)).map((s, i) => {
-    const idx = SERVICES.indexOf(s);
+  const allServices = _getAvailableServices();
+  window._currentServices = allServices;
+  el.innerHTML = allServices.filter(s => s.name.toLowerCase().includes(q)).map((s, i) => {
+    const idx = allServices.indexOf(s);
+    const customBadge = s._custom
+      ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px">CONTRATO</span>`
+      : '';
     if (s.inviavel) {
       return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${idx})">
         <div class="svc-info">
@@ -627,17 +648,18 @@ function filterServices() {
     }
     return `<div class="service-item" onclick="addService(${idx})">
       <div class="svc-info">
-        <div class="svc-name">${s.name}</div>
-        <div class="svc-price">${fmt(s.price)}</div>
+        <div class="svc-name">${s.name}${customBadge}</div>
+        <div class="svc-price">${fmt(s.price)}${s.unit?' / '+s.unit:''}</div>
       </div>
       <button class="svc-add" onclick="addService(${idx});event.stopPropagation()">+</button>
     </div>`;
   }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum serviço encontrado</p>';
 }
 function addService(i) {
-  const s = SERVICES[i];
+  const services = window._currentServices || SERVICES;
+  const s = services[i];
+  if (!s) return;
   if (s.inviavel) {
-    // Replace all items with just the inviável entry, auto-fill note
     newItems = [{ name: 'Inviável — Equipamento condenado', price: 0.00, taxRate: 0.00, qty: 1, inviavel: true }];
     const notesEl = document.getElementById('f-notes');
     notesEl.value = INVIAVEL_NOTE;

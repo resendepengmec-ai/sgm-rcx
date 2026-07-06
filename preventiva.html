@@ -254,8 +254,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       </div>
     </div>
     <div class="field">
-      <label>Técnico responsável</label>
-      <input id="f-tech" type="text" placeholder="Nome do técnico">
+      <label>Técnico responsável *</label>
+      <select id="f-tech">
+        <option value="">Selecione um técnico…</option>
+      </select>
+      <div style="font-size:11px;color:var(--text-3);margin-top:4px">Técnico atribuído executará este plano</div>
     </div>
     <div class="field">
       <label>Observações gerais</label>
@@ -447,7 +450,10 @@ function showToast(msg) {
     </div>`;
   document.addEventListener('click', e => { if (!e.target.closest('.user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
   window._user = user; window._role = role;
-  if (!role.canCreate) {
+  // Apenas admin/diretor/gestor podem criar planos de preventiva
+  // Técnicos só executam planos onde foram atribuídos
+  const canCreatePlan = ['admin','diretor','gestor'].includes(user.role);
+  if (!canCreatePlan) {
     document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
   }
 })();
@@ -487,7 +493,15 @@ function clearFilters() {
   renderPlansList();
 }
 function getFiltered() {
+  const user = window._user;
+  const isTecnico = user && user.role === 'tecnico';
   return plans.filter(p => {
+    // Técnicos só veem planos atribuídos a eles
+    if (isTecnico) {
+      const attributed = p.techEmail || p.tech;
+      if (attributed && attributed !== user.email && attributed !== user.name) return false;
+      if (!attributed) return false; // planos sem atribuição são invisíveis para técnicos
+    }
     const mM = !fMonth    || p.period===fMonth;
     const cM = !fContract || p.client===fContract;
     const sM = !fStatus   || getPlanStatus(p)===fStatus;
@@ -573,7 +587,7 @@ function startNew() {
   selectedLevel = null; selectedEquip = new Set(); allEquipForContract = [];
   document.getElementById('f-client').value='';
   document.getElementById('f-period').value=today();
-  document.getElementById('f-tech').value = window._user?.name || '';
+  document.getElementById('f-tech').value = '';
   document.getElementById('f-obs').value='';
   document.getElementById('equip-selector').style.display='none';
   document.getElementById('equip-list').innerHTML='';
@@ -662,9 +676,11 @@ function saveBatchPlans() {
   const client = document.getElementById('f-client').value;
   const period = document.getElementById('f-period').value;
   const tech   = document.getElementById('f-tech').value;
+  const techName = document.getElementById('f-tech').selectedOptions[0]?.dataset?.name || tech;
   const obs    = document.getElementById('f-obs').value;
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!period) { showToast('Informe o período'); return; }
+  if (!tech)   { showToast('Selecione o técnico responsável'); return; }
   const entries = Object.entries(batchAssignments).filter(([,l])=>l);
   if (!entries.length) { showToast('Defina o nível para pelo menos um estabelecimento'); return; }
 
@@ -676,7 +692,7 @@ function saveBatchPlans() {
     if (!items.length) return;
     const plan = {
       id: genId(),
-      client, period, level, tech, obs,
+      client, period, level, tech, techName, techEmail: tech, obs,
       createdAt: Date.now(),
       _batchEstab: est,
       equipments: items.map(e => ({
@@ -749,6 +765,10 @@ function savePlan() {
   const period = document.getElementById('f-period').value;
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!period) { showToast('Informe o período'); return; }
+  const _techSel = document.getElementById('f-tech');
+  const _tech = _techSel.value;
+  const _techName = _techSel.selectedOptions[0]?.dataset?.name || _tech;
+  if (!_tech) { showToast('Selecione o técnico responsável'); return; }
   if (!selectedLevel) { showToast('Selecione o nível de manutenção'); return; }
   if (!selectedEquip.size) { showToast('Selecione pelo menos um equipamento'); return; }
 
@@ -759,7 +779,9 @@ function savePlan() {
     id: genId(),
     client, period,
     level: selectedLevel,
-    tech: document.getElementById('f-tech').value,
+    tech: _tech,
+    techName: _techName,
+    techEmail: _tech,
     obs: document.getElementById('f-obs').value,
     createdAt: Date.now(),
     equipments: equipList.map(e => ({
@@ -1191,6 +1213,25 @@ function printFilteredPDF() {
 
 // ── Init ──
 renderPlansList();
+loadTechnicians();
+
+// Popula dropdown de técnicos a partir dos usuários cadastrados
+async function loadTechnicians() {
+  const sel = document.getElementById('f-tech');
+  if (!sel) return;
+  try {
+    const users = await DB.getUsers();
+    const techs = (users || []).filter(u =>
+      u.active !== false && ['tecnico','gestor','admin','diretor','supervisor'].includes(u.role)
+    );
+    sel.innerHTML = '<option value="">Selecione um técnico…</option>' +
+      techs.map(u => `<option value="${u.email}" data-name="${u.name||u.email}">${u.name||u.email} · ${u.role}</option>`).join('');
+  } catch(e) {
+    // Fallback: usuário logado
+    const u = window._user;
+    if (u) sel.innerHTML = `<option value="${u.email}">${u.name||u.email}</option>`;
+  }
+}
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {

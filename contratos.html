@@ -70,6 +70,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div class="section-tabs" id="form-tabs">
       <button class="stab active" onclick="switchFormTab('dados')">Dados gerais</button>
       <button class="stab" onclick="switchFormTab('equipamentos')">Equipamentos</button>
+      <button class="stab" onclick="switchFormTab('servicos')">Serviços & Preços</button>
       <button class="stab" onclick="switchFormTab('documentos')">Documentos</button>
     </div>
 
@@ -155,6 +156,35 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           ✅ <span id="equip-count"></span> equipamentos carregados
         </div>
         <div id="equip-sample" style="margin-top:8px;font-size:12px;color:var(--text-2)"></div>
+      </div>
+    </div>
+
+    <!-- Tab: Serviços & Preços -->
+    <div id="tab-servicos" style="display:none">
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
+        Cadastre os serviços disponíveis para este contrato com preços específicos.
+        Estes serviços aparecerão automaticamente nos <strong>Registros de manutenção</strong> e <strong>Orçamentos</strong>.
+      </p>
+
+      <!-- Lista de serviços -->
+      <div id="servicos-list" style="margin-bottom:12px"></div>
+
+      <!-- Adicionar novo -->
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px">
+        <div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px">➕ Adicionar serviço</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="text" id="svc-name" placeholder="Nome do serviço" style="flex:2;min-width:180px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input type="text" id="svc-unit" placeholder="Unidade (un/h/m²)" style="width:100px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input type="number" id="svc-price" placeholder="Preço R$" step="0.01" style="width:110px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <button onclick="addServico()" style="padding:8px 16px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Adicionar</button>
+        </div>
+      </div>
+
+      <!-- Upload em lote -->
+      <div style="margin-top:14px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px">
+        <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">📥 Importar em lote (CSV/XLSX)</div>
+        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Colunas esperadas: <code>nome</code>, <code>unidade</code>, <code>preco</code></p>
+        <input type="file" accept=".csv,.xlsx,.xls" onchange="handleServicoFile(event)" style="font-size:12px">
       </div>
     </div>
 
@@ -277,18 +307,121 @@ function renderList() {
 
 // ── Form helpers ──────────────────────────────────────────────────
 function switchFormTab(tab) {
-  ['dados','equipamentos','documentos'].forEach(t => {
-    document.getElementById(`tab-${t}`).style.display = t===tab ? '' : 'none';
+  const tabs = ['dados','equipamentos','servicos','documentos'];
+  tabs.forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.style.display = t===tab ? '' : 'none';
   });
   document.querySelectorAll('.stab').forEach((b,i) => {
-    b.classList.toggle('active', ['dados','equipamentos','documentos'][i]===tab);
+    b.classList.toggle('active', tabs[i]===tab);
   });
+  if (tab === 'servicos') renderServicosList();
+}
+
+// ── Serviços por contrato ────────────────────────────────────────
+let pendingServicos = [];
+
+function renderServicosList() {
+  const list = document.getElementById('servicos-list');
+  if (!list) return;
+  if (!pendingServicos.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;font-size:13px">Nenhum serviço cadastrado ainda</div>';
+    return;
+  }
+  const canPrice = ['admin','diretor','supervisor','gestor'].includes(getCurrentUser()?.role);
+  list.innerHTML = pendingServicos.map((s,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600">${s.name}</div>
+        <div style="font-size:11px;color:var(--text-3)">
+          ${s.unit||'un'}${canPrice&&s.price?` · <strong style="color:var(--primary)">R$ ${Number(s.price).toFixed(2)}</strong>`:''}
+        </div>
+      </div>
+      <button onclick="removeServico(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px">✕</button>
+    </div>
+  `).join('') +
+  `<div style="font-size:11px;color:var(--text-3);text-align:center;margin-top:6px">${pendingServicos.length} serviço(s) cadastrado(s)</div>`;
+}
+
+function addServico() {
+  const name = document.getElementById('svc-name').value.trim();
+  const unit = document.getElementById('svc-unit').value.trim() || 'un';
+  const price = parseFloat(document.getElementById('svc-price').value) || 0;
+  if (!name) { showToast('Informe o nome do serviço'); return; }
+  pendingServicos.push({ name, unit, price });
+  document.getElementById('svc-name').value = '';
+  document.getElementById('svc-unit').value = '';
+  document.getElementById('svc-price').value = '';
+  renderServicosList();
+  showToast('Serviço adicionado');
+}
+
+function removeServico(i) {
+  pendingServicos.splice(i, 1);
+  renderServicosList();
+}
+
+function handleServicoFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  const processar = (rows) => {
+    let added = 0;
+    rows.forEach(r => {
+      const name = String(r.nome || r.name || '').trim();
+      if (!name) return;
+      const unit = String(r.unidade || r.unit || 'un').trim();
+      const price = parseFloat(r.preco || r.price || 0) || 0;
+      pendingServicos.push({ name, unit, price });
+      added++;
+    });
+    renderServicosList();
+    showToast(`${added} serviço(s) importado(s)`);
+  };
+
+  if (ext === 'csv') {
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const lines = ev.target.result.split('\n').filter(l => l.trim());
+      if (!lines.length) return;
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1).map(line => {
+        const cols = line.split(',');
+        const obj = {};
+        headers.forEach((h,i) => obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''));
+        return obj;
+      });
+      processar(rows);
+    };
+    reader.readAsText(file, 'UTF-8');
+  } else if (ext === 'xlsx' || ext === 'xls') {
+    if (typeof XLSX === 'undefined') { showToast('Biblioteca Excel não carregou'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+        if (!rowsArr.length) return;
+        const headers = rowsArr[0].map(h => String(h||'').trim().toLowerCase());
+        const rows = rowsArr.slice(1).map(row => {
+          const obj = {};
+          headers.forEach((h,i) => obj[h] = row[i] != null ? String(row[i]).trim() : '');
+          return obj;
+        });
+        processar(rows);
+      } catch(err) { showToast('Erro: ' + err.message); }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+  e.target.value = '';
 }
 
 function openNewContract() {
   const u = getCurrentUser();
   if (!u || !['admin','diretor'].includes(u.role)) { showToast('Apenas admin ou diretor pode criar contratos'); return; }
-  editId = null; pendingEquip = []; pendingDocs = [];
+  editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
@@ -306,7 +439,7 @@ function openEdit(id) {
   load();
   const c = contracts.find(x=>x.id===id);
   if (!c) return;
-  editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[];
+  editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[]; pendingServicos = c.servicos||[];
   document.getElementById('form-title').textContent = 'Editar contrato';
   document.getElementById('f-numero').value = c.numero||'';
   document.getElementById('f-razao').value  = c.razao||'';
@@ -350,6 +483,7 @@ async function saveContract() {
     obs:         document.getElementById('f-obs').value.trim(),
     equipamentos: pendingEquip || [],
     documentos:   pendingDocs  || [],
+    servicos:     pendingServicos || [],
     updatedAt:   Date.now(),
   };
   if (!editId) c.createdAt = Date.now();

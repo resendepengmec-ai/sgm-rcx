@@ -119,7 +119,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field" id="field-equip">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01">
+      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -160,7 +160,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Fotos (até 3)</label>
+      <label>Fotos <span id="photo-badge" style="display:none;background:var(--success);color:#fff;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;margin-left:6px">0</span> (até 3)</label>
       <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()">
         <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
         <div style="font-size:24px">📷</div>
@@ -894,11 +894,37 @@ function removeItem(i){ newItems.splice(i,1); renderNewItems(); }
 // ── Service modal ──
 function openServiceModal(){ document.getElementById('svc-search').value=''; filterServices(); document.getElementById('service-modal').classList.remove('hidden'); }
 function closeServiceModal(){ document.getElementById('service-modal').classList.add('hidden'); }
+
+// Combina serviços do contrato + catálogo padrão
+function _getAvailableServices() {
+  const contract = document.getElementById('f-client')?.value;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const c = contracts.find(x => x.numero === contract);
+  const custom = (c?.servicos || []).map(s => ({
+    name: s.name,
+    desc: s.unit ? `Unidade: ${s.unit}` : '',
+    price: s.price,
+    unit: s.unit,
+    _custom: true,
+  }));
+  return [...custom, ...SERVICES];
+}
+
 function filterServices(){
   const q = document.getElementById('svc-search').value.toLowerCase();
   const el = document.getElementById('svc-list');
-  el.innerHTML = SERVICES.filter(s=>s.name.toLowerCase().includes(q)||((s.desc||'').toLowerCase().includes(q))).map((s)=>{
-    const i = SERVICES.indexOf(s);
+  const allServices = _getAvailableServices();
+  const canPrice = ['admin','diretor','supervisor','gestor'].includes(getCurrentUser()?.role);
+  el.innerHTML = allServices.filter(s=>s.name.toLowerCase().includes(q)||((s.desc||'').toLowerCase().includes(q))).map((s)=>{
+    const i = allServices.indexOf(s);
+    // Store services globally for addService
+    window._currentServices = allServices;
+    const priceLabel = s._custom && canPrice && s.price
+      ? `<span style="background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;margin-left:6px">R$ ${Number(s.price).toFixed(2)}</span>`
+      : '';
+    const customBadge = s._custom
+      ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px">CONTRATO</span>`
+      : '';
     if(s.inviavel) return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${i})">
       <div class="svc-info">
         <div class="svc-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
@@ -908,7 +934,7 @@ function filterServices(){
     </div>`;
     return `<div class="service-item" onclick="addService(${i})">
       <div class="svc-info">
-        <div class="svc-name">${s.name}</div>
+        <div class="svc-name">${s.name}${customBadge}${priceLabel}</div>
         ${s.desc?`<div style="font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.4">${s.desc.slice(0,90)}…</div>`:''}
       </div>
       <button class="svc-add" onclick="addService(${i});event.stopPropagation()">+</button>
@@ -916,7 +942,9 @@ function filterServices(){
   }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum resultado</p>';
 }
 function addService(i){
-  const s = SERVICES[i];
+  const services = window._currentServices || SERVICES;
+  const s = services[i];
+  if (!s) return;
   if(s.inviavel){
     newItems = [{name: s.name, desc: s.desc, inviavel:true, qty:1, obs:''}];
     document.getElementById('f-notes').value = INVIAVEL_NOTE;
@@ -924,7 +952,7 @@ function addService(i){
   }
   const ex = newItems.findIndex(x=>x.name===s.name && !x.inviavel);
   if(ex>=0){ showToast('Serviço já adicionado'); return; }
-  newItems.push({name:s.name, desc:s.desc||'', qty:1, obs:''});
+  newItems.push({name:s.name, desc:s.desc||'', qty:1, obs:'', unit: s.unit, price: s.price, _fromContract: s._custom || false});
   renderNewItems();
   closeServiceModal();
   showToast(s.name + ' adicionado');
@@ -953,6 +981,7 @@ function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area'
         canvas.getContext('2d').drawImage(img,0,0,w,h);
         newPhotos.push({ dataUrl:canvas.toDataURL('image/jpeg',0.75), name:file.name });
         renderPhotoGrid();
+        showToast(`📷 Foto ${newPhotos.length} de 3 adicionada`);
       };
       img.src = ev.target.result;
     };
@@ -963,13 +992,13 @@ function removePhoto(i){ newPhotos.splice(i,1); renderPhotoGrid(); }
 function renderPhotoGrid(){
   const grid = document.getElementById('photo-grid');
   const badge = document.getElementById('photo-badge');
-  badge.style.display = newPhotos.length ? '' : 'none';
-  badge.textContent = newPhotos.length;
+  if (badge) { badge.style.display = newPhotos.length ? '' : 'none'; badge.textContent = newPhotos.length; }
+  if (!grid) return;
   if(!newPhotos.length){ grid.innerHTML=''; return; }
   grid.innerHTML = newPhotos.map((p,i)=>`
-    <div class="photo-thumb">
-      <img src="${p.dataUrl}" alt="foto ${i+1}" onclick="openLightbox('${p.dataUrl}')">
-      <button class="remove-photo" onclick="removePhoto(${i})">×</button>
+    <div class="photo-thumb" style="position:relative">
+      <img src="${p.dataUrl}" alt="foto ${i+1}" onclick="openLightbox('${p.dataUrl}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
+      <button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button>
     </div>`).join('');
 }
 
@@ -987,16 +1016,29 @@ function onTagInput(){
 function showTagSuggestions(q){
   const contract = document.getElementById('f-client').value;
   if(!contract){ showToast('Selecione o contrato primeiro'); return; }
-  const list = getEffectiveDB()[contract]||[];
-  const matches = list.filter(m=>m.tag.startsWith(q)||m.estabelecimento.toLowerCase().includes(q.toLowerCase())||m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0,12);
+  const list = (getEffDB()[contract]||[]).filter(m=>!m._inativo);
+  const qLow = q.toLowerCase();
+  const matches = list.filter(m=>{
+    const tag = (m.tag||'').toString().toLowerCase();
+    const est = (m.estabelecimento||'').toLowerCase();
+    const rec = (m.recinto||'').toLowerCase();
+    return tag.startsWith(qLow) || est.includes(qLow) || rec.includes(qLow);
+  }).slice(0,12);
   const box = document.getElementById('tag-suggestions');
   if(!matches.length){ box.style.display='none'; return; }
-  box.innerHTML = matches.map(m=>`<div class="tag-sug-item" onclick="selectTag('${m.tag}')"><div style="font-weight:600;font-size:14px">TAG ${m.tag}</div><div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''} · ${m.estabelecimento}</div><div style="font-size:12px;color:var(--text-3)">${m.recinto}</div></div>`).join('');
+  box.innerHTML = matches.map(m=>{
+    const tag=m.tag||'',marca=m.marca||'',tipo=m.tipo||'',cap=m.capacidade?' · '+m.capacidade+' BTU':'',est=m.estabelecimento||'',rec=m.recinto||'';
+    return `<div class="tag-sug-item" onclick="selectTag('${tag}')" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+      <div style="font-weight:600;font-size:14px">TAG ${tag}</div>
+      <div style="font-size:12px;color:var(--text-2)">${marca} ${tipo}${cap}${est?' · '+est:''}</div>
+      ${rec?`<div style="font-size:12px;color:var(--text-3)">${rec}</div>`:''}
+    </div>`;
+  }).join('');
   box.style.display='block';
 }
 function selectTag(tag){
   const contract = document.getElementById('f-client').value;
-  const m = (getEffectiveDB()[contract]||[]).find(x=>x.tag===tag);
+  const m = (getEffDB()[contract]||[]).find(x=>(x.tag||'')===tag);
   if(!m) return;
   selectedMachine = m;
   document.getElementById('f-equip').value = tag;
@@ -1005,8 +1047,8 @@ function selectTag(tag){
 }
 function showMachineInfo(m){
   document.getElementById('machine-info').style.display='block';
-  document.getElementById('mi-marca').textContent=`Marca: ${m.marca}`;
-  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo}`;
+  document.getElementById('mi-marca').textContent=`Marca: ${m.marca||'—'}`;
+  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo||'—'}`;
   document.getElementById('mi-cap').textContent=`Capacidade: ${m.capacidade?m.capacidade+' BTU':'—'}`;
   document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
   document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
@@ -1236,13 +1278,13 @@ async function populateContractDropdownsReg() {
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
-        visible.map(c => `<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}">${c.razao || 'Contrato '+c.numero}</option>`).join('');
     }
     const filterSel = document.getElementById('f-filter-contract');
     if (filterSel) {
       const cur = filterSel.value;
       filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
-        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao||''}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.razao || 'Contrato '+c.numero}</option>`).join('');
     }
   } catch(e) {}
 }

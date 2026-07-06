@@ -570,14 +570,22 @@ function _renderUsersList(el, users, currentUser) {
     el.innerHTML = '<p style="font-size:13px;color:var(--text-3);text-align:center;padding:24px 0">Nenhum usuário registrado ainda.</p>';
     return;
   }
+  // Cruza com whitelist para saber o contrato vinculado
+  const wl = getWhitelist();
+  const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+
   el.innerHTML = users.map(u => {
     const r = ROLES[u.role] || {};
-    // Aceita last_login (backend) ou lastLogin (cache legado)
     const ll = u.last_login || u.lastLogin;
     const lastLogin = ll
       ? `Último acesso: ${new Date(ll).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}`
       : 'Nunca acessou';
-    return `<div class="user-row">
+    const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
+    const conts = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const contBadges = conts.length
+      ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
+      : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos</span>';
+    return `<div class="user-row" style="flex-wrap:wrap">
       ${u.picture
         ? `<img src="${u.picture}" alt="">`
         : `<div class="uavatar">${r.icon||'👤'}</div>`}
@@ -585,6 +593,13 @@ function _renderUsersList(el, users, currentUser) {
         <div class="uname">${u.name||'(sem nome)'}</div>
         <div class="uemail">${u.email}</div>
         <div class="ulast">${lastLogin}</div>
+        <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+          ${contBadges}
+          <button onclick="editUserContracts('${u.email}')"
+            style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
+            ✏️ editar
+          </button>
+        </div>
       </div>
       <select class="role-select" onchange="changeRole('${u.id}',this.value)" ${u.id===currentUser?.id?'disabled':''}>
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
@@ -603,8 +618,10 @@ function renderWhitelistTab(el) {
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
   DB.getWhitelist().then(wl => {
     _renderWLContent(el, wl || []);
+    loadWLContracts();
   }).catch(() => {
     _renderWLContent(el, getWhitelist());
+    loadWLContracts();
   });
 }
 function _renderWLContent(el, wl) {
@@ -619,21 +636,34 @@ function _renderWLContent(el, wl) {
   const ativos    = wlEnhanced.filter(e => e.hasAccount || e.usedAt);
   const pendentes = wlEnhanced.filter(e => !e.hasAccount && !e.usedAt);
 
-  const renderRow = (e) => `
+  // Lista de contratos disponíveis para os selects
+  const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+
+  const renderRow = (e) => {
+    const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+    const contBadges = conts.length
+      ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
+      : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos</span>';
+    return `
     <div class="wl-row" style="flex-wrap:wrap;gap:8px">
       <div style="flex:1;min-width:0">
         <div class="wl-email" title="${e.email}" style="font-weight:600">${e.name||e.email}</div>
-        <div style="font-size:11px;color:var(--text-3)">
-          ${e.email}
-          ${e.contract?`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px">Contrato ${e.contract}</span>`:''}
+        <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
+        <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+          ${contBadges}
+          <button onclick="editUserContracts('${e.email}')"
+            style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
+            ✏️ editar contratos
+          </button>
         </div>
       </div>
-      <select class="role-select" onchange="changeWLRole('${e.email}',this.value)">
+      <select class="role-select" onchange="changeWLRole('${e.email}',this.value)" style="min-width:120px">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
       </select>
       <span class="wl-status ${e.hasAccount||e.usedAt?'used':'pending'}">${e.hasAccount||e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
       <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
     </div>`;
+  };
 
   el.innerHTML = `
     <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.5">
@@ -643,13 +673,16 @@ function _renderWLContent(el, wl) {
     <div class="add-wl-form" style="flex-wrap:wrap">
       <input type="email" id="wl-email" placeholder="email@dominio.com" style="flex:1;min-width:150px">
       <input type="text" id="wl-name" placeholder="Nome" style="flex:1;min-width:100px">
-      <select id="wl-role" onchange="toggleWLContractField()">
+      <select id="wl-role">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
       </select>
-      <select id="wl-contract" style="min-width:130px;display:none">
-        <option value="">— sem vínculo —</option>
-      </select>
       <button onclick="addWhitelistEntry()">+ Adicionar</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Contratos autorizados:</label>
+      <div id="wl-contracts-picker" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:200px;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface-0);min-height:36px">
+        <span style="font-size:11px;color:var(--text-3)">Carregando contratos…</span>
+      </div>
     </div>
     ${wl.length === 0
       ? `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:16px 0">Nenhum usuário pré-autorizado.</p>`
@@ -662,17 +695,29 @@ function _renderWLContent(el, wl) {
         : `<p style="font-size:13px;color:var(--success);text-align:center;padding:16px 0">✅ Todos os usuários pré-autorizados já acessaram o sistema.</p>`}
       ${ativos.length ? `
         <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-top:14px;border-top:1px solid var(--border)">
-          Já acessaram (${ativos.length}) — gerenciados em Usuários
+          Já acessaram (${ativos.length})
         </div>
-        ${ativos.map(e => `
-          <div class="wl-row" style="opacity:.6;flex-wrap:wrap;gap:8px">
+        ${ativos.map(e => {
+          const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+          const contBadges = conts.length
+            ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
+            : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos os contratos</span>';
+          return `<div class="wl-row" style="flex-wrap:wrap;gap:8px">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:13px">${e.name||e.email}</div>
-              <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
+              <div style="font-weight:600;font-size:13px">${e.name||e.email} <span style="font-weight:400;color:var(--text-3);font-size:11px">· ${ROLES[e.role]?.label||e.role}</span></div>
+              <div style="font-size:11px;color:var(--text-3);margin-top:2px">${e.email}</div>
+              <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
+                ${contBadges}
+                <button onclick="editUserContracts('${e.email}')"
+                  style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
+                  ✏️ editar contratos
+                </button>
+              </div>
             </div>
-            <span class="wl-status used">✅ Ativo — ver em Usuários</span>
-            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover da whitelist">✕</button>
-          </div>`).join('')}` : ''}
+            <span class="wl-status used">✅ Ativo</span>
+            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
+          </div>`;
+        }).join('')}` : ''}
       `
     }
 `;
@@ -685,36 +730,117 @@ async function addWhitelistEntry() {
   const email = document.getElementById('wl-email').value.trim().toLowerCase();
   const name  = document.getElementById('wl-name').value.trim();
   const role  = document.getElementById('wl-role').value;
-  const contract = document.getElementById('wl-contract')?.value || null;
+  const contracts = _wlSelectedContracts.length ? _wlSelectedContracts.join(',') : null;
   if (!email || !email.includes('@')) { showToast('E-mail inválido'); return; }
   try {
-    await DB.addWhitelist(email, role, name, contract);
-    const badge = contract ? ` — contrato ${contract}` : '';
+    await DB.addWhitelist(email, role, name, contracts);
+    const badge = contracts ? ` — contratos: ${contracts}` : '';
     showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role}${badge}`);
+    // Limpa form
+    document.getElementById('wl-email').value = '';
+    document.getElementById('wl-name').value = '';
+    _wlSelectedContracts = [];
     await syncUsersFromBackend();
     renderAdminTab();
   } catch(e) { showToast('Erro: ' + e.message); }
 }
 
-// Ao selecionar solicitante, permite escolher contrato de vínculo
-async function toggleWLContractField() {
-  const role = document.getElementById('wl-role').value;
-  const sel  = document.getElementById('wl-contract');
-  if (!sel) return;
-  if (role === 'solicitante') {
-    sel.style.display = '';
-    // Carrega contratos se ainda estiver vazio
-    if (sel.options.length <= 1) {
-      try {
-        const conts = await DB.getContratos();
-        sel.innerHTML = '<option value="">— sem vínculo (vê todos) —</option>' +
-          (conts||[]).map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
-      } catch(e) {}
-    }
-  } else {
-    sel.style.display = 'none';
-    sel.value = '';
+// Estado do picker de contratos (usado em addWhitelistEntry)
+let _wlSelectedContracts = [];
+let _wlAllContracts = [];
+
+// Popula o picker de contratos ao renderizar a aba
+async function loadWLContracts() {
+  const picker = document.getElementById('wl-contracts-picker');
+  if (!picker) return;
+  try {
+    _wlAllContracts = await DB.getContratos();
+    _wlRenderPicker();
+  } catch(e) {
+    picker.innerHTML = '<span style="font-size:11px;color:var(--danger)">Erro ao carregar contratos</span>';
   }
+}
+
+function _wlRenderPicker() {
+  const picker = document.getElementById('wl-contracts-picker');
+  if (!picker) return;
+  if (!_wlAllContracts.length) {
+    picker.innerHTML = '<span style="font-size:11px;color:var(--text-3)">Nenhum contrato cadastrado</span>';
+    return;
+  }
+  picker.innerHTML = _wlAllContracts.map(c => {
+    const sel = _wlSelectedContracts.includes(c.numero);
+    return `<button type="button" onclick="_wlToggleContract('${c.numero}')"
+      style="padding:4px 10px;border-radius:99px;border:1px solid ${sel?'#7c3aed':'var(--border)'};
+             background:${sel?'#ede9fe':'var(--surface)'};color:${sel?'#5b21b6':'var(--text-2)'};
+             font-size:11px;font-weight:600;cursor:pointer">
+      ${sel?'✓ ':''}${c.numero}
+    </button>`;
+  }).join('') +
+  (_wlSelectedContracts.length === 0
+    ? '<span style="font-size:11px;color:var(--text-3);align-self:center;padding-left:6px">Nenhum = acesso a todos</span>'
+    : `<span style="font-size:11px;color:var(--success);align-self:center;padding-left:6px">${_wlSelectedContracts.length} contrato(s)</span>`);
+}
+
+function _wlToggleContract(numero) {
+  const idx = _wlSelectedContracts.indexOf(numero);
+  if (idx === -1) _wlSelectedContracts.push(numero);
+  else _wlSelectedContracts.splice(idx, 1);
+  _wlRenderPicker();
+}
+
+// Editar contratos de um usuário já cadastrado (modal)
+async function editUserContracts(email) {
+  const wl = getWhitelist();
+  const user = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+  if (!user) { showToast('Usuário não encontrado'); return; }
+  if (!_wlAllContracts.length) {
+    try { _wlAllContracts = await DB.getContratos(); } catch(e) {}
+  }
+  const current = user.contract ? String(user.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;width:100%;max-height:90vh;overflow-y:auto" onclick="event.stopPropagation()">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">Editar contratos autorizados</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:14px">${user.name || user.email}</div>
+      <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
+        ${_wlAllContracts.length === 0
+          ? '<span style="font-size:12px;color:#94a3b8">Nenhum contrato cadastrado</span>'
+          : _wlAllContracts.map(c => {
+              const sel = current.includes(c.numero);
+              return `<button type="button" data-num="${c.numero}" data-sel="${sel?'1':'0'}"
+                onclick="var s=this.dataset.sel==='1'?'0':'1';this.dataset.sel=s;this.style.background=s==='1'?'#ede9fe':'#fff';this.style.borderColor=s==='1'?'#7c3aed':'#e2e8f0';this.style.color=s==='1'?'#5b21b6':'#334155';this.textContent=(s==='1'?'✓ ':'')+'${c.numero}'"
+                style="padding:6px 12px;border-radius:99px;border:1px solid ${sel?'#7c3aed':'#e2e8f0'};background:${sel?'#ede9fe':'#fff'};color:${sel?'#5b21b6':'#334155'};font-size:12px;font-weight:600;cursor:pointer">
+                ${sel?'✓ ':''}${c.numero}
+              </button>`;
+            }).join('')
+        }
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="this.closest('div[style*=fixed]').remove()"
+          style="padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;font-size:13px">
+          Cancelar
+        </button>
+        <button id="save-contracts-btn"
+          style="padding:8px 16px;border-radius:8px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+          Salvar
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#save-contracts-btn').onclick = async () => {
+    const selected = [...modal.querySelectorAll('button[data-num][data-sel="1"]')].map(b => b.dataset.num);
+    try {
+      await DB.addWhitelist(user.email, user.role, user.name||'', selected.length ? selected.join(',') : null);
+      showToast(selected.length ? `✅ ${selected.length} contrato(s) vinculado(s)` : '✅ Vínculo removido');
+      modal.remove();
+      await syncUsersFromBackend();
+      renderAdminTab();
+    } catch(e) { showToast('Erro: ' + e.message); }
+  };
 }
 
 async function changeWLRole(email, role) {
@@ -724,6 +850,17 @@ async function changeWLRole(email, role) {
     const existing = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
     await DB.addWhitelist(email, role, existing?.name||'', existing?.contract||null);
     showToast('Perfil atualizado');
+    await syncUsersFromBackend();
+    renderAdminTab();
+  } catch(e) { showToast('Erro: ' + e.message); }
+}
+
+async function changeWLContract(email, contract) {
+  try {
+    const wl = getWhitelist();
+    const existing = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+    await DB.addWhitelist(email, existing?.role||'solicitante', existing?.name||'', contract||null);
+    showToast(contract ? `Vínculo atualizado: Contrato ${contract}` : 'Vínculo removido — vê todos os contratos');
     await syncUsersFromBackend();
     renderAdminTab();
   } catch(e) { showToast('Erro: ' + e.message); }

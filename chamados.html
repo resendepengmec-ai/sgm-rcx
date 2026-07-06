@@ -96,8 +96,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" list="tag-suggestions" autocomplete="off" placeholder="Ex: FCU-01">
-      <datalist id="tag-suggestions"></datalist>
+      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
+      <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
         <div id="mi-tipo"></div>
@@ -133,7 +133,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Fotos (até 3, comprimidas automaticamente)</label>
+      <label>Fotos <span id="photo-badge" style="display:none;background:var(--success);color:#fff;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;margin-left:6px">0</span> (até 3, comprimidas automaticamente)</label>
       <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()">
         <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
         <div style="font-size:24px">📷</div>
@@ -324,11 +324,11 @@ async function populateContractDropdowns() {
       ? contratos.filter(c => c.numero === userContract)
       : contratos;
 
-    // Dropdown do formulário novo chamado
+    // Dropdown do formulário novo chamado (mostra a razão social ou número)
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
-        visible.map(c => `<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}">${c.razao || 'Contrato '+c.numero}</option>`).join('');
       // Se solicitante com vínculo, pré-seleciona e trava
       if (userContract && visible.length === 1) {
         formSel.value = userContract;
@@ -341,7 +341,7 @@ async function populateContractDropdowns() {
     if (filterSel) {
       const cur = filterSel.value;
       filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
-        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao||''}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.razao || 'Contrato '+c.numero}</option>`).join('');
     }
   } catch(e) { /* backend offline: mantém dropdown vazio */ }
 }
@@ -452,7 +452,11 @@ function saveChamado() {
     createdAt: editingId ? (chamados.find(x=>x.id===editingId)?.createdAt||Date.now()) : Date.now(),
   };
   if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
-  else chamados.unshift(c)
+  else {
+    chamados.unshift(c);
+    // Gera O.S. automática para novo chamado
+    _autoGenerateOS(c);
+  }
   // Assinatura digital
   const _sid_c = c.id;
   const _sedit_c = !!editingId;
@@ -523,6 +527,7 @@ function addPhotos(files) {
         canvas.getContext('2d').drawImage(img,0,0,w,h);
         newPhotos.push({ dataUrl:canvas.toDataURL('image/jpeg',0.75), name:file.name });
         renderPhotoGrid();
+        showToast(`📷 Foto ${newPhotos.length} de 3 adicionada`);
       };
       img.src = ev.target.result;
     };
@@ -533,8 +538,9 @@ function removePhoto(i){ newPhotos.splice(i,1); renderPhotoGrid(); }
 function renderPhotoGrid(){
   const grid=document.getElementById('photo-grid');
   const badge=document.getElementById('photo-badge');
-  badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length;
-  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')"><button class="remove-photo" onclick="removePhoto(${i})">×</button></div>`).join('');
+  if (badge) { badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length; }
+  if (!grid) return;
+  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
 }
 
 // ── Lightbox ──
@@ -551,16 +557,34 @@ function onTagInput(){
 function showTagSuggestions(q){
   const contract=document.getElementById('f-client').value;
   if(!contract){showToast('Selecione o contrato primeiro');return;}
-  const list=getEffectiveDB()[contract]||[];
-  const matches=list.filter(m=>m.tag.startsWith(q)||m.estabelecimento.toLowerCase().includes(q.toLowerCase())||m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0,12);
+  const list=(getEffDB()[contract]||[]).filter(m=>!m._inativo);
+  const qLow = q.toLowerCase();
+  const matches=list.filter(m=>{
+    const tag = (m.tag||'').toString().toLowerCase();
+    const est = (m.estabelecimento||'').toLowerCase();
+    const rec = (m.recinto||'').toLowerCase();
+    return tag.startsWith(qLow) || est.includes(qLow) || rec.includes(qLow);
+  }).slice(0,12);
   const box=document.getElementById('tag-suggestions');
   if(!matches.length){box.style.display='none';return;}
-  box.innerHTML=matches.map(m=>`<div class="tag-sug-item" onclick="selectTag('${m.tag}')"><div style="font-weight:600;font-size:14px">TAG ${m.tag}</div><div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''} · ${m.estabelecimento}</div><div style="font-size:12px;color:var(--text-3)">${m.recinto}</div></div>`).join('');
+  box.innerHTML=matches.map(m=>{
+    const tag = m.tag || '';
+    const marca = m.marca || '';
+    const tipo = m.tipo || '';
+    const cap = m.capacidade ? ' · '+m.capacidade+' BTU' : '';
+    const est = m.estabelecimento || '';
+    const rec = m.recinto || '';
+    return `<div class="tag-sug-item" onclick="selectTag('${tag}')" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+      <div style="font-weight:600;font-size:14px">TAG ${tag}</div>
+      <div style="font-size:12px;color:var(--text-2)">${marca} ${tipo}${cap}${est?' · '+est:''}</div>
+      ${rec?`<div style="font-size:12px;color:var(--text-3)">${rec}</div>`:''}
+    </div>`;
+  }).join('');
   box.style.display='block';
 }
 function selectTag(tag){
   const contract=document.getElementById('f-client').value;
-  const m=(getEffectiveDB()[contract]||[]).find(x=>x.tag===tag); if(!m)return;
+  const m=(getEffDB()[contract]||[]).find(x=>(x.tag||'')===tag); if(!m)return;
   selectedMachine=m;
   document.getElementById('f-equip').value=tag;
   document.getElementById('tag-suggestions').style.display='none';
@@ -568,11 +592,11 @@ function selectTag(tag){
 }
 function showMachineInfo(m){
   document.getElementById('machine-info').style.display='block';
-  document.getElementById('mi-marca').textContent=`Marca: ${m.marca}`;
-  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo}`;
+  document.getElementById('mi-marca').textContent=`Marca: ${m.marca||'—'}`;
+  document.getElementById('mi-tipo').textContent=`Tipo: ${m.tipo||'—'}`;
   document.getElementById('mi-cap').textContent=`Capacidade: ${m.capacidade?m.capacidade+' BTU':'—'}`;
-  document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento}`;
-  document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto}`;
+  document.getElementById('mi-estab').textContent=`Estabelecimento: ${m.estabelecimento||'—'}`;
+  document.getElementById('mi-recinto').textContent=`Recinto: ${m.recinto||'—'}`;
 }
 function hideMachineInfo(){ selectedMachine=null; document.getElementById('machine-info').style.display='none'; }
 document.addEventListener('click',e=>{ if(!e.target.closest('#f-equip')&&!e.target.closest('#tag-suggestions')) document.getElementById('tag-suggestions').style.display='none'; });
@@ -882,6 +906,36 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 
 // ── Ordens de Serviço ────────────────────────────────────────────
 const OS_KEY = 'smm_ordens_servico';
+
+// Gera automaticamente uma O.S. para chamado recém-criado
+function _autoGenerateOS(chamado) {
+  try {
+    const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+    // Evita duplicata (defensivo)
+    if (allOS.some(o => o.chamadoId === chamado.id)) return;
+    const numero = `OS-${chamado.id}-01`;
+    const os = {
+      id: 'os-'+Date.now(),
+      numero,
+      chamadoId: chamado.id,
+      client: chamado.client,
+      equip: chamado.equip,
+      machine: chamado.machine,
+      priority: chamado.priority,
+      desc: chamado.desc,
+      status: 'pendente', // aguardando técnico
+      createdAt: Date.now(),
+      autoGenerated: true,
+    };
+    allOS.unshift(os);
+    localStorage.setItem(OS_KEY, JSON.stringify(allOS));
+    // Muda chamado para "andamento" (tem O.S. gerada)
+    chamado.status = 'andamento';
+    showToast(`📋 O.S. ${numero} gerada automaticamente`);
+  } catch(e) {
+    console.warn('Erro ao gerar O.S. automática:', e);
+  }
+}
 
 function gerarOS(chamadoId) {
   const c = chamados.find(x=>x.id===chamadoId); if(!c) return;
