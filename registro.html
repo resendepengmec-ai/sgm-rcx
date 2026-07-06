@@ -233,10 +233,6 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     O.S.
     <span id="os-badge" style="display:none;position:absolute;top:4px;right:12px;background:#dc2626;color:#fff;border-radius:99px;font-size:10px;font-weight:700;padding:1px 5px;min-width:16px;text-align:center"></span>
   </button>
-    <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-    Config
-  </button>
 </nav>
 
 <script>
@@ -1309,14 +1305,15 @@ const OS_KEY = 'smm_ordens_servico';
 function renderOSList() {
   const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
   const user = getCurrentUser();
+  const userRole = user?.role || '';
   // Filtrar por contratos do usuário se estiver vinculado
   const userContracts = user?.contract ? String(user.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
   const filteredByContract = userContracts.length
     ? allOS.filter(o => userContracts.includes(o.contrato || o.client))
     : allOS;
   // Técnico: só vê O.S. abertas e em execução
-  // Admin/Gestor: vê todas
-  const visible = ['admin','diretor','supervisor','gestor'].includes(role.id)
+  // Admin/Gestor/Diretor/Supervisor: vê todas
+  const visible = ['admin','diretor','supervisor','gestor'].includes(userRole)
     ? filteredByContract
     : filteredByContract.filter(o=>o.status!=='concluida');
 
