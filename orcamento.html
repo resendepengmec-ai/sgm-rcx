@@ -302,7 +302,7 @@ function onTagInput() {
 function showTagSuggestions(q) {
   const contract = document.getElementById('f-client').value;
   if (!contract) { showToast('Selecione o contrato primeiro'); return; }
-  const list = getEffectiveDB()[contract] || [];
+  const list = getEffDB()[contract] || [];
   const matches = list.filter(m => m.tag.startsWith(q) || m.estabelecimento.toLowerCase().includes(q.toLowerCase()) || m.recinto.toLowerCase().includes(q.toLowerCase())).slice(0, 12);
   const box = document.getElementById('tag-suggestions');
   if (!matches.length) { box.style.display = 'none'; return; }
@@ -317,7 +317,7 @@ function showTagSuggestions(q) {
 
 function selectTag(tag) {
   const contract = document.getElementById('f-client').value;
-  const list = getEffectiveDB()[contract] || [];
+  const list = getEffDB()[contract] || [];
   const m = list.find(x => x.tag === tag);
   if (!m) return;
   selectedMachine = m;
@@ -492,8 +492,8 @@ function editQuote(id) {
   document.getElementById('f-date').value = q.date || today();
   document.getElementById('f-notes').value = q.notes || '';
   // Try to reload machine info
-  if (q.equip && q.client && getEffectiveDB()[q.client]) {
-    const m = getEffectiveDB()[q.client].find(x => x.tag === q.equip);
+  if (q.equip && q.client && getEffDB()[q.client]) {
+    const m = getEffDB()[q.client].find(x => x.tag === q.equip);
     if (m) showMachineInfo(m);
   }
   renderNewItems();

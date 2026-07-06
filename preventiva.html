@@ -1211,10 +1211,6 @@ function printFilteredPDF() {
   showToast('Relatório gerado!');
 }
 
-// ── Init ──
-renderPlansList();
-loadTechnicians();
-
 // Popula dropdown de técnicos a partir dos usuários cadastrados
 async function loadTechnicians() {
   const sel = document.getElementById('f-tech');
@@ -1232,6 +1228,10 @@ async function loadTechnicians() {
     if (u) sel.innerHTML = `<option value="${u.email}">${u.name||u.email}</option>`;
   }
 }
+
+// ── Init ──
+renderPlansList();
+loadTechnicians();
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {
