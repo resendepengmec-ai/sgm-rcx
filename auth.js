@@ -309,7 +309,22 @@ async function loginWithGoogleToken(googleToken) {
 
 // ── Machine DB ────────────────────────────────────────────────────
 function getEffDB() {
-  const c = localStorage.getItem(DB_KEY);
-  if (c) { try { return JSON.parse(c); } catch {} }
-  return typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+  // 1. Constrói mapa contrato→equipamentos a partir de smm_contracts (fonte principal)
+  let db = {};
+  try {
+    const contracts = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+    contracts.forEach(c => {
+      if (c.numero && Array.isArray(c.equipamentos)) db[c.numero] = c.equipamentos;
+    });
+  } catch(e) {}
+  // 2. Se ainda vazio, tenta banco custom (compatibilidade)
+  if (Object.keys(db).length === 0) {
+    const c = localStorage.getItem(DB_KEY);
+    if (c) { try { return JSON.parse(c); } catch {} }
+  }
+  // 3. Fallback: MACHINE_DB
+  if (Object.keys(db).length === 0) {
+    db = typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
+  }
+  return db;
 }
