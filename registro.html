@@ -1293,6 +1293,7 @@ async function populateContractDropdownsReg() {
 renderRecordList();
 buildFilterOptions();
 populateContractDropdownsReg();
+updateOSBadge();
 
 
 const _origOpenDetailR = openDetail;
@@ -1307,11 +1308,17 @@ const OS_KEY = 'smm_ordens_servico';
 
 function renderOSList() {
   const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  const user = getCurrentUser();
+  // Filtrar por contratos do usuário se estiver vinculado
+  const userContracts = user?.contract ? String(user.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const filteredByContract = userContracts.length
+    ? allOS.filter(o => userContracts.includes(o.contrato || o.client))
+    : allOS;
   // Técnico: só vê O.S. abertas e em execução
   // Admin/Gestor: vê todas
-  const visible = ['admin','gestor'].includes(role.id)
-    ? allOS
-    : allOS.filter(o=>o.status!=='concluida');
+  const visible = ['admin','diretor','supervisor','gestor'].includes(role.id)
+    ? filteredByContract
+    : filteredByContract.filter(o=>o.status!=='concluida');
 
   // Badge no nav
   const pending = allOS.filter(o=>o.status==='aberta').length;
@@ -1398,31 +1405,50 @@ function iniciarRegistroOS(osId) {
 
   // Aguardar o DOM do form estar pronto
   setTimeout(() => {
+    // Preenche Contrato (dropdown)
+    const contractSel = document.getElementById('f-client');
+    if (contractSel) {
+      contractSel.value = os.contrato || os.client || '';
+      // Dispara change para atualizar dependências
+      contractSel.dispatchEvent(new Event('change'));
+    }
+
     // Preenche TAG
-    const tagInput = document.getElementById('f-tag');
-    if (tagInput) { tagInput.value = os.tag||''; tagInput.dispatchEvent(new Event('input')); }
+    const tagInput = document.getElementById('f-equip');
+    if (tagInput) {
+      tagInput.value = os.tag || os.equip || '';
+      tagInput.dispatchEvent(new Event('input'));
+    }
+
+    // Se tinha info do equipamento na O.S., preserva selectedMachine
+    if (os.machine) {
+      selectedMachine = os.machine;
+      showMachineInfo(os.machine);
+    }
 
     // Preenche data com hoje
     const dateInput = document.getElementById('f-date');
     if (dateInput) dateInput.value = today();
 
-    // Preenche contrato
-    const contractSel = document.getElementById('f-contract');
-    if (contractSel) { contractSel.value = os.contrato||''; }
+    // Técnico responsável pré-preenchido com nome do usuário logado
+    const techInput = document.getElementById('f-tech');
+    if (techInput) techInput.value = getCurrentUser()?.name || '';
 
-    // Obs pré-preenchida com número da O.S.
-    const obsInput = document.getElementById('f-obs');
-    if (obsInput) obsInput.value = `Ref. ${os.numero} — ${os.chamadoDesc||''}`;
+    // Notas pré-preenchidas com referência à O.S. + descrição do chamado
+    const notesInput = document.getElementById('f-notes');
+    if (notesInput) notesInput.value = `Ref. ${os.numero} — ${os.chamadoDesc || os.desc || ''}`;
 
     // Guardar osId para vincular ao salvar
     window._currentOSId = osId;
 
-    // Banner informativo
-    const banner = document.createElement('div');
+    // Banner informativo no topo do formulário
+    let banner = document.getElementById('os-link-banner');
+    if (banner) banner.remove();
+    banner = document.createElement('div');
     banner.id = 'os-link-banner';
-    banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:8px';
-    banner.innerHTML = `📋 <strong>O.S. ${os.numero}</strong> · TAG ${os.tag||'—'} · Chamado ${os.chamadoId}
-      <button onclick="document.getElementById('os-link-banner').remove();window._currentOSId=null;"
+    banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin:0 12px 14px;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:8px';
+    banner.innerHTML = `📋 <strong>O.S. ${os.numero}</strong> · TAG ${os.tag||os.equip||'—'} · Chamado ${os.chamadoId}
+      <button onclick="document.getElementById('os-link-banner').remove();window._currentOSId=null;showToast('Vínculo com O.S. removido')"
         style="margin-left:auto;background:none;border:none;color:#1e40af;cursor:pointer;font-size:16px">✕</button>`;
     const form = document.getElementById('screen-new');
     if (form) { const first = form.firstChild; form.insertBefore(banner, first); }
