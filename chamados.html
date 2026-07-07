@@ -501,7 +501,17 @@ function deleteChamado(id) {
 }
 
 function updateStatus(id, status) {
-  const c=chamados.find(x=>x.id===id); if(c){ c.status=status; persist(); openDetail(id); }
+  const c=chamados.find(x=>x.id===id); if(!c) return;
+  const prev = c.status;
+  c.status = status; // otimista
+  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+  openDetail(id);
+  DB.updateChamadoStatus(id, status).then(() => { renderList(); }).catch(e => {
+    c.status = prev; // reverte em caso de falha (ex.: sem permissão)
+    try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e2) {}
+    showToast('Erro ao alterar status: ' + e.message);
+    openDetail(id);
+  });
 }
 
 function persist() {
@@ -624,6 +634,10 @@ function openDetail(id){
   const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
   const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
   const statusOpts=['aberto','andamento','resolvido','cancelado'].map(st=>`<option value="${st}" ${c.status===st?'selected':''}>${STATUS_MAP[st].label}</option>`).join('');
+  const canChangeStatus = !!(window._currentRole && window._currentRole.canApprove);
+  const statusControl = canChangeStatus
+    ? `<select onchange="updateStatus('${c.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
+    : '';
   const photos=c.photos&&c.photos.length
     ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${ph.dataUrl}" onclick="openLightbox('${ph.dataUrl}')">`).join('')}</div></div>`:' ';
 
@@ -648,7 +662,7 @@ function openDetail(id){
         <div style="font-size:18px;font-weight:700">${c.id}</div>
         <div style="margin-top:4px"><span class="badge ${s.cls}">${s.label}</span> <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span></div>
       </div>
-      <select onchange="updateStatus('${c.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>
+      ${statusControl}
     </div>
     <div style="background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-size:13px;line-height:1.8">
       <div style="font-weight:600;color:var(--primary);margin-bottom:4px">📍 Equipamento</div>
@@ -970,10 +984,6 @@ openDetail = function(id) {
   const role = window._currentRole || {};
   if (!role.canEdit) document.querySelectorAll('[onclick*="editChamado"]').forEach(b => b.style.display='none');
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteChamado"]').forEach(b => b.style.display='none');
-  // Solicitante cannot change status
-  if (window._currentUser?.role === 'solicitante') {
-    document.querySelectorAll('select[onchange*="updateStatus"]').forEach(s => s.disabled = true);
-  }
 };
 
 // ── Render assinaturas no card ────────────────────────────────────
