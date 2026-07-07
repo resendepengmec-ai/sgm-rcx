@@ -1134,11 +1134,45 @@ function showToast(msg) {
   setTimeout(() => t.classList.remove('show'), 2500);
 }
 
+// ── Contratos ──
+async function populateContractDropdowns() {
+  try {
+    const contratos = await DB.getContratos();
+    const user = getCurrentUser();
+    const userContract = user?.contract;
+
+    // Se usuário vinculado a um contrato específico, filtra somente aquele
+    const visible = userContract
+      ? contratos.filter(c => c.numero === userContract)
+      : contratos;
+
+    // Dropdown do formulário novo orçamento
+    const formSel = document.getElementById('f-client');
+    if (formSel) {
+      formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
+        visible.map(c => `<option value="${c.numero}">${c.numero}</option>`).join('');
+      if (userContract && visible.length === 1) {
+        formSel.value = userContract;
+        formSel.disabled = true;
+      }
+    }
+
+    // Dropdown do filtro na lista
+    const filterSel = document.getElementById('f-filter-contract');
+    if (filterSel) {
+      const cur = filterSel.value;
+      filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
+    }
+  } catch(e) { /* backend offline: mantém dropdown vazio */ }
+}
+
 // ── Init ──
 const _fDate = document.getElementById('f-date');
 if (_fDate) _fDate.value = today();
 buildFilterOptions();
 renderQuoteList();
+populateContractDropdowns();
 
 
 // Patch openDetail to hide restricted actions

@@ -1309,13 +1309,13 @@ async function populateContractDropdownsReg() {
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
-        visible.map(c => `<option value="${c.numero}">${c.razao || 'Contrato '+c.numero}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}">${c.numero}</option>`).join('');
     }
     const filterSel = document.getElementById('f-filter-contract');
     if (filterSel) {
       const cur = filterSel.value;
       filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
-        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.razao || 'Contrato '+c.numero}</option>`).join('');
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
     }
   } catch(e) {}
 }

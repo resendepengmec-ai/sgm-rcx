@@ -230,7 +230,7 @@ async function loadData() {
   const sel = document.getElementById('f-contract');
   const cur = sel.value;
   sel.innerHTML = '<option value="">Todos os contratos</option>' +
-    contratos.map(c=>`<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero} — ${c.razao}</option>`).join('');
+    contratos.map(c=>`<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
   // Populate estab filter
   const estabs = [...new Set(chamados.map(c=>c.machine?.estabelecimento).filter(Boolean))].sort();
   const selE = document.getElementById('f-estab');

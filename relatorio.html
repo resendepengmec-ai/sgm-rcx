@@ -173,7 +173,7 @@ function init() {
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Todos os contratos</option>' +
-    contracts.map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao}</option>`).join('');
+    contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
 
   loadPrestadoraConfig();
 }

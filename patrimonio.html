@@ -372,7 +372,7 @@ function openNewMovimento() {
   // Preenche select de contratos
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
-    contracts.map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao}</option>`).join('');
+    contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
   document.getElementById('f-tipo').value = '';
   document.getElementById('f-motivo').value = '';
   document.getElementById('f-obs-mov').value = '';
@@ -646,7 +646,7 @@ async function loadHistContratos() {
   try {
     const conts = await DB.getContratos();
     sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
-      (conts||[]).map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao||''}</option>`).join('');
+      (conts||[]).map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
   } catch(e) {}
 }
 
