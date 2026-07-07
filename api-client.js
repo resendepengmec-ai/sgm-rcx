@@ -193,6 +193,7 @@ const DB = {
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),
   saveOrdem:          o     => API.post('/ordens-servico', { ordem:o }),
+  iniciarOrdem:       id    => API.patch(`/ordens-servico/${id}/iniciar`, {}),
   concluirOrdem:      (id, registroId) => API.patch(`/ordens-servico/${id}/concluir`, { registroId }),
 
   // Machine DB

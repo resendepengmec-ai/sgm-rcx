@@ -187,10 +187,6 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
   </button>
-  <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-    Config
-  </button>
 </nav>
 
 <script>
@@ -252,6 +248,14 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 // ── State ──
 let chamados = JSON.parse(localStorage.getItem('chamados_list') || '[]');
 let settings = JSON.parse(localStorage.getItem('chamados_settings') || '{}');
+let ordensCache = JSON.parse(localStorage.getItem('smm_ordens_servico') || '[]');
+function loadOrdens() {
+  DB.getOrdens().then(list => {
+    ordensCache = list || [];
+    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    if (currentDetailId) openDetail(currentDetailId); // re-renderiza modal aberto, se houver
+  }).catch(()=>{});
+}
 let newPhotos = [];
 let editingId = null;
 let currentDetailId = null;
@@ -283,11 +287,10 @@ const STATUS_MAP = {
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('screen-' + (tab==='list'?'list':tab==='new'?'new':'settings')).classList.add('active');
-  document.getElementById('nav-' + (tab==='list'?'list':tab==='new'?'new':'settings')).classList.add('active');
+  document.getElementById('screen-' + (tab==='list'?'list':'new')).classList.add('active');
+  document.getElementById('nav-' + (tab==='list'?'list':'new')).classList.add('active');
   document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
   if (tab === 'list') renderList();
-  if (tab === 'settings') loadSettings();
 }
 
 // ── Filters ──
@@ -451,12 +454,9 @@ function saveChamado() {
     status: editingId ? (chamados.find(x=>x.id===editingId)?.status||'aberto') : 'aberto',
     createdAt: editingId ? (chamados.find(x=>x.id===editingId)?.createdAt||Date.now()) : Date.now(),
   };
+  const isNew = !editingId;
   if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
-  else {
-    chamados.unshift(c);
-    // Gera O.S. automática para novo chamado
-    _autoGenerateOS(c);
-  }
+  else { chamados.unshift(c); }
   // Assinatura digital
   const _sid_c = c.id;
   const _sedit_c = !!editingId;
@@ -464,8 +464,18 @@ function saveChamado() {
     const _rec = chamados.find(x=>x.id===_sid_c);
     if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
   }).catch(()=>{});
-  persist();
-  showToast(editingId?'Chamado atualizado!':'Chamado aberto!');
+  showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
+  persist().then(() => {
+    if (isNew) {
+      DB.getOrdensByChamado(c.id).then(list => {
+        if (list && list.length) {
+          ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
+          try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+          showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`);
+        }
+      }).catch(()=>{});
+    }
+  });
   editingId=null; newPhotos=[]; switchTab('list');
 }
 
@@ -500,7 +510,8 @@ function persist() {
   renderList();
   // Sync backend (último item modificado)
   const last = chamados[0];
-  if (last) DB.save('chamados', last).catch(e => console.warn('Sync chamado:', e.message));
+  if (last) return DB.save('chamados', last).catch(e => console.warn('Sync chamado:', e.message));
+  return Promise.resolve();
 }
 
 // ── Photos ──
@@ -617,8 +628,7 @@ function openDetail(id){
     ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${ph.dataUrl}" onclick="openLightbox('${ph.dataUrl}')">`).join('')}</div></div>`:' ';
 
   // O.S. vinculadas
-  const allOS=JSON.parse(localStorage.getItem('smm_ordens_servico')||'[]');
-  const osVinculadas=allOS.filter(o=>o.chamadoId===c.id);
+  const osVinculadas=ordensCache.filter(o=>o.chamadoId===c.id);
   const canGerarOS=['admin','gestor'].includes(window._currentUser?.role);
   const osSection=osVinculadas.length?`
     <div style="margin-top:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px">
@@ -874,81 +884,17 @@ function printFilteredPDF(){
   showToast('Relatório PDF gerado!');
 }
 
-// ── Settings ──
-function loadSettings(){
-  document.getElementById('s-company').value=settings.company||'';
-  document.getElementById('s-cnpj').value=settings.cnpj||'';
-  document.getElementById('s-tel').value=settings.tel||'';
-  document.getElementById('s-email').value=settings.email||'';
-  document.getElementById('s-addr').value=settings.addr||'';
-  document.getElementById('s-footer').value=settings.footer||'';
-}
-function saveSettings(){
-  settings={company:document.getElementById('s-company').value,cnpj:document.getElementById('s-cnpj').value,tel:document.getElementById('s-tel').value,email:document.getElementById('s-email').value,addr:document.getElementById('s-addr').value,footer:document.getElementById('s-footer').value};
-  localStorage.setItem('chamados_settings',JSON.stringify(settings));
-  showToast('Configurações salvas!');
-}
-
-// ── Drive ──
-
-// ── Export/Import ──
-function exportData(){
-  const safe=chamados.map(c=>({...c,photos:(c.photos||[]).map(p=>({name:p.name}))}));
-  const blob=new Blob([JSON.stringify({chamados:safe,settings},null,2)],{type:'application/json'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='chamados-backup.json';a.click();
-}
-function importData(){document.getElementById('import-file').click();}
-function doImport(e){
-  const f=e.target.files[0];if(!f)return;
-  const r=new FileReader();
-  r.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.chamados){chamados=d.chamados;persist();}if(d.settings){settings=d.settings;localStorage.setItem('chamados_settings',JSON.stringify(settings));}showToast('Dados importados!');}catch{showToast('Arquivo inválido');}};
-  r.readAsText(f);
-}
-
 // ── Toast ──
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
 // ── Ordens de Serviço ────────────────────────────────────────────
-const OS_KEY = 'smm_ordens_servico';
-
-// Gera automaticamente uma O.S. para chamado recém-criado
-function _autoGenerateOS(chamado) {
-  try {
-    const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
-    // Evita duplicata (defensivo)
-    if (allOS.some(o => o.chamadoId === chamado.id)) return;
-    const numero = `OS-${chamado.id}-01`;
-    const os = {
-      id: 'os-'+Date.now(),
-      numero,
-      chamadoId: chamado.id,
-      contrato: chamado.client,
-      client: chamado.client,
-      tag: chamado.equip,
-      equip: chamado.equip,
-      machine: chamado.machine,
-      priority: chamado.priority,
-      chamadoDesc: chamado.desc,
-      desc: chamado.desc,
-      status: 'aberta', // aguardando técnico
-      createdAt: Date.now(),
-      autoGenerated: true,
-    };
-    allOS.unshift(os);
-    localStorage.setItem(OS_KEY, JSON.stringify(allOS));
-    // Muda chamado para "andamento" (tem O.S. gerada)
-    chamado.status = 'andamento';
-    showToast(`📋 O.S. ${numero} gerada automaticamente`);
-  } catch(e) {
-    console.warn('Erro ao gerar O.S. automática:', e);
-  }
-}
+// A O.S. do chamado recém-criado é gerada pelo backend (ver POST /chamados),
+// ficando disponível para qualquer técnico assumir a partir do módulo Registro.
 
 function gerarOS(chamadoId) {
   const c = chamados.find(x=>x.id===chamadoId); if(!c) return;
-  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
   // Número sequencial por chamado
-  const existentes = allOS.filter(o=>o.chamadoId===chamadoId).length;
+  const existentes = ordensCache.filter(o=>o.chamadoId===chamadoId).length;
   const numero = `OS-${chamadoId}-${String(existentes+1).padStart(2,'0')}`;
   const os = {
     id:         'os-'+Date.now(),
@@ -956,26 +902,28 @@ function gerarOS(chamadoId) {
     chamadoId,
     chamadoDesc: c.desc||'',
     contrato:   c.client,
+    client:     c.client,
     tag:        c.equip||'',
+    equip:      c.equip||'',
     machine:    c.machine||null,
     prioridade: c.priority||'normal',
+    priority:   c.priority||'normal',
     solicitante:c.requester||'',
     status:     'aberta',
     criadoEm:   Date.now(),
     criadoPor:  getCurrentUser()?.name||'',
-    tecnico:    '',
+    tecnico:    '',   // sem atribuição: qualquer técnico pode assumir
     registroId: null,
   };
-  allOS.push(os);
-  localStorage.setItem(OS_KEY, JSON.stringify(allOS));
-  // Muda status do chamado para em andamento
-  if (c.status==='aberto') {
-    c.status='andamento';
-    try{localStorage.setItem('chamados_list',JSON.stringify(chamados));}catch(e){}
-  }
-  showToast(`✅ ${numero} gerada! Disponível em Registros → O.S. Pendentes`);
-  closeDetailModal();
-  renderList();
+  DB.saveOrdem(os).then(() => {
+    ordensCache.unshift(os);
+    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    // Muda status do chamado para em andamento
+    if (c.status==='aberto') { c.status='andamento'; persist(); }
+    showToast(`✅ ${numero} gerada! Disponível em Registros → O.S. Pendentes`);
+    closeDetailModal();
+    renderList();
+  }).catch(e => showToast('Erro ao gerar O.S.: ' + e.message));
 }
 
 
@@ -983,6 +931,7 @@ function gerarOS(chamadoId) {
 buildFilterOptions();
 renderList();
 populateContractDropdowns();
+loadOrdens();
 
 
 // Patch: solicitante only sees own chamados

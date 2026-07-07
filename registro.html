@@ -353,6 +353,14 @@ const SERVICES = [
 // ── State ──
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 let settings = JSON.parse(localStorage.getItem('registro_settings') || '{}');
+let ordensCache = JSON.parse(localStorage.getItem('smm_ordens_servico') || '[]');
+function loadOrdens() {
+  DB.getOrdens().then(list => {
+    ordensCache = list || [];
+    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    renderOSList();
+  }).catch(()=>{});
+}
 let newItems = [];
 let newPhotos = []; // [{dataUrl, name}]
 let editingId = null;
@@ -379,7 +387,7 @@ function switchTab(tab) {
   document.getElementById('fab').classList.toggle('hidden', tab !== 'records');
   if (tab === 'records')  renderRecordList();
   if (tab === 'settings') loadSettings();
-  if (tab === 'os')       renderOSList();
+  if (tab === 'os')       loadOrdens();
 }
 
 // ── Filters ──
@@ -797,25 +805,21 @@ function saveRecord() {
   }).catch(()=>{});
   persist();
   showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
-  // Se havia uma O.S. vinculada, marcar como concluída e fechar o chamado
+  // Se havia uma O.S. vinculada, marcar como concluída (o backend também
+  // fecha automaticamente o chamado vinculado como "resolvido")
   if (window._currentOSId) {
-    const allOS = JSON.parse(localStorage.getItem('smm_ordens_servico')||'[]');
-    const os    = allOS.find(o=>o.id===window._currentOSId);
-    if (os) {
-      os.status     = 'concluida';
-      os.registroId = r.id;
-      os.concluidaEm= Date.now();
-      os.tecnico    = getCurrentUser()?.name||os.tecnico;
-      localStorage.setItem('smm_ordens_servico', JSON.stringify(allOS));
-      // Fechar chamado vinculado como resolvido
-      const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
-      const chamado  = chamados.find(c=>c.id===os.chamadoId);
-      if (chamado) {
-        chamado.status = 'resolvido';
-        localStorage.setItem('chamados_list', JSON.stringify(chamados));
+    const os = ordensCache.find(o=>o.id===window._currentOSId);
+    DB.concluirOrdem(window._currentOSId, r.id).then(() => {
+      if (os) {
+        os.status = 'concluida';
+        os.registroId = r.id;
+        os.concluidaEm = Date.now();
+        os.tecnico = getCurrentUser()?.name || os.tecnico;
+        try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+        showToast(`✅ O.S. ${os.numero} concluída · Chamado ${os.chamadoId} resolvido`);
       }
-      showToast(`✅ O.S. ${os.numero} concluída · Chamado ${os.chamadoId} resolvido`);
-    }
+      updateOSBadge();
+    }).catch(e => showToast('Erro ao concluir a O.S.: ' + e.message));
     window._currentOSId = null;
     // Remove OS banner if present
     document.getElementById('os-link-banner')?.remove();
@@ -1289,6 +1293,7 @@ async function populateContractDropdownsReg() {
 renderRecordList();
 buildFilterOptions();
 populateContractDropdownsReg();
+loadOrdens();
 updateOSBadge();
 
 
@@ -1300,10 +1305,9 @@ openDetail = function(id) {
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteRecord"]').forEach(b => b.style.display='none');
 };
 // ── Ordens de Serviço ────────────────────────────────────────────
-const OS_KEY = 'smm_ordens_servico';
 
 function renderOSList() {
-  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
+  const allOS = ordensCache;
   const user = getCurrentUser();
   const userRole = user?.role || '';
   // Filtrar por contratos do usuário se estiver vinculado
@@ -1385,15 +1389,25 @@ function renderOSList() {
 }
 
 function iniciarRegistroOS(osId) {
-  const allOS = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
-  const os    = allOS.find(o=>o.id===osId); if(!os) return;
+  const os = ordensCache.find(o=>o.id===osId); if(!os) return;
 
-  // Marcar como em execução
+  // Marcar como em execução (otimista) e confirmar no backend
   if (os.status==='aberta') {
     os.status     = 'em_execucao';
     os.iniciadaEm = Date.now();
     os.tecnico    = getCurrentUser()?.name||'';
-    localStorage.setItem(OS_KEY, JSON.stringify(allOS));
+    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    DB.iniciarOrdem(osId).then(r => {
+      if (r?.ordem) {
+        const i = ordensCache.findIndex(o2=>o2.id===osId);
+        if (i>=0) ordensCache[i] = r.ordem;
+      }
+    }).catch(e => {
+      showToast('Erro ao assumir a O.S.: ' + e.message);
+      os.status = 'aberta'; os.tecnico=''; os.iniciadaEm=null;
+      try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e2) {}
+      renderOSList();
+    });
   }
 
   // Pré-preencher o form de registro
@@ -1547,8 +1561,7 @@ function toggleOSChecklistItem(checkbox, idx) {
 
 // ── Update badge on init ─────────────────────────────────────────
 function updateOSBadge() {
-  const allOS  = JSON.parse(localStorage.getItem(OS_KEY)||'[]');
-  const pending= allOS.filter(o=>o.status==='aberta').length;
+  const pending= ordensCache.filter(o=>o.status==='aberta').length;
   const badge  = document.getElementById('os-badge');
   if (badge) { badge.style.display=pending>0?'':'none'; badge.textContent=pending; }
 }
