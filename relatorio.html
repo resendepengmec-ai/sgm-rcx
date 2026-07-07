@@ -407,6 +407,7 @@ function drawPdfFooters(doc, cont) {
 }
 
 function generatePDF() {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   const periodo  = document.getElementById('f-periodo').value;
@@ -484,7 +485,8 @@ function generatePDF() {
   }
 
   drawPdfFooters(doc, cont);
-  doc.save(`relatorio-${periodo}-${contrato||'geral'}.pdf`);
+  try { doc.save(`relatorio-${periodo}-${contrato||'geral'}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('PDF gerado!');
 }
 

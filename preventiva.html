@@ -393,6 +393,66 @@ let selectedLevel = null;
 let selectedEquip = new Set();
 let allEquipForContract = [];
 let fMonth='', fContract='', fStatus='', fLevel='';
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
+
+// ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
+const PDF_M = 20, PDF_W = 210;
+function drawPdfHeader(doc, { title, metaLines }) {
+  let y = 14, textX = PDF_M;
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+  const rightW = 62;
+  const maxTextW = PDF_W - PDF_M - textX - rightW;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadoraConfig.company || 'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y + 2);
+  let ly = y + 2 + nameLines.length*4.5 + 2.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (prestadoraConfig.address) { const a = doc.splitTextToSize(prestadoraConfig.address, maxTextW); doc.text(a, textX, ly); ly += a.length*4.5; }
+  if (prestadoraConfig.cnpj) { doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly); ly += 4.5; }
+  doc.setTextColor(0,0,0);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(title, PDF_W-PDF_M, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  let my = 20;
+  (metaLines||[]).forEach(line => { doc.text(line, PDF_W-PDF_M, my, {align:'right'}); my += 5.5; });
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly, my) + 3;
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY);
+  return ruleY + 8;
+}
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M*2;
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    let fy = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      const contLine = `Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`;
+      const contLines = doc.splitTextToSize(contLine, maxW).slice(0, 2);
+      doc.text(contLines, PDF_M, fy);
+      fy += contLines.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${getCurrentUser()?.name||''}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
 
 const genId = () => 'PV' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,4).toUpperCase();
 const today = () => new Date().toISOString().slice(0,7);
@@ -1024,27 +1084,23 @@ function printExecPDF() {
 }
 
 function generatePlanPDF(plan) {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
   const W=210, M=20, CW=W-M*2;
   let y = M;
-  const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
   const color = LEVEL_COLOR[plan.level].replace('#','');
   const r = parseInt(color.slice(0,2),16), g=parseInt(color.slice(2,4),16), b=parseInt(color.slice(4,6),16);
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const cont = contracts.find(x=>x.numero===plan.client);
 
   function header(label) {
-    doc.setFillColor(r,g,b);
-    doc.rect(0,0,W,38,'F');
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(co, M, 14);
-    doc.setFontSize(10); doc.text('MANUTENÇÃO PREVENTIVA', W-M, 14, {align:'right'});
-    doc.setFontSize(10); doc.setFont('helvetica','normal');
-    doc.text(`Contrato ${plan.client} · ${fmtMonth(plan.period)}`, M, 20);
-    doc.text(`${LEVEL_LABEL[plan.level]}`, M, 26);
-    doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDate(plan.finalizedAt||plan.createdAt)}`, M, 32);
-    doc.text(`${label}`, W-M, 26, {align:'right'});
-    y = 46;
+    y = drawPdfHeader(doc, { title: 'MANUTENÇÃO PREVENTIVA', metaLines: [label] });
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50,50,50);
+    doc.text(`Contrato ${plan.client} · ${fmtMonth(plan.period)} · ${LEVEL_LABEL[plan.level]}`, M, y);
+    doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDate(plan.finalizedAt||plan.createdAt)}`, M, y+6);
+    doc.setTextColor(0,0,0);
+    y += 12;
   }
 
   // Cover
@@ -1145,36 +1201,29 @@ function generatePlanPDF(plan) {
     });
   });
 
-  // Footer on each page
-  const pageCount = doc.getNumberOfPages();
-  for(let i=1;i<=pageCount;i++){
-    doc.setPage(i);
-    doc.setFillColor(r,g,b); doc.rect(0,285,W,14,'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text('Sistema de Gestão de Manutenção Preventiva', W/2, 293, {align:'center'});
-    doc.text(`Página ${i} de ${pageCount}`, W-M, 293, {align:'right'});
-  }
+  drawPdfFooters(doc, cont);
 
-  doc.save(`preventiva-${plan.client}-${plan.period}-N${plan.level}.pdf`);
+  try { doc.save(`preventiva-${plan.client}-${plan.period}-N${plan.level}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('PDF gerado!');
 }
 
 // ── PDF: filtered report ──
 function printFilteredPDF() {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const filtered = getFiltered();
   if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
-  const W=210, M=20, CW=W-M*2; let y=M;
-  const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
+  const W=210, M=20, CW=W-M*2;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contFilter = fContract ? contracts.find(x=>x.numero===fContract) : null;
 
-  doc.setFillColor(3,105,161); doc.rect(0,0,W,60,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text(co, M, 20);
-  doc.setFontSize(10); doc.text('RELATÓRIO DE MANUTENÇÃO PREVENTIVA', M, 32);
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} plano${filtered.length!==1?'s':''}`, M, 40);
-  y=68;
+  let y = drawPdfHeader(doc, { title: 'RELATÓRIO DE MANUTENÇÃO PREVENTIVA', metaLines: [] });
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50,50,50);
+  doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} plano${filtered.length!==1?'s':''}`, M, y);
+  doc.setTextColor(0,0,0);
+  y += 10;
 
   doc.setFillColor(224,242,254); doc.rect(M,y,CW,34,'F');
   doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
@@ -1198,7 +1247,7 @@ function printFilteredPDF() {
   y+=8;
 
   filtered.forEach((p,i) => {
-    if(y>275){doc.addPage();y=M;}
+    if(y>275){doc.addPage();y=drawPdfHeader(doc, {title:'RELATÓRIO DE MANUTENÇÃO PREVENTIVA', metaLines:[]});}
     if(i%2===0){doc.setFillColor(240,249,255);doc.rect(M,y,CW,7,'F');}
     const st=getPlanStatus(p);
     const done=p.equipments.filter(e=>isEquipDone(e,p.level)).length;
@@ -1214,15 +1263,10 @@ function printFilteredPDF() {
     y+=7;
   });
 
-  const pc = doc.getNumberOfPages();
-  for(let i=1;i<=pc;i++){
-    doc.setPage(i);
-    doc.setFillColor(3,105,161); doc.rect(0,285,W,14,'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text('Sistema de Gestão de Manutenção Preventiva', W/2,293,{align:'center'});
-    doc.text(`Página ${i} de ${pc}`, W-M,293,{align:'right'});
-  }
-  doc.save(`relatorio-preventiva-${new Date().toISOString().slice(0,7)}.pdf`);
+  drawPdfFooters(doc, contFilter);
+
+  try { doc.save(`relatorio-preventiva-${new Date().toISOString().slice(0,7)}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('Relatório gerado!');
 }
 
@@ -1247,6 +1291,7 @@ async function loadTechnicians() {
 // ── Init ──
 renderPlansList();
 loadTechnicians();
+loadPrestadoraConfig();
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {

@@ -169,6 +169,7 @@ const DB = {
   getAll:    col       => API.get(`/${col}`),
   save:      (col, r)  => API.post(`/${col}`, { record:r }),
   updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
+  updateOrcamentoStatus: (id, status) => API.patch(`/orcamentos/${id}/status`, { status }),
   delete:    (col, id) => API.delete(`/${col}/${id}`),
 
   // Usuários e whitelist

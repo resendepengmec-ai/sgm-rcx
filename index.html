@@ -324,6 +324,16 @@ function fmtDate(ts) {
   if (!ts) return '—';
   return new Date(ts).toLocaleDateString('pt-BR');
 }
+// Atividade recente vem recolhida por padrão pra não poluir a tela inicial
+function toggleActivity() {
+  const card = document.getElementById('activity-card');
+  const chevron = document.getElementById('activity-chevron');
+  if (!card) return;
+  const open = card.style.display !== 'none';
+  card.style.display = open ? 'none' : '';
+  if (chevron) chevron.style.transform = open ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+
 function timeAgo(ts) {
   const m = Math.floor((Date.now()-ts)/60000);
   if (m<1) return 'agora'; if (m<60) return m+'min';
@@ -490,8 +500,11 @@ function renderDashboard(user) {
       </div>
 
       ${activities.length ? `
-      <div class="section-title">Atividade recente</div>
-      <div class="activity-card">
+      <div class="section-title" onclick="toggleActivity()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+        <span>Atividade recente</span>
+        <span id="activity-chevron" style="font-size:12px;color:var(--text-3);transition:transform .15s">▸</span>
+      </div>
+      <div class="activity-card" id="activity-card" style="display:none">
         ${activities.map(a=>`
           <div class="activity-item">
             <div class="activity-dot" style="background:${a.color}"></div>

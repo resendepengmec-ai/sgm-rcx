@@ -248,6 +248,66 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 // ── State ──
 let chamados = JSON.parse(localStorage.getItem('chamados_list') || '[]');
 let settings = JSON.parse(localStorage.getItem('chamados_settings') || '{}');
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
+
+// ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
+const PDF_M = 20, PDF_W = 210;
+function drawPdfHeader(doc, { title, metaLines }) {
+  let y = 14, textX = PDF_M;
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+  const rightW = 62;
+  const maxTextW = PDF_W - PDF_M - textX - rightW;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadoraConfig.company || 'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y + 2);
+  let ly = y + 2 + nameLines.length*4.5 + 2.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (prestadoraConfig.address) { const a = doc.splitTextToSize(prestadoraConfig.address, maxTextW); doc.text(a, textX, ly); ly += a.length*4.5; }
+  if (prestadoraConfig.cnpj) { doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly); ly += 4.5; }
+  doc.setTextColor(0,0,0);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(title, PDF_W-PDF_M, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  let my = 20;
+  (metaLines||[]).forEach(line => { doc.text(line, PDF_W-PDF_M, my, {align:'right'}); my += 5.5; });
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly, my) + 3;
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY);
+  return ruleY + 8;
+}
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M*2;
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    let fy = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      const contLine = `Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`;
+      const contLines = doc.splitTextToSize(contLine, maxW).slice(0, 2);
+      doc.text(contLines, PDF_M, fy);
+      fy += contLines.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${getCurrentUser()?.name||''}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
 let ordensCache = JSON.parse(localStorage.getItem('smm_ordens_servico') || '[]');
 function loadOrdens() {
   DB.getOrdens().then(list => {
@@ -687,29 +747,20 @@ function closeDetailModal(){ document.getElementById('detail-modal').classList.a
 
 // ── PDF individual ──
 function printPDF(id){
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const c=chamados.find(x=>x.id===id); if(!c) return;
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
-  const W=210,M=20,CW=W-M*2; let y=M;
-  const co=settings.company||'Empresa de Manutenção';
+  const W=210,M=20,CW=W-M*2;
   const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
   const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const cont = contracts.find(x=>x.numero===c.client);
 
-  doc.setFillColor(124,58,237);
-  doc.rect(0,0,W,38,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(10);doc.setFont('helvetica','bold');
-  doc.text(co,M,14);
-  doc.setFontSize(10);doc.setFont('helvetica','normal');
-  const hp=[settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
-  if(hp)doc.text(hp,M,20);
-  if(settings.addr)doc.text(settings.addr,M,26);
-  doc.setFontSize(10);doc.setFont('helvetica','bold');
-  doc.text('CHAMADO DE MANUTENÇÃO',W-M,16,{align:'right'});
-  doc.setFontSize(10);doc.setFont('helvetica','normal');
-  doc.text(`Nº ${c.id}`,W-M,22,{align:'right'});
-  doc.text(`Data: ${fmtDate(c.date)}`,W-M,28,{align:'right'});
-  y=46;
+  let y = drawPdfHeader(doc, {
+    title: 'CHAMADO DE MANUTENÇÃO',
+    metaLines: [`Nº ${c.id}`, `Data: ${fmtDate(c.date)}`],
+  });
 
   // Status + priority row
   doc.setFillColor(245,243,255);
@@ -738,7 +789,7 @@ function printPDF(id){
   y+=bh+8;
 
   // Description
-  if(y>260){doc.addPage();y=M;}
+  if(y>260){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
   doc.setFillColor(249,250,251);doc.rect(M,y,CW,8,'F');
   doc.setFillColor(124,58,237);doc.rect(M,y,3,8,'F');
   doc.setTextColor(50,50,50);doc.setFont('helvetica','bold');doc.setFontSize(10);
@@ -746,7 +797,7 @@ function printPDF(id){
   y+=8;
   const descLines=doc.splitTextToSize(c.desc||'—',CW-8);
   const descH=descLines.length*5+8;
-  if(y+descH>275){doc.addPage();y=M;}
+  if(y+descH>275){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
   doc.setFillColor(255,255,255);doc.rect(M,y,CW,descH,'F');
   doc.setFont('helvetica','normal');doc.setFontSize(12);doc.setTextColor(30,30,30);
   doc.text(descLines,M+4,y+7);
@@ -754,48 +805,39 @@ function printPDF(id){
 
   // Photos
   if(c.photos&&c.photos.length){
-    if(y>220){doc.addPage();y=M;}
+    if(y>220){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${c.photos.length} foto${c.photos.length>1?'s':''})`,M,y);y+=5;
     const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
     c.photos.forEach((ph,pi)=>{
       const col=pi%cols,row=Math.floor(pi/cols);
       const px=M+col*(imgW+4),py=y+row*(imgH+4);
-      if(py+imgH>280){doc.addPage();y=M;}
+      if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
       try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){}
     });
     y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
   }
 
-  // Footer
-  doc.setFillColor(124,58,237);doc.rect(0,285,W,14,'F');
-  doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(10);
-  doc.text(settings.footer||'Chamado gerado automaticamente pelo sistema de gestão de manutenção.',W/2,293,{align:'center'});
+  drawPdfFooters(doc, cont);
 
-  doc.save(`chamado-${c.id}-TAG${c.equip||'x'}.pdf`);
+  try { doc.save(`chamado-${c.id}-TAG${c.equip||'x'}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal(); showToast('PDF gerado!');
 }
 
 // ── PDF filtrado ──
 function printFilteredPDF(){
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const filtered=getFiltered();
   if(!filtered.length){showToast('Nenhum chamado para o relatório');return;}
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
-  const W=210,M=20,CW=W-M*2; let y=M;
-  const co=settings.company||'Empresa de Manutenção';
+  const W=210,M=20,CW=W-M*2;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contFilter = filterContract ? contracts.find(x=>x.numero===filterContract) : null;
 
-  // Cover
-  doc.setFillColor(124,58,237);doc.rect(0,0,W,60,'F');
-  doc.setTextColor(255,255,255);
-  doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(co,M,20);
-  doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text('RELATÓRIO DE CHAMADOS',M,32);
-  const hp=[settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
-  doc.setFontSize(10);doc.setFont('helvetica','normal');
-  if(hp)doc.text(hp,M,40);
-  if(settings.addr)doc.text(settings.addr,M,46);
+  let y = drawPdfHeader(doc, { title: 'RELATÓRIO DE CHAMADOS', metaLines: [] });
 
-  y=68;
   doc.setFillColor(245,243,255);doc.rect(M,y,CW,38,'F');
   doc.setTextColor(30,30,30);doc.setFontSize(10);doc.setFont('helvetica','bold');
   doc.text('PARÂMETROS DO RELATÓRIO',M+4,y+7);
@@ -820,7 +862,7 @@ function printFilteredPDF(){
   y+=8;
 
   filtered.forEach((c,i)=>{
-    if(y>272){doc.addPage();y=M;}
+    if(y>272){doc.addPage();y=drawPdfHeader(doc, {title:'RELATÓRIO DE CHAMADOS', metaLines:[]});}
     if(i%2===0){doc.setFillColor(248,244,255);}else{doc.setFillColor(255,255,255);}
     doc.rect(M,y,CW,7,'F');
     doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');doc.setFontSize(10);
@@ -837,19 +879,13 @@ function printFilteredPDF(){
 
   // Detail pages
   filtered.forEach((c,ci)=>{
-    doc.addPage(); y=M;
+    doc.addPage();
     const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
     const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
-    doc.setFillColor(124,58,237);doc.rect(0,0,W,38,'F');
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(10);doc.setFont('helvetica','bold');doc.text(co,M,12);
-    doc.setFontSize(10);doc.text('CHAMADO DE MANUTENÇÃO',W-M,12,{align:'right'});
-    doc.setFontSize(10);doc.setFont('helvetica','normal');
-    if(hp)doc.text(hp,M,18);
-    doc.text(`Nº ${c.id}`,W-M,18,{align:'right'});
-    doc.text(`Data: ${fmtDate(c.date)}`,W-M,24,{align:'right'});
-    doc.text(`${ci+1} / ${filtered.length}`,W-M,30,{align:'right'});
-    y=46;
+    y = drawPdfHeader(doc, {
+      title: 'CHAMADO DE MANUTENÇÃO',
+      metaLines: [`Nº ${c.id}`, `Data: ${fmtDate(c.date)}`, `${ci+1} / ${filtered.length}`],
+    });
 
     doc.setFillColor(245,243,255);doc.rect(M,y,CW,12,'F');
     doc.setTextColor(109,40,217);doc.setFont('helvetica','bold');doc.setFontSize(10);
@@ -874,27 +910,26 @@ function printFilteredPDF(){
     doc.text('DESCRIÇÃO DO PROBLEMA',M+6,y+5.5);y+=8;
     const dl=doc.splitTextToSize(c.desc||'—',CW-8);
     const dh=dl.length*5+8;
-    if(y+dh>275){doc.addPage();y=M;}
+    if(y+dh>275){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
     doc.setFillColor(255,255,255);doc.rect(M,y,CW,dh,'F');
     doc.setFont('helvetica','normal');doc.setFontSize(12);doc.setTextColor(30,30,30);
     doc.text(dl,M+4,y+7);y+=dh+6;
 
     if(c.photos&&c.photos.length){
-      if(y>220){doc.addPage();y=M;}
+      if(y>220){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
       doc.text(`FOTOS (${c.photos.length})`,M,y);y+=5;
       const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
-      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=M;}try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){};});
+      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){};});
       y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
     }
-
-    doc.setFillColor(124,58,237);doc.rect(0,285,W,14,'F');
-    doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(10);
-    doc.text(settings.footer||'Chamado gerado automaticamente pelo sistema de gestão de manutenção.',W/2,293,{align:'center'});
   });
 
+  drawPdfFooters(doc, contFilter);
+
   const fn=['relatorio-chamados', filterContract?'contrato'+filterContract:null, filterEstab?filterEstab.slice(0,15).replace(/\s+/g,'-'):null, filterMonth||null].filter(Boolean).join('-')+'.pdf';
-  doc.save(fn);
+  try { doc.save(fn); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('Relatório PDF gerado!');
 }
 
@@ -946,6 +981,7 @@ buildFilterOptions();
 renderList();
 populateContractDropdowns();
 loadOrdens();
+loadPrestadoraConfig();
 
 
 // Patch: solicitante only sees own chamados

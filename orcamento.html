@@ -295,6 +295,62 @@ let prestadoraConfig = {};
 function loadPrestadoraConfig() {
   DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
 }
+
+// ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
+const PDF_M = 20, PDF_W = 210;
+function drawPdfHeader(doc, { title, metaLines }) {
+  let y = 14, textX = PDF_M;
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+  const rightW = 62;
+  const maxTextW = PDF_W - PDF_M - textX - rightW;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadoraConfig.company || 'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y + 2);
+  let ly = y + 2 + nameLines.length*4.5 + 2.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (prestadoraConfig.address) { const a = doc.splitTextToSize(prestadoraConfig.address, maxTextW); doc.text(a, textX, ly); ly += a.length*4.5; }
+  if (prestadoraConfig.cnpj) { doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly); ly += 4.5; }
+  doc.setTextColor(0,0,0);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(title, PDF_W-PDF_M, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  let my = 20;
+  (metaLines||[]).forEach(line => { doc.text(line, PDF_W-PDF_M, my, {align:'right'}); my += 5.5; });
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly, my) + 3;
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY);
+  return ruleY + 8;
+}
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M*2;
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    let fy = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      const contLine = `Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`;
+      const contLines = doc.splitTextToSize(contLine, maxW).slice(0, 2);
+      doc.text(contLines, PDF_M, fy);
+      fy += contLines.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${getCurrentUser()?.name||''}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
 let newItems = [];
 let editingId = null;
 let currentDetailId = null;
@@ -767,7 +823,23 @@ function openDetail(id) {
 function closeDetailModal() { document.getElementById('detail-modal').classList.add('hidden'); }
 function updateStatus(id, status) {
   const q = quotes.find(x => x.id === id);
-  if (q) { q.status = status; persist(); }
+  if (!q) return;
+  const prev = q.status;
+  q.status = status; // otimista
+  try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+  renderQuoteList();
+  DB.updateOrcamentoStatus(id, status).then(r => {
+    if (status === 'approved' && r?.ordem) {
+      showToast(`✅ Orçamento aprovado — O.S. ${r.ordem.numero} disponível em Registro → O.S. Pendentes`);
+    }
+    if (currentDetailId === id) openDetail(id);
+  }).catch(e => {
+    q.status = prev; // reverte em caso de falha (ex.: sem permissão)
+    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e2) {}
+    showToast('Erro ao alterar status: ' + e.message);
+    renderQuoteList();
+    if (currentDetailId === id) openDetail(id);
+  });
 }
 
 // ── PDF ──
@@ -821,50 +893,16 @@ function generateConsolidatedPDFs() {
 }
 
 function printConsolidatedPDF(unitName, unitQuotes) {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 20, CW = W - M*2;
-  let y = M;
-  const co = prestadoraConfig.company || 'Empresa de Manutenção';
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const cont = unitQuotes[0] ? contracts.find(x=>x.numero===unitQuotes[0].client) : null;
+  const drawHeader = (pageTitle) => drawPdfHeader(doc, { title: pageTitle, metaLines: [`Emitido em: ${new Date().toLocaleDateString('pt-BR')}`] });
 
-  function drawHeader(pageTitle) {
-    const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
-    const hParts = prestadoraConfig.cnpj ? `CNPJ: ${prestadoraConfig.cnpj}` : '';
-    doc.setFontSize(10); doc.setFont('helvetica','bold');
-    const coLines = doc.splitTextToSize(co, leftW);
-    doc.setFontSize(10); doc.setFont('helvetica','normal');
-    const hLines = hParts ? doc.splitTextToSize(hParts, leftW) : [];
-    const addrLines = prestadoraConfig.address ? doc.splitTextToSize(prestadoraConfig.address, leftW) : [];
-    const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
+  let y = drawHeader('ORÇAMENTO CONSOLIDADO');
 
-    doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, W, bandH, 'F');
-    doc.setTextColor(255,255,255);
-    doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(coLines, M, 14);
-    let ly = 14 + coLines.length*5;
-    doc.setFontSize(10); doc.setFont('helvetica','normal');
-    if (hLines.length)    { doc.text(hLines, M, ly);    ly += hLines.length*5; }
-    if (addrLines.length) { doc.text(addrLines, M, ly); }
-    doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(pageTitle, W - M, 16, { align:'right' });
-    doc.setFontSize(10); doc.setFont('helvetica','normal');
-    doc.text(`Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, W - M, 22, { align:'right' });
-    return bandH + 8;
-  }
-
-  function drawFooter() {
-    const footerText = settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.';
-    doc.setFontSize(10); doc.setFont('helvetica','normal');
-    const footerLines = doc.splitTextToSize(footerText, W - M*2).slice(0, 2);
-    const footH = Math.max(14, footerLines.length*5 + 6);
-    doc.setFillColor(37,99,235);
-    doc.rect(0, 297-footH, W, footH, 'F');
-    doc.setTextColor(255,255,255);
-    doc.text(footerLines, W/2, 297-footH+7, {align:'center'});
-  }
-
-  y = drawHeader('ORÇAMENTO CONSOLIDADO');
 
   // Unit box
   doc.setFillColor(239,246,255);
@@ -883,13 +921,13 @@ function printConsolidatedPDF(unitName, unitQuotes) {
     doc.text(introLines, M, y);
     y += introLines.length * 5 + 8;
   }
-  if (y > 260) { doc.addPage(); y = M; }
+  if (y > 260) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
 
   let grandTotal = 0, grandTax = 0;
 
   // One section per equipment (TAG)
   unitQuotes.forEach((q, qi) => {
-    if (y > 250) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+    if (y > 250) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
 
     // Equipment sub-header
     doc.setFillColor(219,234,254);
@@ -917,7 +955,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
 
     let sub = 0, tax = 0, labor = 0;
     q.items.forEach((it, idx) => {
-      if (y > 270) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+      if (y > 270) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
       const line = it.price * it.qty + (it.labor || 0);
       const t = (it.price * it.qty) * it.taxRate;
       sub += it.price * it.qty; tax += t; labor += (it.labor || 0);
@@ -949,7 +987,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   });
 
   // Grand total
-  if (y > 255) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+  if (y > 255) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
   y += 2;
   doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(80,80,80);
   doc.text('Subtotal geral:', M+CW*0.55, y);
@@ -967,11 +1005,11 @@ function printConsolidatedPDF(unitName, unitQuotes) {
 
   // Ressalvas finais
   if (settings.ressalvas && settings.ressalvas.trim()) {
-    if (y > 255) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+    if (y > 255) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
     doc.setFillColor(255,251,235);
     const resLines = doc.splitTextToSize(settings.ressalvas, CW-8);
     const resH = resLines.length * 5 + 10;
-    if (y + resH > 280) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+    if (y + resH > 280) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
     doc.rect(M, y, CW, resH, 'F');
     doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text('RESSALVAS', M+4, y+6);
@@ -980,52 +1018,30 @@ function printConsolidatedPDF(unitName, unitQuotes) {
     y += resH + 4;
   }
 
-  drawFooter();
+  drawPdfFooters(doc, cont);
 
   const safeName = unitName.replace(/[^\w\sÀ-ú-]/g,'').replace(/\s+/g,'-').slice(0,40);
   const dateTag = filterMonth || new Date().toISOString().slice(0,7);
-  doc.save(`orcamento-consolidado-${safeName}-${dateTag}.pdf`);
+  try { doc.save(`orcamento-consolidado-${safeName}-${dateTag}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
 }
 
 function printPDF(id) {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const q = quotes.find(x => x.id === id);
   if (!q) return;
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 20, CW = W - M*2;
-  let y = M;
-  const co = prestadoraConfig.company || 'Empresa de Manutenção';
   const lineH = 7;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const cont = contracts.find(x=>x.numero===q.client);
 
-  // Header bg
-  const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
-  const headerParts = prestadoraConfig.cnpj ? `CNPJ: ${prestadoraConfig.cnpj}` : '';
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  const coLines = doc.splitTextToSize(co, leftW);
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  const hLines = headerParts ? doc.splitTextToSize(headerParts, leftW) : [];
-  const addrLines = prestadoraConfig.address ? doc.splitTextToSize(prestadoraConfig.address, leftW) : [];
-  const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
-  doc.setFillColor(37, 99, 235);
-  doc.rect(0, 0, W, bandH, 'F');
+  let y = drawPdfHeader(doc, {
+    title: 'ORÇAMENTO DE SERVIÇOS',
+    metaLines: [`Nº ${q.id.toUpperCase().slice(-6)}`, `Data: ${q.date || today()}`],
+  });
 
-  // Company name
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(coLines, M, 14);
-  let hy = 14 + coLines.length*5;
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  if (hLines.length)    { doc.text(hLines, M, hy);    hy += hLines.length*5; }
-  if (addrLines.length) { doc.text(addrLines, M, hy); }
-
-  // Title
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text('ORÇAMENTO DE SERVIÇOS', W - M, 16, { align:'right' });
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  doc.text(`Nº ${q.id.toUpperCase().slice(-6)}`, W - M, 22, { align:'right' });
-  doc.text(`Data: ${q.date || today()}`, W - M, 28, { align:'right' });
-
-  y = bandH + 8;
   // Client box
   doc.setFillColor(239, 246, 255);
   doc.rect(M, y, CW, 36, 'F');
@@ -1078,7 +1094,7 @@ function printPDF(id) {
       doc.text(fmt(line), M+CW-3, y+5.5, {align:'right'});
     }
     y += 8;
-    if (y > 260) { doc.addPage(); y = M; }
+    if (y > 260) { doc.addPage(); y = drawPdfHeader(doc, {title:'ORÇAMENTO DE SERVIÇOS', metaLines:[]}); }
   });
 
   // Totals
@@ -1115,17 +1131,10 @@ function printPDF(id) {
     y += noteH + 8;
   }
 
-  // Footer
-  doc.setFontSize(10); doc.setFont('helvetica','normal');
-  const footerText = settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.';
-  const footerLines = doc.splitTextToSize(footerText, W - M*2).slice(0, 2);
-  const footH = Math.max(14, footerLines.length*5 + 6);
-  doc.setFillColor(37,99,235);
-  doc.rect(0, 297-footH, W, footH, 'F');
-  doc.setTextColor(255,255,255);
-  doc.text(footerLines, W/2, 297-footH+7, {align:'center'});
+  drawPdfFooters(doc, cont);
 
-  doc.save(`orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.pdf`);
+  try { doc.save(`orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal();
   showToast('PDF gerado!');
 }
