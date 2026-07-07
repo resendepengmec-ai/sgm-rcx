@@ -1021,6 +1021,16 @@ function renderConfigTab(el) {
   const hasId    = !!localStorage.getItem(CLIENT_ID_KEY);
   const adminDev = isAdminDevice();
   el.innerHTML = `
+    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:18px">
+      <div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">
+        🏢 Dados da empresa prestadora
+      </div>
+      <p style="font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:12px">
+        Usados no cabeçalho de todos os PDFs de relatório (logo, nome e CNPJ da empresa que presta o serviço).
+      </p>
+      <div id="cfg-prestadora">Carregando…</div>
+    </div>
+
     <div style="padding:10px 12px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;
       ${adminDev
         ? 'background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0'
@@ -1067,6 +1077,93 @@ function renderConfigTab(el) {
         <div style="color:var(--success);margin-top:4px">✅ Login confirmado pelo e-mail da conta Google</div>
       </div>
     </div>`;
+  loadPrestadoraConfig();
+}
+
+// ── Dados da empresa prestadora (usados no cabeçalho dos PDFs) ──────
+let _prestadoraLogo = { dataUrl:'', ratio:'' }; // ratio = height/width
+
+function loadPrestadoraConfig() {
+  const box = document.getElementById('cfg-prestadora');
+  if (!box) return;
+  DB.getConfig().then(cfg => {
+    _prestadoraLogo = { dataUrl: cfg.logo||'', ratio: cfg.logoRatio||'' };
+    renderPrestadoraForm(box, cfg);
+  }).catch(e => {
+    box.innerHTML = `<p style="font-size:12px;color:var(--danger)">Erro ao carregar: ${e.message}</p>`;
+  });
+}
+
+function renderPrestadoraForm(box, cfg) {
+  box.innerHTML = `
+    <div class="field">
+      <label>Logo</label>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="cfg-logo-preview" style="width:64px;height:64px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa">
+          ${_prestadoraLogo.dataUrl ? `<img src="${_prestadoraLogo.dataUrl}" style="max-width:100%;max-height:100%">` : '<span style="font-size:11px;color:var(--text-3)">sem logo</span>'}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('cfg-logo-input').click()">📤 Enviar logo</button>
+          ${_prestadoraLogo.dataUrl ? `<button type="button" class="btn btn-secondary btn-sm" onclick="removePrestadoraLogo()">🗑️ Remover</button>` : ''}
+        </div>
+        <input type="file" id="cfg-logo-input" accept="image/*" style="display:none" onchange="handlePrestadoraLogo(event)">
+      </div>
+    </div>
+    <div class="field">
+      <label>Nome da empresa</label>
+      <input id="cfg-company" type="text" value="${cfg.company||''}" placeholder="Ex: Manutenções ACME Ltda">
+    </div>
+    <div class="field">
+      <label>Endereço</label>
+      <input id="cfg-address" type="text" value="${cfg.address||''}" placeholder="Rua, número, bairro, cidade — UF">
+    </div>
+    <div class="field">
+      <label>CNPJ</label>
+      <input id="cfg-companycnpj" type="text" value="${cfg.cnpj||''}" placeholder="00.000.000/0000-00">
+    </div>
+    <button class="btn btn-primary" onclick="savePrestadoraConfig()">💾 Salvar dados da prestadora</button>
+  `;
+}
+
+function handlePrestadoraLogo(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const MAX_PX = 300; // logo não precisa de alta resolução para caber no cabeçalho do PDF
+  const r = new FileReader();
+  r.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > MAX_PX || h > MAX_PX) {
+        if (w > h) { h = Math.round(h*MAX_PX/w); w = MAX_PX; }
+        else       { w = Math.round(w*MAX_PX/h); h = MAX_PX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      _prestadoraLogo = { dataUrl: canvas.toDataURL('image/png'), ratio: String(h/w) };
+      const box = document.getElementById('cfg-prestadora');
+      if (box) DB.getConfig().then(cfg => renderPrestadoraForm(box, cfg)).catch(()=>renderPrestadoraForm(box, {}));
+    };
+    img.src = ev.target.result;
+  };
+  r.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function removePrestadoraLogo() {
+  _prestadoraLogo = { dataUrl:'', ratio:'' };
+  const box = document.getElementById('cfg-prestadora');
+  if (box) DB.getConfig().then(cfg => renderPrestadoraForm(box, cfg)).catch(()=>renderPrestadoraForm(box, {}));
+}
+
+function savePrestadoraConfig() {
+  const company = document.getElementById('cfg-company').value.trim();
+  const address = document.getElementById('cfg-address').value.trim();
+  const cnpj    = document.getElementById('cfg-companycnpj').value.trim();
+  if (!company) { showToast('Informe o nome da prestadora'); return; }
+  DB.saveConfig({ company, address, cnpj, logo:_prestadoraLogo.dataUrl, logoRatio:_prestadoraLogo.ratio })
+    .then(() => showToast('✅ Dados da prestadora salvos!'))
+    .catch(e => showToast('Erro ao salvar: ' + e.message));
 }
 
 function exportAdminConfig() {

@@ -1026,7 +1026,7 @@ function printExecPDF() {
 function generatePlanPDF(plan) {
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
-  const W=210, M=16, CW=W-M*2;
+  const W=210, M=20, CW=W-M*2;
   let y = M;
   const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
   const color = LEVEL_COLOR[plan.level].replace('#','');
@@ -1036,10 +1036,10 @@ function generatePlanPDF(plan) {
     doc.setFillColor(r,g,b);
     doc.rect(0,0,W,38,'F');
     doc.setTextColor(255,255,255);
-    doc.setFontSize(16); doc.setFont('helvetica','bold');
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text(co, M, 14);
     doc.setFontSize(10); doc.text('MANUTENÇÃO PREVENTIVA', W-M, 14, {align:'right'});
-    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
     doc.text(`Contrato ${plan.client} · ${fmtMonth(plan.period)}`, M, 20);
     doc.text(`${LEVEL_LABEL[plan.level]}`, M, 26);
     doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDate(plan.finalizedAt||plan.createdAt)}`, M, 32);
@@ -1056,9 +1056,9 @@ function generatePlanPDF(plan) {
   doc.setFillColor(240,249,255);
   doc.rect(M,y,CW,28,'F');
   doc.setTextColor(30,30,30);
-  doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('RESUMO DA EXECUÇÃO', M+4, y+7);
-  doc.setFontSize(11); doc.setFont('helvetica','normal');
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
   doc.text(`Equipamentos concluídos: ${done} de ${total} (${pct}%)`, M+4, y+15);
   doc.text(`Status: ${pct===100?'Concluída':'Em andamento'}`, M+4, y+22);
   if(plan.obs) doc.text(`Obs: ${plan.obs}`, M+CW/2, y+22);
@@ -1067,7 +1067,7 @@ function generatePlanPDF(plan) {
   // Summary table of equipment
   doc.setFillColor(r,g,b);
   doc.rect(M,y,CW,8,'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('TAG', M+3, y+5.5);
   doc.text('EQUIPAMENTO', M+CW*0.18, y+5.5);
   doc.text('ESTABELECIMENTO', M+CW*0.52, y+5.5);
@@ -1080,7 +1080,7 @@ function generatePlanPDF(plan) {
     if(idx%2===0){doc.setFillColor(240,249,255); doc.rect(M,y,CW,7,'F');}
     const prog = getEquipProgress(eq, plan.level);
     const eqDone = isEquipDone(eq, plan.level);
-    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
     doc.text(eq.tag, M+3, y+4.8);
     doc.text(`${eq.marca} ${eq.tipo}`.slice(0,24), M+CW*0.18, y+4.8);
     doc.text(eq.estabelecimento.slice(0,22), M+CW*0.52, y+4.8);
@@ -1095,11 +1095,11 @@ function generatePlanPDF(plan) {
   plan.equipments.forEach(eq => {
     doc.addPage(); y=M; header(`TAG ${eq.tag}`);
     doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
-    doc.setTextColor(30,30,30); doc.setFontSize(8); doc.setFont('helvetica','bold');
+    doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
     doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text(`TAG ${eq.tag}  ·  Contrato ${plan.client}`, M+4, y+14);
-    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
     doc.text(`${eq.marca} ${eq.tipo}${eq.capacidade?' · '+eq.capacidade+' BTU':''}`, M+4, y+20);
     doc.text(`${eq.estabelecimento} · ${eq.recinto}`, M+CW/2, y+20);
     y+=32;
@@ -1115,7 +1115,7 @@ function generatePlanPDF(plan) {
       const lc = LEVEL_COLOR[lv].replace('#','');
       const lr=parseInt(lc.slice(0,2),16), lg=parseInt(lc.slice(2,4),16), lb2=parseInt(lc.slice(4,6),16);
       doc.setFillColor(lr,lg,lb2); doc.rect(M,y,CW,7,'F');
-      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(8);
+      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
       doc.text(LEVEL_LABEL[lv].toUpperCase(), M+3, y+4.8);
       y+=7;
 
@@ -1131,13 +1131,13 @@ function generatePlanPDF(plan) {
         // Status indicator
         const fr=val===true?22:val===false?148:217; const fg=val===true?163:val===false?163:119; const fb=val===true?74:val===false?184:10; doc.setFillColor(fr,fg,fb);
         doc.rect(M,y,3,rowH,'F');
-        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
         const itemLines = doc.splitTextToSize(item, CW-36);
         doc.text(itemLines[0]||'', M+6, y+5.5);
         doc.setFont('helvetica','bold');
         const tc1=val===true?22:(val===false?100:180); const tc2=val===true?163:(val===false?100:120); const tc3=val===true?74:(val===false?100:0); doc.setTextColor(tc1,tc2,tc3);
         doc.text(val===true?'✓ FEITO':val===false?'N/A':'PENDENTE', M+CW-3, y+5.5, {align:'right'});
-        if(obs){ doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(7.5); doc.text(`Obs: ${obs}`, M+6, y+11); }
+        if(obs){ doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(12); doc.text(`Obs: ${obs}`, M+6, y+11); }
         y+=rowH+1;
         globalIdx++;
       });
@@ -1150,7 +1150,7 @@ function generatePlanPDF(plan) {
   for(let i=1;i<=pageCount;i++){
     doc.setPage(i);
     doc.setFillColor(r,g,b); doc.rect(0,285,W,14,'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
     doc.text('Sistema de Gestão de Manutenção Preventiva', W/2, 293, {align:'center'});
     doc.text(`Página ${i} de ${pageCount}`, W-M, 293, {align:'right'});
   }
@@ -1165,19 +1165,19 @@ function printFilteredPDF() {
   if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
-  const W=210, M=16, CW=W-M*2; let y=M;
+  const W=210, M=20, CW=W-M*2; let y=M;
   const co = JSON.parse(localStorage.getItem('prev_settings')||'{}').company || 'Empresa de Manutenção';
 
   doc.setFillColor(3,105,161); doc.rect(0,0,W,60,'F');
   doc.setTextColor(255,255,255);
-  doc.setFontSize(20); doc.setFont('helvetica','bold'); doc.text(co, M, 20);
-  doc.setFontSize(14); doc.text('RELATÓRIO DE MANUTENÇÃO PREVENTIVA', M, 32);
-  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.text(co, M, 20);
+  doc.setFontSize(10); doc.text('RELATÓRIO DE MANUTENÇÃO PREVENTIVA', M, 32);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
   doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} plano${filtered.length!==1?'s':''}`, M, 40);
   y=68;
 
   doc.setFillColor(224,242,254); doc.rect(M,y,CW,34,'F');
-  doc.setTextColor(30,30,30); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('FILTROS APLICADOS', M+4, y+7);
   doc.setFont('helvetica','normal');
   doc.text(`Período: ${fMonth?fmtMonth(fMonth):'Todos'}`, M+4, y+14);
@@ -1188,7 +1188,7 @@ function printFilteredPDF() {
   y+=42;
 
   doc.setFillColor(3,105,161); doc.rect(M,y,CW,8,'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(8); doc.setFont('helvetica','bold');
+  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('CONTRATO', M+3, y+5.5);
   doc.text('PERÍODO', M+CW*0.18, y+5.5);
   doc.text('NÍVEL', M+CW*0.35, y+5.5);
@@ -1202,7 +1202,7 @@ function printFilteredPDF() {
     if(i%2===0){doc.setFillColor(240,249,255);doc.rect(M,y,CW,7,'F');}
     const st=getPlanStatus(p);
     const done=p.equipments.filter(e=>isEquipDone(e,p.level)).length;
-    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
     doc.text(`Cto. ${p.client}`, M+3, y+4.8);
     doc.text(fmtMonth(p.period).slice(0,14), M+CW*0.18, y+4.8);
     doc.text(`N${p.level}`, M+CW*0.35, y+4.8);
@@ -1218,7 +1218,7 @@ function printFilteredPDF() {
   for(let i=1;i<=pc;i++){
     doc.setPage(i);
     doc.setFillColor(3,105,161); doc.rect(0,285,W,14,'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(8);
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
     doc.text('Sistema de Gestão de Manutenção Preventiva', W/2,293,{align:'center'});
     doc.text(`Página ${i} de ${pc}`, W-M,293,{align:'right'});
   }

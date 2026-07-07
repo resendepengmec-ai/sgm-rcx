@@ -204,6 +204,7 @@ const DB = {
   // Config e stats
   getConfig:          ()    => API.get('/config'),
   saveConfig:         cfg   => API.post('/config', { config:cfg }),
+  getPrestadoraConfig:()    => API.get('/config/prestadora'),
   getStats:           ()    => API.get('/stats'),
   ping:               ()    => API.get('/../ping').then(()=>true).catch(()=>false),
 

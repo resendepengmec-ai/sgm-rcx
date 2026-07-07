@@ -129,14 +129,26 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
+const CAN_REPORT_ROLES = ['admin','diretor','supervisor','gestor']; // gestor pra cima
 const user = getCurrentUser();
-if (!user) { window.location.href='index.html'; }
-else {
+let _authorized = false;
+if (!user) {
+  window.location.href='index.html';
+} else if (!CAN_REPORT_ROLES.includes(user.role)) {
+  // Bloqueio imediato: nada de tela usável nem de espera — troca o corpo
+  // inteiro por um aviso e redireciona sem deixar janela de interação.
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px;text-align:center;font-family:sans-serif">
+      <div>
+        <div style="font-size:32px;margin-bottom:8px">🚫</div>
+        <div style="font-size:16px;font-weight:600;color:#0f172a">Sem permissão para acessar relatórios</div>
+        <div style="font-size:13px;color:#64748b;margin-top:4px">Apenas gestor e papéis acima podem gerar relatórios.</div>
+      </div>
+    </div>`;
+  window.location.replace('index.html');
+} else {
   document.getElementById('auth-overlay').style.display='none';
-  if (!['admin','diretor','supervisor','gestor'].includes(user.role)) {
-    showToast('Sem permissão para acessar relatórios');
-    setTimeout(()=>window.location.href='index.html',1500);
-  }
+  _authorized = true;
 }
 
 function showToast(msg, dur=2500) {
@@ -146,6 +158,11 @@ function showToast(msg, dur=2500) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
+
 function init() {
   // Default: current month
   const now = new Date();
@@ -157,6 +174,8 @@ function init() {
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Todos os contratos</option>' +
     contracts.map(c=>`<option value="${c.numero}">${c.numero} — ${c.razao}</option>`).join('');
+
+  loadPrestadoraConfig();
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -316,7 +335,64 @@ function tableHTML(headers, rows) {
   </table></div>`;
 }
 
-// ── PDF ───────────────────────────────────────────────────────────
+// ── PDF: cabeçalho (prestadora) e rodapé (contratante) ──────────────
+const PDF_M = 20, PDF_W = 210, PDF_H = 297;
+
+function drawPdfHeader(doc, { full, mesLabel, contrato }) {
+  let y = 14;
+  let textX = PDF_M;
+
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(prestadoraConfig.company || 'Empresa prestadora', textX, y + 2);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  let ly = y + 7;
+  if (prestadoraConfig.address) { doc.text(prestadoraConfig.address, textX, ly); ly += 5; }
+  if (prestadoraConfig.cnpj)    { doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly); ly += 5; }
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly, y + 18) + 2;
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W - PDF_M, ruleY);
+
+  let contentY = ruleY + 8;
+  if (full) {
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Relatório Gerencial', PDF_M, contentY); contentY += 8;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(`Período: ${mesLabel}`, PDF_M, contentY); contentY += 6;
+    if (contrato) { doc.text(`Contrato: ${contrato}`, PDF_M, contentY); contentY += 6; }
+    contentY += 2;
+  }
+  return contentY;
+}
+
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    const ruleY = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, ruleY, PDF_W - PDF_M, ruleY);
+    let fy = ruleY + 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      doc.text(`Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`, PDF_M, fy);
+      fy += 5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${user.name}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
+
 function generatePDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
@@ -329,16 +405,8 @@ function generatePDF() {
   const contracts= JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const cont     = contrato ? contracts.find(c=>c.numero===contrato) : null;
 
-  doc.setFontSize(18); doc.setFont('helvetica','bold');
-  doc.text('Relatório Gerencial', 20, 20);
-  doc.setFontSize(12); doc.setFont('helvetica','normal');
-  doc.text(`Período: ${mesLabel}`, 20, 30);
-  if (contrato) doc.text(`Contrato: ${contrato}`, 20, 38);
-  if (cont) {
-    doc.text(`Contratante: ${cont.razao}`, 20, 46);
-    doc.text(`CNPJ: ${cont.cnpj||'—'}  |  ART: ${cont.art||'—'}`, 20, 54);
-    doc.text(`Vigência: ${cont.inicio||'—'} → ${cont.fim||'—'}`, 20, 62);
-  }
+  let y = drawPdfHeader(doc, { full:true, mesLabel, contrato });
+  if (cont && cont.inicio) { doc.setFontSize(10); doc.setTextColor(90,90,90); doc.text(`Vigência: ${cont.inicio||'—'} → ${cont.fim||'—'}`, PDF_M, y); doc.setTextColor(0,0,0); y += 8; }
 
   const chamados  = JSON.parse(localStorage.getItem('chamados_list')   ||'[]').filter(c=>
     (c.date||'').startsWith(periodo) &&
@@ -351,30 +419,32 @@ function generatePDF() {
     return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato);
   });
 
-  let y = cont ? 74 : 44;
+  const ensurePage = (threshold) => {
+    if (y > threshold) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
+  };
   const addSection = (title) => {
-    if (y>250){doc.addPage();y=20;}
-    doc.setFontSize(13);doc.setFont('helvetica','bold');
-    doc.text(title,20,y);y+=8;
-    doc.setFontSize(11);doc.setFont('helvetica','normal');
+    ensurePage(245);
+    doc.setFontSize(10);doc.setFont('helvetica','bold');
+    doc.text(title,PDF_M,y);y+=8;
+    doc.setFontSize(10);doc.setFont('helvetica','normal');
   };
 
   // Resumo
   addSection('Resumo executivo');
-  doc.text(`Chamados no período: ${chamados.length}`,20,y);y+=6;
-  doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,24,y);y+=6;
-  doc.text(`Registros de manutenção: ${registros.length}`,20,y);y+=6;
-  doc.text(`Planos de preventiva com execução: ${preventiva.length}`,20,y);y+=10;
+  doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
+  doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
+  doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
+  doc.text(`Planos de preventiva com execução: ${preventiva.length}`,PDF_M,y);y+=10;
 
   // Chamados
   if (chamados.length) {
     addSection(`Chamados (${chamados.length})`);
     chamados.forEach(c=>{
-      if(y>260){doc.addPage();y=20;}
-      doc.text(`${c.date||'—'} | TAG: ${c.equip||c.tag||'—'} | ${c.status||'aberto'}`,22,y);y+=5;
+      ensurePage(255);
+      doc.text(`${c.date||'—'} | TAG: ${c.equip||c.tag||'—'} | ${c.status||'aberto'}`,PDF_M+2,y);y+=5;
+      doc.setFontSize(12);
+      doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,PDF_M+2,y);y+=5;
       doc.setFontSize(10);
-      doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,22,y);y+=5;
-      doc.setFontSize(11);
     });
     y+=4;
   }
@@ -383,9 +453,9 @@ function generatePDF() {
   if (registros.length) {
     addSection(`Registros de manutenção (${registros.length})`);
     registros.forEach(r=>{
-      if(y>260){doc.addPage();y=20;}
+      ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
-      doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,22,y);y+=5;
+      doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
     });
     y+=4;
   }
@@ -394,18 +464,18 @@ function generatePDF() {
   if (preventiva.length) {
     addSection(`Manutenção preventiva (${preventiva.length} planos)`);
     preventiva.forEach(p=>{
-      if(y>260){doc.addPage();y=20;}
+      ensurePage(255);
       const execs=(p.execucoes||[]).filter(e=>(e.data||'').startsWith(periodo));
-      doc.text(`TAG: ${p.tag||'—'} | Nível: ${p.nivel||'—'} | Execuções: ${execs.length}`,22,y);y+=5;
+      doc.text(`TAG: ${p.tag||'—'} | Nível: ${p.nivel||'—'} | Execuções: ${execs.length}`,PDF_M+2,y);y+=5;
     });
   }
 
-  doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${user.name}`, 20, 285);
+  drawPdfFooters(doc, cont);
   doc.save(`relatorio-${periodo}-${contrato||'geral'}.pdf`);
   showToast('PDF gerado!');
 }
 
-init();
+if (_authorized) init();
 </script>
 </body>
 </html>
