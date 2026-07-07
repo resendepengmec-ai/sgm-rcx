@@ -776,27 +776,40 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   const co = settings.company || 'Empresa de Manutenção';
 
   function drawHeader(pageTitle) {
+    const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
+    const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    const coLines = doc.splitTextToSize(co, leftW);
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    const hLines = hParts ? doc.splitTextToSize(hParts, leftW) : [];
+    const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, leftW) : [];
+    const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
+
     doc.setFillColor(37, 99, 235);
-    doc.rect(0, 0, W, 38, 'F');
+    doc.rect(0, 0, W, bandH, 'F');
     doc.setTextColor(255,255,255);
     doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(co, M, 14);
+    doc.text(coLines, M, 14);
+    let ly = 14 + coLines.length*5;
     doc.setFontSize(10); doc.setFont('helvetica','normal');
-    const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
-    if (hParts) doc.text(hParts, M, 20);
-    if (settings.addr) doc.text(settings.addr, M, 26);
+    if (hLines.length)    { doc.text(hLines, M, ly);    ly += hLines.length*5; }
+    if (addrLines.length) { doc.text(addrLines, M, ly); }
     doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text(pageTitle, W - M, 16, { align:'right' });
     doc.setFontSize(10); doc.setFont('helvetica','normal');
     doc.text(`Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, W - M, 22, { align:'right' });
-    return 46;
+    return bandH + 8;
   }
 
   function drawFooter() {
+    const footerText = settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.';
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    const footerLines = doc.splitTextToSize(footerText, W - M*2).slice(0, 2);
+    const footH = Math.max(14, footerLines.length*5 + 6);
     doc.setFillColor(37,99,235);
-    doc.rect(0, 285, W, 14, 'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.', W/2, 293, {align:'center'});
+    doc.rect(0, 297-footH, W, footH, 'F');
+    doc.setTextColor(255,255,255);
+    doc.text(footerLines, W/2, 297-footH+7, {align:'center'});
   }
 
   y = drawHeader('ORÇAMENTO CONSOLIDADO');
@@ -933,17 +946,25 @@ function printPDF(id) {
   const lineH = 7;
 
   // Header bg
+  const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
+  const headerParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  const coLines = doc.splitTextToSize(co, leftW);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  const hLines = headerParts ? doc.splitTextToSize(headerParts, leftW) : [];
+  const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, leftW) : [];
+  const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
   doc.setFillColor(37, 99, 235);
-  doc.rect(0, 0, W, 38, 'F');
+  doc.rect(0, 0, W, bandH, 'F');
 
   // Company name
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(co, M, 14);
+  doc.text(coLines, M, 14);
+  let hy = 14 + coLines.length*5;
   doc.setFontSize(10); doc.setFont('helvetica','normal');
-  const headerParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
-  if (headerParts) doc.text(headerParts, M, 20);
-  if (settings.addr) doc.text(settings.addr, M, 26);
+  if (hLines.length)    { doc.text(hLines, M, hy);    hy += hLines.length*5; }
+  if (addrLines.length) { doc.text(addrLines, M, hy); }
 
   // Title
   doc.setFontSize(10); doc.setFont('helvetica','bold');
@@ -952,7 +973,7 @@ function printPDF(id) {
   doc.text(`Nº ${q.id.toUpperCase().slice(-6)}`, W - M, 22, { align:'right' });
   doc.text(`Data: ${q.date || today()}`, W - M, 28, { align:'right' });
 
-  y = 46;
+  y = bandH + 8;
   // Client box
   doc.setFillColor(239, 246, 255);
   doc.rect(M, y, CW, 36, 'F');
@@ -1038,12 +1059,14 @@ function printPDF(id) {
   }
 
   // Footer
-  const footerY = 285;
-  doc.setFillColor(37,99,235);
-  doc.rect(0, footerY-2, W, 14, 'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
   const footerText = settings.footer || 'Agradecemos a preferência. Em caso de dúvidas, entre em contato.';
-  doc.text(footerText, W/2, footerY+5, {align:'center'});
+  const footerLines = doc.splitTextToSize(footerText, W - M*2).slice(0, 2);
+  const footH = Math.max(14, footerLines.length*5 + 6);
+  doc.setFillColor(37,99,235);
+  doc.rect(0, 297-footH, W, footH, 'F');
+  doc.setTextColor(255,255,255);
+  doc.text(footerLines, W/2, 297-footH+7, {align:'center'});
 
   doc.save(`orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.pdf`);
   closeDetailModal();

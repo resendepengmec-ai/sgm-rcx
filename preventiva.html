@@ -1087,7 +1087,7 @@ function generatePlanPDF(plan) {
     doc.text(`${prog.done}/${prog.total}`, M+CW*0.80, y+4.8);
     doc.setFont('helvetica','bold');
     doc.setTextColor(eqDone?22:220, eqDone?163:38, eqDone?74:38);
-    doc.text(eqDone?'✓ OK':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    doc.text(eqDone?'OK':'Pendente', M+CW-3, y+4.8, {align:'right'});
     y+=7;
   });
 
@@ -1136,7 +1136,7 @@ function generatePlanPDF(plan) {
         doc.text(itemLines[0]||'', M+6, y+5.5);
         doc.setFont('helvetica','bold');
         const tc1=val===true?22:(val===false?100:180); const tc2=val===true?163:(val===false?100:120); const tc3=val===true?74:(val===false?100:0); doc.setTextColor(tc1,tc2,tc3);
-        doc.text(val===true?'✓ FEITO':val===false?'N/A':'PENDENTE', M+CW-3, y+5.5, {align:'right'});
+        doc.text(val===true?'FEITO':val===false?'N/A':'PENDENTE', M+CW-3, y+5.5, {align:'right'});
         if(obs){ doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(12); doc.text(`Obs: ${obs}`, M+6, y+11); }
         y+=rowH+1;
         globalIdx++;

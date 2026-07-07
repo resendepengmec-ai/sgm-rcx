@@ -516,21 +516,30 @@ function printFilteredPDF() {
   const co = settings.company||'Empresa de Manutenção';
 
   // ── Cover page ──
+  const maxW = W - M*2;
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  const coLines = doc.splitTextToSize(co, maxW);
+  const titleLines = doc.splitTextToSize('RELATÓRIO DE SERVIÇOS EXECUTADOS', maxW);
+  const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  const hLines = hParts ? doc.splitTextToSize(hParts, maxW) : [];
+  const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, maxW) : [];
+  const coverH = Math.max(60, 20 + coLines.length*6 + titleLines.length*6 + hLines.length*5 + addrLines.length*5);
+
   doc.setFillColor(5,150,105);
-  doc.rect(0,0,W,60,'F');
+  doc.rect(0,0,W,coverH,'F');
   doc.setTextColor(255,255,255);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(co, M, 20);
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text('RELATÓRIO DE SERVIÇOS EXECUTADOS', M, 32);
+  doc.text(coLines, M, 20);
+  let cy = 20 + coLines.length*6;
+  doc.text(titleLines, M, cy);
+  cy += titleLines.length*6 + 2;
   doc.setFontSize(10); doc.setFont('helvetica','normal');
-
-  const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
-  if (hParts) doc.text(hParts, M, 40);
-  if (settings.addr) doc.text(settings.addr, M, 46);
+  if (hLines.length)    { doc.text(hLines, M, cy);    cy += hLines.length*5; }
+  if (addrLines.length) { doc.text(addrLines, M, cy); }
 
   // Filter description on cover
-  y = 68;
+  y = coverH + 8;
   doc.setFillColor(236,253,245);
   doc.rect(M, y, CW, 38, 'F');
   doc.setTextColor(30,30,30);
@@ -577,19 +586,25 @@ function printFilteredPDF() {
     doc.addPage(); y = M;
 
     // Record header
+    const rLeftW = 115;
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    const rCoLines = doc.splitTextToSize(co, rLeftW);
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    const rHLines = hParts ? doc.splitTextToSize(hParts, rLeftW) : [];
+    const rBandH = Math.max(38, 6 + rCoLines.length*5 + rHLines.length*5 + 4);
     doc.setFillColor(5,150,105);
-    doc.rect(0, 0, W, 38, 'F');
+    doc.rect(0, 0, W, rBandH, 'F');
     doc.setTextColor(255,255,255);
     doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(co, M, 12);
-    doc.setFontSize(10);
+    doc.text(rCoLines, M, 12);
+    let ry = 12 + rCoLines.length*5;
     doc.text('REGISTRO DE SERVIÇO', W-M, 12, {align:'right'});
     doc.setFontSize(10); doc.setFont('helvetica','normal');
-    if(hParts) doc.text(hParts, M, 18);
+    if(rHLines.length) doc.text(rHLines, M, ry);
     doc.text(`OS Nº ${r.id.toUpperCase().slice(-6)}`, W-M, 18, {align:'right'});
     doc.text(`Data: ${r.date||'—'}`, W-M, 24, {align:'right'});
     doc.text(`${rIdx+1} / ${filtered.length}`, W-M, 30, {align:'right'});
-    y = 46;
+    y = rBandH + 8;
 
     // Equipment box
     const m = r.machine;
@@ -690,10 +705,14 @@ function printFilteredPDF() {
     }
 
     // Footer
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    const rFootText = settings.footer||'Registro de execução de serviços de manutenção.';
+    const rFootLines = doc.splitTextToSize(rFootText, W - M*2).slice(0, 2);
+    const rFootH = Math.max(14, rFootLines.length*5 + 6);
     doc.setFillColor(5,150,105);
-    doc.rect(0, 285, W, 14, 'F');
-    doc.setTextColor(255,255,255); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(settings.footer||'Registro de execução de serviços de manutenção.', W/2, 293, {align:'center'});
+    doc.rect(0, 297-rFootH, W, rFootH, 'F');
+    doc.setTextColor(255,255,255);
+    doc.text(rFootLines, W/2, 297-rFootH+7, {align:'center'});
   });
 
   const fn = [
@@ -1103,22 +1122,30 @@ function printPDF(id){
   const co = settings.company||'Empresa de Manutenção';
 
   // Header
+  const leftW = 115;
+  const hParts = [settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  const coLines = doc.splitTextToSize(co, leftW);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  const hLines = hParts ? doc.splitTextToSize(hParts, leftW) : [];
+  const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, leftW) : [];
+  const bandH = Math.max(38, 8 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
   doc.setFillColor(5,150,105);
-  doc.rect(0,0,W,38,'F');
+  doc.rect(0,0,W,bandH,'F');
   doc.setTextColor(255,255,255);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(co, M, 14);
+  doc.text(coLines, M, 14);
+  let hy = 14 + coLines.length*5;
   doc.setFontSize(10); doc.setFont('helvetica','normal');
-  const hParts = [settings.cnpj,settings.tel,settings.email].filter(Boolean).join('  |  ');
-  if(hParts) doc.text(hParts, M, 20);
-  if(settings.addr) doc.text(settings.addr, M, 26);
+  if (hLines.length)    { doc.text(hLines, M, hy);    hy += hLines.length*5; }
+  if (addrLines.length) { doc.text(addrLines, M, hy); }
   doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('REGISTRO DE SERVIÇO', W-M, 16, {align:'right'});
   doc.setFontSize(10); doc.setFont('helvetica','normal');
   doc.text(`OS Nº ${r.id.toUpperCase().slice(-6)}`, W-M, 22, {align:'right'});
   doc.text(`Data: ${r.date||today()}`, W-M, 28, {align:'right'});
 
-  y=46;
+  y = bandH + 8;
   // Equipment box
   const m = r.machine;
   const boxH = m ? 44 : 22;
@@ -1221,10 +1248,14 @@ function printPDF(id){
   }
 
   // Footer
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  const footText = settings.footer||'Registro de execução de serviços de manutenção.';
+  const footLines = doc.splitTextToSize(footText, W - M*2).slice(0, 2);
+  const footH = Math.max(14, footLines.length*5 + 6);
   doc.setFillColor(5,150,105);
-  doc.rect(0,285,W,14,'F');
-  doc.setTextColor(255,255,255);doc.setFont('helvetica','normal');doc.setFontSize(10);
-  doc.text(settings.footer||'Registro de execução de serviços de manutenção.',W/2,293,{align:'center'});
+  doc.rect(0,297-footH,W,footH,'F');
+  doc.setTextColor(255,255,255);
+  doc.text(footLines,W/2,297-footH+7,{align:'center'});
 
   doc.save(`OS-${r.client}-TAG${r.equip||'x'}-${r.id.slice(-6)}.pdf`);
   closeDetailModal();
