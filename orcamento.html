@@ -96,7 +96,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01">
+      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -116,6 +116,22 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <label>Itens do orçamento *</label>
       <div id="new-items-list" style="margin-bottom:8px"></div>
       <button class="btn btn-secondary" onclick="openServiceModal()" style="width:100%;font-size:13px">+ Adicionar item</button>
+      <button class="btn btn-secondary" onclick="ponderarMaoDeObra()" style="width:100%;font-size:13px;margin-top:6px" title="Cobra a mão de obra apenas uma vez, mesmo com vários itens">⚖️ Ponderar mão de obra</button>
+    </div>
+
+    <div class="field" id="totals-card" style="display:none;background:var(--primary-light);border-radius:8px;padding:12px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+        <span>Subtotal</span><span id="t-sub">R$ 0,00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--text-2)">
+        <span>Impostos</span><span id="t-tax">R$ 0,00</span>
+      </div>
+      <div id="t-labor-row" style="display:none;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--text-2)">
+        <span>Mão de obra</span><span id="t-labor">R$ 0,00</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;margin-top:6px;border-top:1px solid var(--border);padding-top:6px">
+        <span>Total</span><span id="t-total">R$ 0,00</span>
+      </div>
     </div>
 
     <div class="field">
@@ -185,10 +201,6 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
-  </button>
-  <button class="nav-btn" onclick="switchTab('settings')" id="nav-settings">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-    Configurações
   </button>
 </nav>
 
@@ -279,6 +291,10 @@ const SERVICES = [
 // ── State ──
 let quotes = JSON.parse(localStorage.getItem('orcamento_quotes') || '[]');
 let settings = JSON.parse(localStorage.getItem('orcamento_settings') || '{}');
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
 let newItems = [];
 let editingId = null;
 let currentDetailId = null;
@@ -422,7 +438,6 @@ function switchTab(tab) {
   document.getElementById('nav-' + tab).classList.add('active');
   document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
   if (tab === 'quotes') renderQuoteList();
-  if (tab === 'settings') loadSettings();
 }
 
 // ── Quotes list ──
@@ -444,7 +459,7 @@ function renderQuoteList() {
 
   let lastMonth = '';
   list.innerHTML = filtered.map(q => {
-    const total = q.items.reduce((s,i) => s + i.price * i.qty, 0);
+    const total = q.items.reduce((s,i) => s + i.price * i.qty + (i.labor||0), 0);
     const statusMap = { pending: ['Pendente','badge-pending'], sent: ['Enviado','badge-sent'], approved: ['Aprovado','badge-approved'] };
     const [sLabel, sCls] = statusMap[q.status || 'pending'];
     const month = q.date ? q.date.slice(0,7) : '';
@@ -509,6 +524,7 @@ function saveQuote() {
   const client = document.getElementById('f-client').value.trim();
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
+  const isNew = !editingId;
   const q = {
     id: editingId || genId(),
     client,
@@ -539,6 +555,13 @@ function saveQuote() {
   }
   persist();
   showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
+  if (isNew) {
+    // Confirma no backend a O.S. gerada automaticamente pra esse orçamento
+    DB.getOrdens().then(list => {
+      const os = (list||[]).find(o => o.orcamentoId === q.id);
+      if (os) showToast(`📋 ${os.numero} gerada — disponível em Registro → O.S. Pendentes`);
+    }).catch(()=>{});
+  }
   editingId = null;
   newItems = [];
   switchTab('quotes');
@@ -569,11 +592,11 @@ function renderNewItems() {
     tc.style.display = 'none'; return;
   }
   tc.style.display = '';
-  let sub = 0, tax = 0;
+  let sub = 0, tax = 0, labor = 0;
   el.innerHTML = newItems.map((it, i) => {
     const line = it.price * it.qty;
     const t = line * it.taxRate;
-    sub += line; tax += t;
+    sub += line; tax += t; labor += (it.labor || 0);
     if (it.inviavel) {
       return `<div class="quote-item" style="background:#fef2f2;border-radius:8px;padding:10px 12px;margin:4px 0">
         <div class="qi-info" style="flex:1">
@@ -583,7 +606,7 @@ function renderNewItems() {
         <button class="btn-del" onclick="removeItem(${i})">×</button>
       </div>`;
     }
-    return `<div class="quote-item">
+    return `<div class="quote-item" style="flex-wrap:wrap">
       <div class="qi-info">
         <div class="qi-name">${it.name}</div>
         <div class="qi-price">${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong></div>
@@ -594,11 +617,38 @@ function renderNewItems() {
         <button class="qty-btn" onclick="chgQty(${i},1)">+</button>
       </div>
       <button class="btn-del" onclick="removeItem(${i})">×</button>
+      <div style="flex-basis:100%;display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-2)">
+        <span>Mão de obra (R$):</span>
+        <input type="number" min="0" step="0.01" value="${it.labor || 0}" onchange="setItemLabor(${i}, this.value)"
+          style="width:90px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px">
+      </div>
     </div>`;
   }).join('');
   document.getElementById('t-sub').textContent = fmt(sub);
   document.getElementById('t-tax').textContent = fmt(tax);
-  document.getElementById('t-total').textContent = fmt(sub);
+  const laborRow = document.getElementById('t-labor-row');
+  if (laborRow) laborRow.style.display = labor > 0 ? '' : 'none';
+  const laborEl = document.getElementById('t-labor');
+  if (laborEl) laborEl.textContent = fmt(labor);
+  document.getElementById('t-total').textContent = fmt(sub + tax + labor);
+}
+
+function setItemLabor(i, val) {
+  const n = parseFloat(val);
+  newItems[i].labor = isNaN(n) || n < 0 ? 0 : n;
+  renderNewItems();
+}
+
+// "Ponderar mão de obra": em orçamentos com vários itens, a mão de obra é
+// cobrada uma única vez — concentra o total já lançado no primeiro item e
+// zera os demais, em vez de exigir digitar tudo de novo manualmente.
+function ponderarMaoDeObra() {
+  if (newItems.length < 2) { showToast('Adicione pelo menos 2 itens para ponderar'); return; }
+  const total = newItems.reduce((s, it) => s + (it.labor || 0), 0);
+  if (total <= 0) { showToast('Informe o valor da mão de obra em algum item primeiro'); return; }
+  newItems.forEach((it, i) => { it.labor = i === 0 ? total : 0; });
+  renderNewItems();
+  showToast(`Mão de obra ponderada: ${fmt(total)} cobrado uma única vez`);
 }
 
 function chgQty(i, d) { newItems[i].qty = Math.max(1, newItems[i].qty + d); renderNewItems(); }
@@ -670,7 +720,7 @@ function addService(i) {
   }
   const ex = newItems.findIndex(x => x.name === s.name);
   if (ex >= 0) { newItems[ex].qty++; }
-  else { newItems.push({ name: s.name, price: s.price, taxRate: s.taxRate, qty: 1 }); }
+  else { newItems.push({ name: s.name, price: s.price, taxRate: s.taxRate, qty: 1, labor: 0 }); }
   renderNewItems();
   showToast(s.name + ' adicionado');
 }
@@ -681,6 +731,7 @@ function openDetail(id) {
   const q = quotes.find(x => x.id === id);
   if (!q) return;
   const sub = q.items.reduce((s,i) => s + i.price*i.qty, 0);
+  const laborTotal = q.items.reduce((s,i) => s + (i.labor||0), 0);
   const tax = q.items.reduce((s,i) => s + i.price*i.qty*i.taxRate, 0);
   const statusOpts = ['pending','sent','approved'].map(s => `<option value="${s}" ${q.status===s?'selected':''}>${{pending:'Pendente',sent:'Enviado',approved:'Aprovado'}[s]}</option>`).join('');
   document.getElementById('detail-content').innerHTML = `
@@ -701,13 +752,14 @@ function openDetail(id) {
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
-          <span>${it.name} × ${it.qty}</span>
-          <span style="font-weight:600">${fmt(it.price*it.qty)}</span>
+          <span>${it.name} × ${it.qty}${it.labor ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
+          <span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>
         </div>`).join('')}
     </div>
     <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Subtotal</span><span>${fmt(sub)}</span></div>
-    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Impostos</span><span>${fmt(tax)}</span></div>
-    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Impostos</span><span>${fmt(tax)}</span></div>
+    ${laborTotal ? `<div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Mão de obra</span><span>${fmt(laborTotal)}</span></div>` : ''}
+    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub + laborTotal)}</span></div>
     ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${q.notes}</div>` : ''}
   `;
   document.getElementById('detail-modal').classList.remove('hidden');
@@ -744,7 +796,7 @@ function openConsolidatedModal() {
     <div style="max-height:240px;overflow-y:auto;margin-bottom:14px">
       ${unitNames.map(u => {
         const qs = groups[u];
-        const total = qs.reduce((s,q) => s + q.items.reduce((s2,i)=>s2+i.price*i.qty,0), 0);
+        const total = qs.reduce((s,q) => s + q.items.reduce((s2,i)=>s2+i.price*i.qty+(i.labor||0),0), 0);
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
           <div>
             <div style="font-size:14px;font-weight:600">${u}</div>
@@ -773,16 +825,16 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 20, CW = W - M*2;
   let y = M;
-  const co = settings.company || 'Empresa de Manutenção';
+  const co = prestadoraConfig.company || 'Empresa de Manutenção';
 
   function drawHeader(pageTitle) {
     const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
-    const hParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+    const hParts = prestadoraConfig.cnpj ? `CNPJ: ${prestadoraConfig.cnpj}` : '';
     doc.setFontSize(10); doc.setFont('helvetica','bold');
     const coLines = doc.splitTextToSize(co, leftW);
     doc.setFontSize(10); doc.setFont('helvetica','normal');
     const hLines = hParts ? doc.splitTextToSize(hParts, leftW) : [];
-    const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, leftW) : [];
+    const addrLines = prestadoraConfig.address ? doc.splitTextToSize(prestadoraConfig.address, leftW) : [];
     const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
 
     doc.setFillColor(37, 99, 235);
@@ -863,12 +915,12 @@ function printConsolidatedPDF(unitName, unitQuotes) {
     doc.text('TOTAL', M+CW-3, y+5, {align:'right'});
     y += 7;
 
-    let sub = 0, tax = 0;
+    let sub = 0, tax = 0, labor = 0;
     q.items.forEach((it, idx) => {
       if (y > 270) { drawFooter(); doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
-      const line = it.price * it.qty;
-      const t = line * it.taxRate;
-      sub += line; tax += t;
+      const line = it.price * it.qty + (it.labor || 0);
+      const t = (it.price * it.qty) * it.taxRate;
+      sub += it.price * it.qty; tax += t; labor += (it.labor || 0);
       if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 7, 'F'); }
       if (it.inviavel) {
         doc.setFillColor(254,242,242); doc.rect(M, y, CW, 7, 'F');
@@ -877,7 +929,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
         doc.text('—', M+CW-3, y+5, {align:'right'});
       } else {
         doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-        const nameStr = doc.splitTextToSize(it.name, CW*0.52);
+        const nameStr = doc.splitTextToSize(it.name + (it.labor ? ` (+ M.O. ${fmt(it.labor)})` : ''), CW*0.52);
         doc.text(nameStr, M+3, y+5);
         doc.text(String(it.qty), M+CW*0.58, y+5, {align:'center'});
         doc.text(fmt(it.price), M+CW*0.75, y+5, {align:'center'});
@@ -887,12 +939,12 @@ function printConsolidatedPDF(unitName, unitQuotes) {
       y += 7;
     });
 
-    grandTotal += sub; grandTax += tax;
+    grandTotal += sub + labor; grandTax += tax;
 
     // Subtotal per equipment
     doc.setTextColor(80,80,80); doc.setFont('helvetica','bold'); doc.setFontSize(10);
     doc.text(`Subtotal do equipamento:`, M+CW*0.55, y+4);
-    doc.text(fmt(sub), M+CW-3, y+4, {align:'right'});
+    doc.text(fmt(sub + labor), M+CW-3, y+4, {align:'right'});
     y += 10;
   });
 
@@ -942,17 +994,17 @@ function printPDF(id) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 20, CW = W - M*2;
   let y = M;
-  const co = settings.company || 'Empresa de Manutenção';
+  const co = prestadoraConfig.company || 'Empresa de Manutenção';
   const lineH = 7;
 
   // Header bg
   const leftW = 115; // largura reservada para nome/contato/endereço, sem invadir o título à direita
-  const headerParts = [settings.cnpj, settings.tel, settings.email].filter(Boolean).join('  |  ');
+  const headerParts = prestadoraConfig.cnpj ? `CNPJ: ${prestadoraConfig.cnpj}` : '';
   doc.setFontSize(10); doc.setFont('helvetica','bold');
   const coLines = doc.splitTextToSize(co, leftW);
   doc.setFontSize(10); doc.setFont('helvetica','normal');
   const hLines = headerParts ? doc.splitTextToSize(headerParts, leftW) : [];
-  const addrLines = settings.addr ? doc.splitTextToSize(settings.addr, leftW) : [];
+  const addrLines = prestadoraConfig.address ? doc.splitTextToSize(prestadoraConfig.address, leftW) : [];
   const bandH = Math.max(38, 10 + coLines.length*5 + hLines.length*5 + addrLines.length*5 + 4);
   doc.setFillColor(37, 99, 235);
   doc.rect(0, 0, W, bandH, 'F');
@@ -1003,11 +1055,11 @@ function printPDF(id) {
   doc.text('TOTAL', M+CW-3, y+5.5, {align:'right'});
   y += 8;
 
-  let sub = 0, tax = 0;
+  let sub = 0, tax = 0, labor = 0;
   q.items.forEach((it, idx) => {
-    const line = it.price * it.qty;
-    const t = line * it.taxRate;
-    sub += line; tax += t;
+    const line = it.price * it.qty + (it.labor || 0);
+    const t = (it.price * it.qty) * it.taxRate;
+    sub += it.price * it.qty; tax += t; labor += (it.labor || 0);
     if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 8, 'F'); }
     if (it.inviavel) {
       doc.setFillColor(254,242,242); doc.rect(M, y, CW, 8, 'F');
@@ -1018,7 +1070,7 @@ function printPDF(id) {
       doc.text('—', M+CW-3, y+5.5, {align:'right'});
     } else {
       doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-      const nameStr = doc.splitTextToSize(it.name, CW*0.52);
+      const nameStr = doc.splitTextToSize(it.name + (it.labor ? ` (+ M.O. ${fmt(it.labor)})` : ''), CW*0.52);
       doc.text(nameStr, M+3, y+5.5);
       doc.text(String(it.qty), M+CW*0.58, y+5.5, {align:'center'});
       doc.text(fmt(it.price), M+CW*0.75, y+5.5, {align:'center'});
@@ -1037,12 +1089,17 @@ function printPDF(id) {
   y += 7;
   doc.text('Impostos (~20%):', M+CW*0.55, y);
   doc.text(fmt(tax), M+CW-3, y, {align:'right'});
-  y += 4;
+  y += 7;
+  if (labor > 0) {
+    doc.text('Mão de obra:', M+CW*0.55, y);
+    doc.text(fmt(labor), M+CW-3, y, {align:'right'});
+    y += 4;
+  } else { y -= 3; }
   doc.setFillColor(37,99,235);
   doc.rect(M+CW*0.5, y, CW*0.5, 10, 'F');
   doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
   doc.text('TOTAL:', M+CW*0.54, y+7);
-  doc.text(fmt(sub), M+CW-3, y+7, {align:'right'});
+  doc.text(fmt(sub + labor), M+CW-3, y+7, {align:'right'});
   y += 16;
 
   // Notes
@@ -1073,60 +1130,8 @@ function printPDF(id) {
   showToast('PDF gerado!');
 }
 
-// ── Settings ──
-function loadSettings() {
-  document.getElementById('s-company').value = settings.company || '';
-  document.getElementById('s-cnpj').value = settings.cnpj || '';
-  document.getElementById('s-tel').value = settings.tel || '';
-  document.getElementById('s-email').value = settings.email || '';
-  document.getElementById('s-addr').value = settings.addr || '';
-  document.getElementById('s-logo').value = settings.logo || '';
-  document.getElementById('s-footer').value = settings.footer || '';
-  document.getElementById('s-intro').value = settings.intro || '';
-  document.getElementById('s-ressalvas').value = settings.ressalvas || '';
-}
-function saveSettings() {
-  settings = {
-    company: document.getElementById('s-company').value,
-    cnpj: document.getElementById('s-cnpj').value,
-    tel: document.getElementById('s-tel').value,
-    email: document.getElementById('s-email').value,
-    addr: document.getElementById('s-addr').value,
-    logo: document.getElementById('s-logo').value,
-    footer: document.getElementById('s-footer').value,
-    intro: document.getElementById('s-intro').value,
-    ressalvas: document.getElementById('s-ressalvas').value,
-  };
-  localStorage.setItem('orcamento_settings', JSON.stringify(settings));
-  showToast('Configurações salvas!');
-}
-
-
-
 
 // ── Export / Import ──
-function exportData() {
-  const blob = new Blob([JSON.stringify({ quotes, settings }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'orcamentos-backup.json';
-  a.click();
-}
-function importData() { document.getElementById('import-file').click(); }
-function doImport(e) {
-  const f = e.target.files[0]; if (!f) return;
-  const r = new FileReader();
-  r.onload = ev => {
-    try {
-      const data = JSON.parse(ev.target.result);
-      if (data.quotes) { quotes = data.quotes; persist(); }
-      if (data.settings) { settings = data.settings; localStorage.setItem('orcamento_settings', JSON.stringify(settings)); }
-      showToast('Dados importados!');
-    } catch { showToast('Arquivo inválido'); }
-  };
-  r.readAsText(f);
-}
-
 // ── Toast ──
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -1138,6 +1143,12 @@ function showToast(msg) {
 async function populateContractDropdowns() {
   try {
     const contratos = await DB.getContratos();
+    // Mantém o cache local completo (equipamentos + serviços) atualizado —
+    // é dele que _getAvailableServices() e getEffDB() leem os dados do
+    // contrato selecionado. Sem isso, ficavam presos ao que contratos.html
+    // tivesse gravado por último (ou vazio, se o usuário nunca abriu lá).
+    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+
     const user = getCurrentUser();
     const userContract = user?.contract;
 
@@ -1173,6 +1184,7 @@ if (_fDate) _fDate.value = today();
 buildFilterOptions();
 renderQuoteList();
 populateContractDropdowns();
+loadPrestadoraConfig();
 
 
 // Patch openDetail to hide restricted actions
