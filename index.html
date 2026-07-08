@@ -567,6 +567,9 @@ function renderAdminTab() {
 }
 
 // ── Tab: Usuários cadastrados ──
+let _usersCache = [];
+let _usersContractFilter = '';
+
 function renderUsersTab(el) {
   const currentUser = getCurrentUser();
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
@@ -574,8 +577,15 @@ function renderUsersTab(el) {
     if (freshUsers && freshUsers.length) {
       localStorage.setItem('smm_users_cache', JSON.stringify(freshUsers));
     }
-    _renderUsersList(el, freshUsers || getUsers(), currentUser);
-  }).catch(() => _renderUsersList(el, getUsers(), currentUser));
+    _usersCache = freshUsers || getUsers();
+    _renderUsersList(el, _usersCache, currentUser);
+  }).catch(() => { _usersCache = getUsers(); _renderUsersList(el, _usersCache, currentUser); });
+}
+
+function filterUsersByContract(value) {
+  _usersContractFilter = value;
+  const el = document.getElementById('admin-tab-content');
+  if (el) _renderUsersList(el, _usersCache, getCurrentUser());
 }
 
 function _renderUsersList(el, users, currentUser) {
@@ -587,14 +597,36 @@ function _renderUsersList(el, users, currentUser) {
   const wl = getWhitelist();
   const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
 
-  el.innerHTML = users.map(u => {
+  const usersWithContracts = users.map(u => {
+    const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
+    const conts = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+    return { u, conts };
+  });
+
+  const filtered = _usersContractFilter
+    ? usersWithContracts.filter(({conts}) => !conts.length || conts.includes(_usersContractFilter))
+    : usersWithContracts;
+
+  const filterBar = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Filtrar por contrato:</label>
+      <select onchange="filterUsersByContract(this.value)" style="flex:1;min-width:0">
+        <option value="">📋 Todos os contratos</option>
+        ${contractsList.map(c=>`<option value="${c.numero}" ${_usersContractFilter===c.numero?'selected':''}>${c.numero}</option>`).join('')}
+      </select>
+    </div>`;
+
+  if (!filtered.length) {
+    el.innerHTML = filterBar + `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:24px 0">Nenhum usuário vinculado a este contrato.</p>`;
+    return;
+  }
+
+  el.innerHTML = filterBar + filtered.map(({u, conts}) => {
     const r = ROLES[u.role] || {};
     const ll = u.last_login || u.lastLogin;
     const lastLogin = ll
       ? `Último acesso: ${new Date(ll).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}`
       : 'Nunca acessou';
-    const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
-    const conts = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
     const contBadges = conts.length
       ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
       : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos</span>';
@@ -622,7 +654,7 @@ function _renderUsersList(el, users, currentUser) {
       </button>
     </div>`;
   }).join('') + `<p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:8px">
-    ${users.length} usuário${users.length!==1?'s':''} registrado${users.length!==1?'s':''}
+    ${filtered.length} de ${users.length} usuário${users.length!==1?'s':''}
   </p>`;
 }
 
@@ -646,7 +678,6 @@ function _renderWLContent(el, wl) {
     usedAt: e.usedAt || (users.find(u => u.email.toLowerCase() === e.email.toLowerCase())?.last_login),
   }));
 
-  const ativos    = wlEnhanced.filter(e => e.hasAccount || e.usedAt);
   const pendentes = wlEnhanced.filter(e => !e.hasAccount && !e.usedAt);
 
   // Lista de contratos disponíveis para os selects
@@ -699,39 +730,15 @@ function _renderWLContent(el, wl) {
     </div>
     ${wl.length === 0
       ? `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:16px 0">Nenhum usuário pré-autorizado.</p>`
-      : `
-      ${pendentes.length
+      : pendentes.length
         ? `<div style="font-size:11px;font-weight:700;color:var(--warning);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">
             ⏳ Aguardando primeiro acesso (${pendentes.length})
           </div>
           ${pendentes.map(renderRow).join('')}`
-        : `<p style="font-size:13px;color:var(--success);text-align:center;padding:16px 0">✅ Todos os usuários pré-autorizados já acessaram o sistema.</p>`}
-      ${ativos.length ? `
-        <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px;padding-top:14px;border-top:1px solid var(--border)">
-          Já acessaram (${ativos.length})
-        </div>
-        ${ativos.map(e => {
-          const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
-          const contBadges = conts.length
-            ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
-            : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos os contratos</span>';
-          return `<div class="wl-row" style="flex-wrap:wrap;gap:8px">
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:600;font-size:13px">${e.name||e.email} <span style="font-weight:400;color:var(--text-3);font-size:11px">· ${ROLES[e.role]?.label||e.role}</span></div>
-              <div style="font-size:11px;color:var(--text-3);margin-top:2px">${e.email}</div>
-              <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
-                ${contBadges}
-                <button onclick="editUserContracts('${e.email}')"
-                  style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
-                  ✏️ editar contratos
-                </button>
-              </div>
-            </div>
-            <span class="wl-status used">✅ Ativo</span>
-            <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
-          </div>`;
-        }).join('')}` : ''}
-      `
+        : `<p style="font-size:13px;color:var(--success);text-align:center;padding:16px 0">
+            ✅ Todos os usuários pré-autorizados já acessaram o sistema.<br>
+            <span style="color:var(--text-3);font-size:12px">Gerencie perfil, contrato e status deles na aba "Usuários".</span>
+          </p>`
     }
 `;
 }

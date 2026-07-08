@@ -219,7 +219,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
-const isAdmin = ['admin','diretor','supervisor'].includes(user?.role);
+const canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
 else {
   document.getElementById('auth-overlay').style.display = 'none';
@@ -275,7 +275,7 @@ function renderList() {
   const pending = movimentos.filter(m=>m.status==='pendente');
 
   // Pending banner (admin only)
-  if (isAdmin && pending.length) {  // isAdmin já inclui diretor e supervisor
+  if (canApproveMov && pending.length) {
     document.getElementById('pending-banner').style.display = '';
     document.getElementById('pending-count').textContent = pending.length;
     document.getElementById('pending-text').textContent =
@@ -290,7 +290,7 @@ function renderList() {
     : movimentos.filter(m=>m.status===currentFilter);
 
   // Non-admin só vê as próprias
-  if (!isAdmin) filtered = filtered.filter(m=>m.solicitanteEmail===user.email);
+  if (!canApproveMov) filtered = filtered.filter(m=>m.solicitanteEmail===user.email);
 
   // Sort: pending first then by date
   filtered.sort((a,b)=>{
@@ -306,8 +306,8 @@ function renderList() {
     empty.style.display='none';
     list.innerHTML = filtered.map(m=>{
       const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
-      const canReview = isAdmin && m.status==='pendente';
-      const canExecute= isAdmin && m.status==='aprovada';
+      const canReview = canApproveMov && m.status==='pendente';
+      const canExecute= canApproveMov && m.status==='aprovada';
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
       return `
       <div class="mov-card ${m.status}">

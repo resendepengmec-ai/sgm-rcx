@@ -840,6 +840,27 @@ function saveRecord() {
   }).catch(()=>{});
   persist();
   showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
+
+  // Item marcado como inviável (equipamento condenado): solicita baixa
+  // automática no Patrimônio, sujeita à aprovação de gestor pra cima.
+  if (newItems.some(it=>it.inviavel) && !isAvulso && r.equip && !r._baixaSolicitada) {
+    const mov = {
+      id: 'mov-' + genId(),
+      contrato: r.client,
+      tipo: 'baixar',
+      tag: r.equip,
+      motivo: `Equipamento condenado — constatado no registro de serviço OS ${r.id.toUpperCase().slice(-6)} (${r.date||'—'}). ${INVIAVEL_NOTE}`,
+      status: 'pendente',
+      origem: 'registro',
+      registroId: r.id,
+    };
+    DB.saveMovimentacao(mov).then(() => {
+      r._baixaSolicitada = true;
+      try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+      DB.save('registros', r).catch(()=>{});
+      showToast('📋 Baixa do equipamento solicitada — aguardando aprovação no Patrimônio');
+    }).catch(e => showToast('Erro ao solicitar baixa do equipamento: ' + e.message));
+  }
   // Se havia uma O.S. vinculada, marcar como concluída (o backend também
   // fecha automaticamente o chamado vinculado como "resolvido")
   if (window._currentOSId) {
