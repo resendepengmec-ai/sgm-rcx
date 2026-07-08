@@ -233,7 +233,11 @@ else {
       localStorage.setItem('smm_movimentacoes', JSON.stringify(data));
       renderList();
     }
-  }).catch(()=>{});
+  }).catch(e => {
+    console.error('Erro ao buscar movimentações:', e);
+    showToast('Erro ao carregar solicitações: ' + e.message);
+    renderList(); // renderiza com o que tiver em cache local, se houver
+  });
   // Acesso ao módulo: mesmos papéis que já veem "Patrimônio" no menu inicial
   if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
     showToast('Sem permissão para acessar este módulo');
