@@ -258,6 +258,9 @@ function loadData() {
   movimentos = JSON.parse(localStorage.getItem(MOV_KEY)  || '[]');
   contracts  = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
 }
+function loadContracts() {
+  contracts = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
+}
 function saveData(mov) {
   localStorage.setItem(MOV_KEY, JSON.stringify(movimentos));
   if (mov) DB.saveMovimentacao(mov).catch(e => console.warn('Sync mov:', e.message));
@@ -296,7 +299,6 @@ function setFilter(f) {
 
 // ── Render list ───────────────────────────────────────────────────
 function renderList() {
-  loadData();
   const pending = movimentos.filter(m=>m.status==='pendente');
 
   // Pending banner (admin only)
@@ -403,7 +405,7 @@ function renderSummary() {
 
 // ── Form ──────────────────────────────────────────────────────────
 function openNewMovimento() {
-  loadData();
+  loadContracts();
   // Preenche select de contratos
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
@@ -501,7 +503,6 @@ function saveMovimento() {
   if (['realocar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
   if (['instalar','adicionar'].includes(tipo) && !novaTag){ showToast('Informe a nova TAG'); return; }
 
-  loadData();
   const mov = {
     id:               'mov-'+Date.now(),
     tipo, contrato, motivo,
@@ -520,7 +521,7 @@ function saveMovimento() {
     criadoEm:         Date.now(),
   };
   movimentos.unshift(mov);
-  saveData();
+  saveData(mov);
   showToast('Solicitação enviada! Aguardando aprovação do admin.');
   showScreen('list');
   renderList();
@@ -529,7 +530,6 @@ function saveMovimento() {
 // ── Review modal ──────────────────────────────────────────────────
 function openReview(id, action) {
   reviewId = id;
-  loadData();
   const m = movimentos.find(x=>x.id===id); if (!m) return;
   const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
   document.getElementById('modal-title').textContent = `Revisar: ${tipoLabel} — TAG ${m.tag||m.novaTag||'—'}`;
@@ -562,7 +562,6 @@ function closeModal() {
 }
 
 function confirmApprove() {
-  loadData();
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
   m.status       = 'aprovada';
   m.aprovadoPor  = user.name;
@@ -577,7 +576,6 @@ function confirmApprove() {
 function confirmReject() {
   const motivo = document.getElementById('f-motivo-rejeicao').value.trim();
   if (!motivo) { showToast('Informe o motivo da rejeição'); return; }
-  loadData();
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
   m.status          = 'rejeitada';
   m.motivoRejeicao  = motivo;
@@ -592,7 +590,6 @@ function confirmReject() {
 
 // ── Execute ───────────────────────────────────────────────────────
 function executeMovimento(id) {
-  loadData();
   const m = movimentos.find(x=>x.id===id);
   if (!m || m.status!=='aprovada') return;
   if (!confirm(`Executar "${m.tipo}" da TAG ${m.tag||m.novaTag} no banco de dados?\n\nEsta ação atualiza o banco de equipamentos.`)) return;
@@ -659,6 +656,7 @@ function showScreen(s) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
+loadData(); // pintura instantânea com o cache local; a busca no servidor (acima) substitui assim que chegar
 renderList();
 loadHistContratos();
 
