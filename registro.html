@@ -851,6 +851,7 @@ function saveRecord() {
       tag: r.equip,
       motivo: `Equipamento condenado — constatado no registro de serviço OS ${r.id.toUpperCase().slice(-6)} (${r.date||'—'}). ${INVIAVEL_NOTE}`,
       status: 'pendente',
+      criadoEm: Date.now(),
       origem: 'registro',
       registroId: r.id,
     };

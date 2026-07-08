@@ -59,13 +59,18 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <!-- Lista -->
 <div id="screen-list" style="padding:12px">
-  <div id="pending-banner" style="display:none" class="pending-banner">
+  <div id="pending-banner" style="display:none;cursor:pointer" class="pending-banner" onclick="setMovTab('pendentes')">
     ⏳ <span id="pending-text">Solicitações pendentes de aprovação</span>
     <span class="pending-count" id="pending-count">0</span>
   </div>
 
-  <!-- Busca de equipamento -->
-  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:12px">
+  <div class="filter-row" id="mov-tabs" style="margin-bottom:4px">
+    <button class="filter-pill active" id="tab-pendentes" onclick="setMovTab('pendentes')">⏳ Pendentes</button>
+    <button class="filter-pill" id="tab-historico" onclick="setMovTab('historico')">🕓 Histórico</button>
+  </div>
+
+  <!-- Busca de equipamento (só na aba Histórico) -->
+  <div id="equip-history-search" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:12px;display:none">
     <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">
       🔍 Consultar histórico de equipamento
     </div>
@@ -81,9 +86,8 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     </div>
   </div>
 
-  <div class="filter-row" id="filter-pills">
+  <div class="filter-row" id="filter-pills" style="display:none">
     <button class="filter-pill active" onclick="setFilter('todos')">Todas</button>
-    <button class="filter-pill" onclick="setFilter('pendente')">⏳ Pendentes</button>
     <button class="filter-pill" onclick="setFilter('aprovada')">✅ Aprovadas</button>
     <button class="filter-pill" onclick="setFilter('executada')">✔ Executadas</button>
     <button class="filter-pill" onclick="setFilter('rejeitada')">✕ Rejeitadas</button>
@@ -92,12 +96,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div id="mov-list"></div>
   <div id="mov-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📦</div>
-    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhuma movimentação</div>
-    <div style="font-size:13px">Clique em + para solicitar uma movimentação</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px" id="mov-empty-title">Nenhuma movimentação</div>
+    <div style="font-size:13px" id="mov-empty-sub">Clique em + para solicitar uma movimentação</div>
   </div>
 
-  <div class="section-header">Histórico do banco de equipamentos</div>
-  <div id="patrimonio-summary" style="background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);font-size:13px;color:var(--text-2)">
+  <div class="section-header" id="patrimonio-summary-header" style="display:none">Histórico do banco de equipamentos</div>
+  <div id="patrimonio-summary" style="display:none;background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);font-size:13px;color:var(--text-2)">
     Carregando…
   </div>
 </div>
@@ -230,8 +234,8 @@ else {
       renderList();
     }
   }).catch(()=>{});
-  // Apenas admin, técnico e gestor acessam
-  if (!['admin','tecnico','gestor'].includes(user.role)) {
+  // Acesso ao módulo: mesmos papéis que já veem "Patrimônio" no menu inicial
+  if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
     showToast('Sem permissão para acessar este módulo');
     setTimeout(()=>window.location.href='index.html',1500);
   }
@@ -243,6 +247,7 @@ const CONT_KEY = 'smm_contracts';
 let movimentos = [];
 let contracts  = [];
 let currentFilter = 'todos';
+let currentTab = 'pendentes'; // 'pendentes' | 'historico'
 let reviewId = null;
 
 function loadData() {
@@ -260,11 +265,27 @@ function showToast(msg, dur=2500) {
   setTimeout(()=>t.classList.remove('show'),dur);
 }
 
+// ── Tab (Pendentes / Histórico) ──────────────────────────────────
+function setMovTab(tab) {
+  currentTab = tab;
+  currentFilter = 'todos';
+  document.getElementById('tab-pendentes').classList.toggle('active', tab==='pendentes');
+  document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
+  document.getElementById('filter-pills').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('equip-history-search').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('patrimonio-summary-header').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('patrimonio-summary').style.display = tab==='historico' ? '' : 'none';
+  document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
+    p.classList.toggle('active', i===0);
+  });
+  renderList();
+}
+
 // ── Filter ────────────────────────────────────────────────────────
 function setFilter(f) {
   currentFilter = f;
-  document.querySelectorAll('.filter-pill').forEach((p,i)=>{
-    p.classList.toggle('active',['todos','pendente','aprovada','executada','rejeitada'][i]===f);
+  document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
+    p.classList.toggle('active',['todos','aprovada','executada','rejeitada'][i]===f);
   });
   renderList();
 }
@@ -284,10 +305,13 @@ function renderList() {
     document.getElementById('pending-banner').style.display = 'none';
   }
 
-  // Filter
-  let filtered = currentFilter==='todos'
-    ? movimentos
-    : movimentos.filter(m=>m.status===currentFilter);
+  // Filter: primeiro pela aba (pendentes vs histórico), depois pelo status (só no histórico)
+  let filtered = currentTab === 'pendentes'
+    ? movimentos.filter(m=>m.status==='pendente')
+    : movimentos.filter(m=>m.status!=='pendente');
+  if (currentTab === 'historico' && currentFilter !== 'todos') {
+    filtered = filtered.filter(m=>m.status===currentFilter);
+  }
 
   // Non-admin só vê as próprias
   if (!canApproveMov) filtered = filtered.filter(m=>m.solicitanteEmail===user.email);
@@ -301,7 +325,14 @@ function renderList() {
 
   const list  = document.getElementById('mov-list');
   const empty = document.getElementById('mov-empty');
-  if (!filtered.length) { list.innerHTML=''; empty.style.display=''; }
+  if (!filtered.length) {
+    list.innerHTML='';
+    empty.style.display='';
+    document.getElementById('mov-empty-title').textContent =
+      currentTab === 'pendentes' ? 'Nenhuma solicitação pendente' : 'Nenhum histórico ainda';
+    document.getElementById('mov-empty-sub').textContent =
+      currentTab === 'pendentes' ? 'Clique em + para solicitar uma movimentação' : 'Solicitações aprovadas, executadas ou rejeitadas aparecem aqui';
+  }
   else {
     empty.style.display='none';
     list.innerHTML = filtered.map(m=>{
