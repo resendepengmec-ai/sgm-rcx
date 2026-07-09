@@ -58,7 +58,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 </header>
 
 <!-- Lista -->
-<div id="screen-list" style="padding:12px">
+<div id="screen-list" style="padding:12px;display:block">
   <div id="pending-banner" style="display:none;cursor:pointer" class="pending-banner" onclick="setMovTab('pendentes')">
     ⏳ <span id="pending-text">Solicitações pendentes de aprovação</span>
     <span class="pending-count" id="pending-count">0</span>
@@ -651,8 +651,8 @@ function executeMovimento(id) {
 
 // ── Screen nav ────────────────────────────────────────────────────
 function showScreen(s) {
-  document.getElementById('screen-list').style.display = s==='list' ? '' : 'none';
-  document.getElementById('screen-form').style.display = s==='form' ? '' : 'none';
+  document.getElementById('screen-list').style.display = s==='list' ? 'block' : 'none';
+  document.getElementById('screen-form').style.display = s==='form' ? 'block' : 'none';
 }
 
 // ── Init ──────────────────────────────────────────────────────────
