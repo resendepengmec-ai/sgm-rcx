@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#7c3aed">
+<title>Patrimônio — Sistema de Manutenção</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root{--primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
+--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
+--success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
+body{padding-bottom:80px;background:var(--bg);color:var(--text);}
+
+.mov-card{background:var(--surface);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow);border-left:4px solid var(--border);}
+.mov-card.pendente{border-left-color:#f59e0b;}
+.mov-card.aprovada{border-left-color:#16a34a;}
+.mov-card.rejeitada{border-left-color:#dc2626;}
+.mov-card.executada{border-left-color:#7c3aed;}
+
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;}
+.badge.pendente{background:#fef3c7;color:#92400e;}
+.badge.aprovada{background:var(--success-bg);color:var(--success);}
+.badge.rejeitada{background:var(--danger-bg);color:var(--danger);}
+.badge.executada{background:#ede9fe;color:#5b21b6;}
+
+.tipo-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;}
+.tipo-badge.instalar{background:#d1fae5;color:#065f46;}
+.tipo-badge.realocar{background:#dbeafe;color:#1e40af;}
+.tipo-badge.baixar{background:var(--danger-bg);color:var(--danger);}
+.tipo-badge.adicionar{background:#ede9fe;color:#5b21b6;}
+
+.filter-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:99px;border:1.5px solid var(--border);background:var(--surface);font-size:13px;font-weight:600;cursor:pointer;color:var(--text-2);}
+.filter-pill.active{border-color:var(--primary);background:var(--primary-light);color:var(--primary);}
+.filter-row{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px;scrollbar-width:none;}
+.filter-row::-webkit-scrollbar{display:none;}
+
+.admin-actions{display:flex;gap:8px;margin-top:10px;}
+.btn-approve{flex:1;padding:10px;border-radius:8px;border:none;background:var(--success);color:#fff;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-reject{flex:1;padding:10px;border-radius:8px;border:1.5px solid var(--danger);background:none;color:var(--danger);font-size:13px;font-weight:600;cursor:pointer;}
+.btn-execute{width:100%;padding:10px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer;margin-top:8px;}
+
+.section-header{font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px;}
+
+.pending-banner{background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:10px;font-size:13px;color:#92400e;}
+.pending-count{background:#f59e0b;color:#fff;border-radius:99px;padding:2px 8px;font-weight:700;font-size:12px;}
+</style>
+</head>
+<body>
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:var(--primary)">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Movimentação Patrimonial</h1>
+  <button id="btn-nova-mov" onclick="openNewMovimento()" style="color:#fff;font-size:22px;background:rgba(255,255,255,.15);border-radius:50%;width:36px;height:36px;border:none;cursor:pointer">+</button>
+</header>
+
+<!-- Lista -->
+<div id="screen-list" style="padding:12px;display:block">
+  <div id="pending-banner" style="display:none;cursor:pointer" class="pending-banner" onclick="setMovTab('pendentes')">
+    ⏳ <span id="pending-text">Solicitações pendentes de aprovação</span>
+    <span class="pending-count" id="pending-count">0</span>
+  </div>
+
+  <div class="filter-row" id="mov-tabs" style="margin-bottom:4px">
+    <button class="filter-pill active" id="tab-pendentes" onclick="setMovTab('pendentes')">⏳ Pendentes</button>
+    <button class="filter-pill" id="tab-historico" onclick="setMovTab('historico')">🕓 Histórico</button>
+  </div>
+
+  <!-- Busca de equipamento (só na aba Histórico) -->
+  <div id="equip-history-search" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:12px;display:none">
+    <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">
+      🔍 Consultar histórico de equipamento
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <select id="hist-contrato" onchange="loadHistTags()" style="flex:1;min-width:150px">
+        <option value="">Selecione o contrato…</option>
+      </select>
+      <input type="text" id="hist-tag" list="hist-tag-list" placeholder="TAG do equipamento" style="flex:1;min-width:150px">
+      <datalist id="hist-tag-list"></datalist>
+      <button onclick="openEquipHistory()" style="padding:8px 16px;background:#1e40af;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+        Ver histórico
+      </button>
+    </div>
+  </div>
+
+  <div class="filter-row" id="filter-pills" style="display:none">
+    <button class="filter-pill active" onclick="setFilter('todos')">Todas</button>
+    <button class="filter-pill" onclick="setFilter('aprovada')">✅ Aprovadas</button>
+    <button class="filter-pill" onclick="setFilter('executada')">✔ Executadas</button>
+    <button class="filter-pill" onclick="setFilter('rejeitada')">✕ Rejeitadas</button>
+  </div>
+
+  <div id="mov-list"></div>
+  <div id="mov-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
+    <div style="font-size:48px;margin-bottom:12px">📦</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px" id="mov-empty-title">Nenhuma movimentação</div>
+    <div style="font-size:13px" id="mov-empty-sub">Clique em + para solicitar uma movimentação</div>
+  </div>
+
+  <div class="section-header" id="patrimonio-summary-header" style="display:none">Histórico do banco de equipamentos</div>
+  <div id="patrimonio-summary" style="display:none;background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);font-size:13px;color:var(--text-2)">
+    Carregando…
+  </div>
+</div>
+
+<!-- Form nova movimentação -->
+<div id="screen-form" style="padding:12px;display:none">
+  <div style="background:var(--surface);border-radius:var(--radius);padding:16px">
+    <h2 style="font-size:17px;font-weight:700;margin-bottom:16px">Nova solicitação de movimentação</h2>
+
+    <div class="field">
+      <label>Tipo de movimentação *</label>
+      <select id="f-tipo" onchange="updateFormByTipo()">
+        <option value="">Selecione…</option>
+        <option value="instalar">🟢 Instalar — adicionar nova TAG</option>
+        <option value="realocar">🔵 Realocar — mover para outro local</option>
+        <option value="baixar">🔴 Baixar — retirar (inviável/inativo)</option>
+        <option value="adicionar">🟣 Adicionar equipamento existente</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label>Contrato *</label>
+      <select id="f-contrato" onchange="loadTagsByContract()">
+        <option value="">Selecione o contrato…</option>
+      </select>
+    </div>
+
+    <!-- Info do contrato selecionado -->
+    <div id="contract-info-panel" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;color:#1e40af;font-weight:600;margin-bottom:8px">
+        📍 Estabelecimentos deste contrato
+      </div>
+      <div id="contract-estabs-list" style="font-size:12px;color:#334155;line-height:1.7"></div>
+    </div>
+
+    <!-- TAG existente (realocar / baixar) -->
+    <div id="field-tag-existente" style="display:none" class="field">
+      <label>TAG do equipamento *</label>
+      <input id="f-tag" type="text" list="tag-suggestions" placeholder="Digite ou selecione a TAG…" autocomplete="off">
+      <datalist id="tag-suggestions"></datalist>
+      <div id="tag-info" style="font-size:12px;color:var(--text-2);margin-top:4px;display:none"></div>
+    </div>
+
+    <!-- Campos para instalar / adicionar -->
+    <div id="fields-nova-tag" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="field">
+          <label>Nova TAG *</label>
+          <input id="f-nova-tag" type="text" placeholder="Ex: 1020-0001">
+        </div>
+        <div class="field">
+          <label>Marca</label>
+          <input id="f-marca" type="text" placeholder="Ex: Carrier">
+        </div>
+        <div class="field">
+          <label>Tipo / Modelo</label>
+          <input id="f-tipo-equip" type="text" placeholder="Ex: Split 12000 BTU">
+        </div>
+        <div class="field">
+          <label>Capacidade</label>
+          <input id="f-capacidade" type="text" placeholder="Ex: 12.000 BTU">
+        </div>
+      </div>
+    </div>
+
+    <!-- Destino (realocar / instalar) -->
+    <div id="fields-destino" style="display:none">
+      <div class="field">
+        <label>Estabelecimento destino *</label>
+        <input id="f-estab-destino" type="text" list="estab-suggestions" placeholder="Nome do estabelecimento">
+        <datalist id="estab-suggestions"></datalist>
+      </div>
+      <div class="field">
+        <label>Recinto destino</label>
+        <input id="f-recinto-destino" type="text" placeholder="Ex: Sala de reuniões">
+      </div>
+    </div>
+
+    <!-- Motivo (sempre) -->
+    <div class="field">
+      <label>Motivo / Justificativa *</label>
+      <textarea id="f-motivo" rows="3" placeholder="Descreva o motivo da movimentação…"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Observações adicionais</label>
+      <textarea id="f-obs-mov" rows="2" placeholder="Informações complementares…"></textarea>
+    </div>
+
+    <div class="action-bar" style="margin-top:16px">
+      <button class="btn btn-secondary" onclick="cancelForm()">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveMovimento()">📤 Enviar solicitação</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de aprovação/rejeição -->
+<div id="modal-review" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none;flex-direction:column;justify-content:flex-end">
+  <div style="background:var(--surface);border-radius:16px 16px 0 0;padding:20px;max-height:80vh;overflow-y:auto">
+    <div style="width:36px;height:4px;background:var(--border);border-radius:99px;margin:0 auto 16px"></div>
+    <h3 id="modal-title" style="font-size:17px;font-weight:700;margin-bottom:14px">Revisar solicitação</h3>
+    <div id="modal-details" style="font-size:13px;color:var(--text-2);line-height:2;margin-bottom:14px"></div>
+    <div id="modal-reject-field" style="display:none" class="field">
+      <label>Motivo da rejeição</label>
+      <textarea id="f-motivo-rejeicao" rows="2" placeholder="Informe o motivo…"></textarea>
+    </div>
+    <div class="admin-actions" id="modal-actions"></div>
+    <button onclick="closeModal()" style="width:100%;margin-top:10px;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;font-size:13px;color:var(--text-2);cursor:pointer">Fechar</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Auth ──────────────────────────────────────────────────────────
+const user = getCurrentUser();
+const canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
+if (!user) { window.location.href = 'index.html'; }
+else {
+  document.getElementById('auth-overlay').style.display = 'none';
+  DB.getMovimentacoes().then(data => {
+    if (data) {
+      movimentos = data;
+      localStorage.setItem('smm_movimentacoes', JSON.stringify(data));
+      renderList();
+    }
+  }).catch(e => {
+    console.error('Erro ao buscar movimentações:', e);
+    showToast('Erro ao carregar solicitações: ' + e.message);
+    renderList(); // renderiza com o que tiver em cache local, se houver
+  });
+  // Acesso ao módulo: mesmos papéis que já veem "Patrimônio" no menu inicial
+  if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
+    showToast('Sem permissão para acessar este módulo');
+    setTimeout(()=>window.location.href='index.html',1500);
+  }
+}
+
+// ── Data ──────────────────────────────────────────────────────────
+const MOV_KEY  = 'smm_movimentacoes';
+const CONT_KEY = 'smm_contracts';
+let movimentos = [];
+let contracts  = [];
+let currentFilter = 'todos';
+let currentTab = 'pendentes'; // 'pendentes' | 'historico'
+let reviewId = null;
+
+function loadData() {
+  movimentos = JSON.parse(localStorage.getItem(MOV_KEY)  || '[]');
+  contracts  = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
+}
+function loadContracts() {
+  contracts = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
+}
+function saveData(mov) {
+  localStorage.setItem(MOV_KEY, JSON.stringify(movimentos));
+  if (mov) DB.saveMovimentacao(mov).catch(e => console.warn('Sync mov:', e.message));
+}
+
+function showToast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),dur);
+}
+
+// ── Tab (Pendentes / Histórico) ──────────────────────────────────
+function setMovTab(tab) {
+  currentTab = tab;
+  currentFilter = 'todos';
+  document.getElementById('tab-pendentes').classList.toggle('active', tab==='pendentes');
+  document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
+  document.getElementById('filter-pills').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('equip-history-search').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('patrimonio-summary-header').style.display = tab==='historico' ? '' : 'none';
+  document.getElementById('patrimonio-summary').style.display = tab==='historico' ? '' : 'none';
+  document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
+    p.classList.toggle('active', i===0);
+  });
+  renderList();
+}
+
+// ── Filter ────────────────────────────────────────────────────────
+function setFilter(f) {
+  currentFilter = f;
+  document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
+    p.classList.toggle('active',['todos','aprovada','executada','rejeitada'][i]===f);
+  });
+  renderList();
+}
+
+// ── Render list ───────────────────────────────────────────────────
+function renderList() {
+  const pending = movimentos.filter(m=>m.status==='pendente');
+
+  // Pending banner (admin only)
+  if (canApproveMov && pending.length) {
+    document.getElementById('pending-banner').style.display = '';
+    document.getElementById('pending-count').textContent = pending.length;
+    document.getElementById('pending-text').textContent =
+      `${pending.length} solicitação${pending.length>1?'ões':''} aguardando aprovação`;
+  } else {
+    document.getElementById('pending-banner').style.display = 'none';
+  }
+
+  // Filter: primeiro pela aba (pendentes vs histórico), depois pelo status (só no histórico)
+  let filtered = currentTab === 'pendentes'
+    ? movimentos.filter(m=>m.status==='pendente')
+    : movimentos.filter(m=>m.status!=='pendente');
+  if (currentTab === 'historico' && currentFilter !== 'todos') {
+    filtered = filtered.filter(m=>m.status===currentFilter);
+  }
+
+  // Non-admin só vê as próprias
+  if (!canApproveMov) filtered = filtered.filter(m=>m.solicitanteEmail===user.email);
+
+  // Sort: pending first then by date
+  filtered.sort((a,b)=>{
+    if (a.status==='pendente' && b.status!=='pendente') return -1;
+    if (b.status==='pendente' && a.status!=='pendente') return 1;
+    return b.criadoEm - a.criadoEm;
+  });
+
+  const list  = document.getElementById('mov-list');
+  const empty = document.getElementById('mov-empty');
+  if (!filtered.length) {
+    list.innerHTML='';
+    empty.style.display='';
+    document.getElementById('mov-empty-title').textContent =
+      currentTab === 'pendentes' ? 'Nenhuma solicitação pendente' : 'Nenhum histórico ainda';
+    document.getElementById('mov-empty-sub').textContent =
+      currentTab === 'pendentes' ? 'Clique em + para solicitar uma movimentação' : 'Solicitações aprovadas, executadas ou rejeitadas aparecem aqui';
+  }
+  else {
+    empty.style.display='none';
+    list.innerHTML = filtered.map(m=>{
+      const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
+      const canReview = canApproveMov && m.status==='pendente';
+      const canExecute= canApproveMov && m.status==='aprovada';
+      const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
+      return `
+      <div class="mov-card ${m.status}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span class="tipo-badge ${m.tipo}">${tipoLabel}</span>
+            <span class="badge ${m.status}">${{pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',executada:'Executada'}[m.status]||m.status}</span>
+          </div>
+          <span style="font-size:11px;color:var(--text-3)">${dataStr}</span>
+        </div>
+        <div style="font-size:14px;font-weight:700;margin-bottom:4px">
+          TAG: ${m.tag||m.novaTag||'—'} · Contrato ${m.contrato||'—'}
+        </div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
+          Solicitado por: ${m.solicitanteNome||'—'}
+        </div>
+        <div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
+          ${m.motivo}
+        </div>
+        ${m.status==='rejeitada' && m.motivoRejeicao ? `
+          <div style="font-size:12px;color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 10px;margin-bottom:6px">
+            Motivo da rejeição: ${m.motivoRejeicao}
+          </div>` : ''}
+        ${m.status==='executada' ? `
+          <div style="font-size:12px;color:var(--success);margin-top:4px">
+            ✅ Executado em ${new Date(m.executadoEm).toLocaleDateString('pt-BR')} · Banco atualizado
+          </div>` : ''}
+        ${canReview ? `
+          <div class="admin-actions">
+            <button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
+            <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
+          </div>` : ''}
+        ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}')">⚙️ Executar no banco</button>` : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Summary
+  renderSummary();
+}
+
+function renderSummary() {
+  const db = getEffDB() || {};
+  let total = 0;
+  const byContract = {};
+  Object.entries(db).forEach(([num,equips])=>{
+    const active = (equips||[]).filter(e=>!e._inativo);
+    total += active.length;
+    byContract[num] = active.length;
+  });
+  document.getElementById('patrimonio-summary').innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px">Total de equipamentos ativos: ${total}</div>
+    ${Object.entries(byContract).map(([k,v])=>`
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)">
+        <span>Contrato ${k}</span><span style="font-weight:600">${v} equipamentos</span>
+      </div>`).join('')}`;
+}
+
+// ── Form ──────────────────────────────────────────────────────────
+function openNewMovimento() {
+  loadContracts();
+  // Preenche select de contratos
+  const sel = document.getElementById('f-contrato');
+  sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+    contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+  document.getElementById('f-tipo').value = '';
+  document.getElementById('f-motivo').value = '';
+  document.getElementById('f-obs-mov').value = '';
+  updateFormByTipo();
+  showScreen('form');
+}
+
+function updateFormByTipo() {
+  const tipo = document.getElementById('f-tipo').value;
+  const showExistente = ['realocar','baixar'].includes(tipo);
+  const showNova      = ['instalar','adicionar'].includes(tipo);
+  const showDestino   = ['instalar','realocar','adicionar'].includes(tipo);
+  document.getElementById('field-tag-existente').style.display = showExistente ? '' : 'none';
+  document.getElementById('fields-nova-tag').style.display     = showNova      ? '' : 'none';
+  document.getElementById('fields-destino').style.display      = showDestino   ? '' : 'none';
+}
+
+function loadTagsByContract() {
+  const num = document.getElementById('f-contrato').value;
+  const db  = getEffDB() || {};
+  const equip = (db[num]||[]).filter(e=>!e._inativo);
+  const dl  = document.getElementById('tag-suggestions');
+  dl.innerHTML = equip.map(e=>`<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${e.tipo||''} ${e.marca||''}</option>`).join('');
+
+  // Agrupa por estabelecimento
+  const byEstab = {};
+  equip.forEach(e => {
+    const est = e.estabelecimento || e['estabelecimento'] || 'Sem estabelecimento';
+    const rec = e.recinto || e['recinto'] || '';
+    byEstab[est] = byEstab[est] || {recintos: new Set(), count: 0};
+    byEstab[est].count++;
+    if (rec) byEstab[est].recintos.add(rec);
+  });
+  const estabs = Object.keys(byEstab).sort();
+
+  // Datalist para autocomplete
+  const dlE = document.getElementById('estab-suggestions');
+  dlE.innerHTML = estabs.map(e=>`<option value="${e}">`).join('');
+
+  // Painel visível
+  const panel = document.getElementById('contract-info-panel');
+  const list  = document.getElementById('contract-estabs-list');
+  if (panel && list) {
+    if (!num || !estabs.length) {
+      panel.style.display = 'none';
+    } else {
+      panel.style.display = '';
+      list.innerHTML = estabs.map(est => {
+        const info = byEstab[est];
+        const recs = [...info.recintos].sort();
+        const badge = `<span onclick="fillEstabDestino('${est.replace(/'/g,"\\'")}')"
+          style="display:inline-block;background:#fff;border:1px solid #cbd5e1;border-radius:6px;padding:4px 10px;margin:2px;cursor:pointer;font-size:11px"
+          onmouseover="this.style.background='#dbeafe'"
+          onmouseout="this.style.background='#fff'">
+          <strong>${est}</strong> · ${info.count} equip.
+        </span>`;
+        return badge;
+      }).join('');
+    }
+  }
+
+  document.getElementById('f-tag').addEventListener('input', function() {
+    const found = equip.find(e=>(e.tag||e['tag'])===this.value);
+    const info  = document.getElementById('tag-info');
+    if (found) {
+      info.style.display='';
+      info.textContent = `${found.tipo||''} ${found.marca||''} — ${found.estabelecimento||''} / ${found.recinto||''}`;
+    } else { info.style.display='none'; }
+  });
+}
+
+// Preenche o campo de estabelecimento destino ao clicar no badge
+function fillEstabDestino(estab) {
+  const inp = document.getElementById('f-estab-destino');
+  if (inp) { inp.value = estab; inp.focus(); }
+  showToast(`Estabelecimento "${estab}" selecionado`);
+}
+
+function cancelForm() { showScreen('list'); renderList(); }
+
+function saveMovimento() {
+  const tipo     = document.getElementById('f-tipo').value;
+  const contrato = document.getElementById('f-contrato').value;
+  const motivo   = document.getElementById('f-motivo').value.trim();
+  if (!tipo)     { showToast('Selecione o tipo de movimentação'); return; }
+  if (!contrato) { showToast('Selecione o contrato'); return; }
+  if (!motivo)   { showToast('Informe o motivo'); return; }
+
+  const tag      = document.getElementById('f-tag')?.value.trim() || '';
+  const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
+  if (['realocar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
+  if (['instalar','adicionar'].includes(tipo) && !novaTag){ showToast('Informe a nova TAG'); return; }
+
+  const mov = {
+    id:               'mov-'+Date.now(),
+    tipo, contrato, motivo,
+    tag:              tipo==='realocar'||tipo==='baixar' ? tag : '',
+    novaTag:          tipo==='instalar'||tipo==='adicionar' ? novaTag : '',
+    marca:            document.getElementById('f-marca')?.value.trim()||'',
+    tipoEquip:        document.getElementById('f-tipo-equip')?.value.trim()||'',
+    capacidade:       document.getElementById('f-capacidade')?.value.trim()||'',
+    estabelecimentoDestino: document.getElementById('f-estab-destino')?.value.trim()||'',
+    recintoDestino:   document.getElementById('f-recinto-destino')?.value.trim()||'',
+    obs:              document.getElementById('f-obs-mov').value.trim(),
+    status:           'pendente',
+    solicitanteEmail: user.email,
+    solicitanteNome:  user.name,
+    solicitantePerfil:user.role,
+    criadoEm:         Date.now(),
+  };
+  movimentos.unshift(mov);
+  saveData(mov);
+  showToast('Solicitação enviada! Aguardando aprovação do admin.');
+  showScreen('list');
+  renderList();
+}
+
+// ── Review modal ──────────────────────────────────────────────────
+function openReview(id, action) {
+  reviewId = id;
+  const m = movimentos.find(x=>x.id===id); if (!m) return;
+  const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
+  document.getElementById('modal-title').textContent = `Revisar: ${tipoLabel} — TAG ${m.tag||m.novaTag||'—'}`;
+  document.getElementById('modal-details').innerHTML = `
+    <strong>Contrato:</strong> ${m.contrato}<br>
+    <strong>Tipo:</strong> ${tipoLabel}<br>
+    <strong>TAG:</strong> ${m.tag||m.novaTag||'—'}<br>
+    ${m.estabelecimentoDestino ? `<strong>Destino:</strong> ${m.estabelecimentoDestino}${m.recintoDestino?' / '+m.recintoDestino:''}<br>` : ''}
+    <strong>Motivo:</strong> ${m.motivo}<br>
+    <strong>Solicitado por:</strong> ${m.solicitanteNome} (${m.solicitantePerfil})<br>
+    <strong>Data:</strong> ${new Date(m.criadoEm).toLocaleDateString('pt-BR')}`;
+
+  const rejectField = document.getElementById('modal-reject-field');
+  rejectField.style.display = action==='reject' ? '' : 'none';
+  document.getElementById('f-motivo-rejeicao').value = '';
+
+  const actions = document.getElementById('modal-actions');
+  if (action==='approve') {
+    actions.innerHTML = `<button class="btn-approve" onclick="confirmApprove()">✅ Confirmar aprovação</button>`;
+  } else {
+    actions.innerHTML = `<button class="btn-reject" style="flex:1" onclick="confirmReject()">✕ Confirmar rejeição</button>`;
+  }
+
+  document.getElementById('modal-review').style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('modal-review').style.display = 'none';
+  reviewId = null;
+}
+
+function confirmApprove() {
+  const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
+  m.status       = 'aprovada';
+  m.aprovadoPor  = user.name;
+  m.aprovadoEm   = Date.now();
+  saveData(m);
+  DB.updateMovStatus(m.id, 'aprovada').catch(()=>{});
+  closeModal();
+  showToast('Solicitação aprovada! Clique em "Executar no banco" para aplicar.');
+  renderList();
+}
+
+function confirmReject() {
+  const motivo = document.getElementById('f-motivo-rejeicao').value.trim();
+  if (!motivo) { showToast('Informe o motivo da rejeição'); return; }
+  const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
+  m.status          = 'rejeitada';
+  m.motivoRejeicao  = motivo;
+  m.rejeitadoPor    = user.name;
+  m.rejeitadoEm     = Date.now();
+  saveData(m);
+  DB.updateMovStatus(m.id, 'rejeitada', motivo).catch(()=>{});
+  closeModal();
+  showToast('Solicitação rejeitada.');
+  renderList();
+}
+
+// ── Execute ───────────────────────────────────────────────────────
+function executeMovimento(id) {
+  const m = movimentos.find(x=>x.id===id);
+  if (!m || m.status!=='aprovada') return;
+  if (!confirm(`Executar "${m.tipo}" da TAG ${m.tag||m.novaTag} no banco de dados?\n\nEsta ação atualiza o banco de equipamentos.`)) return;
+
+  const db = getEffDB() || {};
+  const equips = db[m.contrato] || [];
+
+  switch(m.tipo) {
+    case 'instalar':
+    case 'adicionar':
+      if (equips.find(e=>(e.tag||e['tag'])===m.novaTag)) {
+        showToast('TAG já existe no banco!'); return;
+      }
+      equips.push({
+        tag:m.novaTag, marca:m.marca, tipo:m.tipoEquip,
+        capacidade:m.capacidade,
+        estabelecimento:m.estabelecimentoDestino,
+        recinto:m.recintoDestino,
+        _instaladoEm:Date.now(), _instaladoPor:user.name
+      });
+      break;
+    case 'realocar': {
+      const eq = equips.find(e=>(e.tag||e['tag'])===m.tag);
+      if (!eq) { showToast('TAG não encontrada no banco!'); return; }
+      eq.estabelecimento = m.estabelecimentoDestino || eq.estabelecimento;
+      eq.recinto         = m.recintoDestino         || eq.recinto;
+      eq._realocadoEm    = Date.now();
+      eq._realocadoPor   = user.name;
+      break;
+    }
+    case 'baixar': {
+      const eq = equips.find(e=>(e.tag||e['tag'])===m.tag);
+      if (!eq) { showToast('TAG não encontrada no banco!'); return; }
+      eq._inativo   = true;
+      eq._baixadoEm = Date.now();
+      eq._baixadoPor= user.name;
+      eq._motivoBaixa=m.motivo;
+      break;
+    }
+  }
+
+  db[m.contrato] = equips;
+  localStorage.setItem('smm_custom_db', JSON.stringify(db));
+
+  // Sync contracts
+  const conts = JSON.parse(localStorage.getItem(CONT_KEY)||'[]');
+  const ci = conts.findIndex(c=>c.numero===m.contrato);
+  if (ci>=0) { conts[ci].equipamentos=equips; localStorage.setItem(CONT_KEY,JSON.stringify(conts)); }
+
+  m.status      = 'executada';
+  m.executadoEm = Date.now();
+  m.executadoPor= user.name;
+  saveData(m);
+  signRecord(m.id, 'executado', 'movimentacoes').catch(()=>{});
+  DB.updateMovStatus(m.id, 'executada').catch(()=>{});
+  showToast('✅ Banco de equipamentos atualizado!');
+  renderList();
+}
+
+// ── Screen nav ────────────────────────────────────────────────────
+function showScreen(s) {
+  document.getElementById('screen-list').style.display = s==='list' ? 'block' : 'none';
+  document.getElementById('screen-form').style.display = s==='form' ? 'block' : 'none';
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+loadData(); // pintura instantânea com o cache local; a busca no servidor (acima) substitui assim que chegar
+renderList();
+loadHistContratos();
+
+// ── Render assinaturas no card ────────────────────────────────────
+function _sigTrail(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
+  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const entries = sigs.map(s => {
+    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
+
+// ── Histórico do equipamento ─────────────────────────────────────
+async function loadHistContratos() {
+  const sel = document.getElementById('hist-contrato');
+  if (!sel) return;
+  try {
+    const conts = await DB.getContratos();
+    sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+      (conts||[]).map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+  } catch(e) {}
+}
+
+function loadHistTags() {
+  const contrato = document.getElementById('hist-contrato').value;
+  const dl = document.getElementById('hist-tag-list');
+  const db = getEffDB() || {};
+  const equips = db[contrato] || [];
+  if (dl) {
+    dl.innerHTML = equips.map(e => `<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${e.tipo||''} ${e.marca||''}${e._inativo?' (BAIXADO)':''}</option>`).join('');
+  }
+}
+
+async function openEquipHistory() {
+  const contrato = document.getElementById('hist-contrato').value.trim();
+  const tag = document.getElementById('hist-tag').value.trim().toUpperCase();
+  if (!contrato) { showToast('Selecione o contrato'); return; }
+  if (!tag) { showToast('Informe a TAG'); return; }
+
+  // Coleta eventos de todas as fontes
+  const events = [];
+
+  // 1. Dados do equipamento no banco
+  const db = getEffDB() || {};
+  const equipRaw = (db[contrato] || []).find(e => (e.tag||e['tag']||'').toUpperCase() === tag);
+
+  if (!equipRaw) {
+    showToast(`TAG "${tag}" não encontrada no contrato ${contrato}`);
+    return;
+  }
+
+  // Adiciona eventos de instalação/baixa a partir dos campos do equipamento
+  if (equipRaw._instaladoEm) {
+    events.push({ ts: equipRaw._instaladoEm, type: 'instalacao', icon:'📦', color:'#059669',
+      title: 'Equipamento instalado', desc: `Por ${equipRaw._instaladoPor||'—'}` });
+  }
+  if (equipRaw._realocadoEm) {
+    events.push({ ts: equipRaw._realocadoEm, type: 'realocacao', icon:'🔄', color:'#0891b2',
+      title: 'Equipamento realocado',
+      desc: `${equipRaw.estabelecimento||'—'} · ${equipRaw.recinto||'—'} · Por ${equipRaw._realocadoPor||'—'}` });
+  }
+  if (equipRaw._baixadoEm) {
+    events.push({ ts: equipRaw._baixadoEm, type: 'baixa', icon:'🔴', color:'#dc2626',
+      title: 'Equipamento baixado',
+      desc: `Motivo: ${equipRaw._motivoBaixa||'—'} · Por ${equipRaw._baixadoPor||'—'}` });
+  }
+
+  // 2. Chamados
+  try {
+    const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+    chamados.filter(c => c.client===contrato && (c.equip||'').toUpperCase()===tag).forEach(c => {
+      events.push({ ts: c.createdAt || new Date(c.date||Date.now()).getTime(), type:'chamado', icon:'🔔', color:'#d97706',
+        title: `Chamado — ${c.priority||'normal'}`,
+        desc: c.desc || c.description || 'Sem descrição',
+        extra: c.status ? `Status: ${c.status}` : '' });
+    });
+  } catch(e) {}
+
+  // 3. Registros de manutenção
+  try {
+    const regs = JSON.parse(localStorage.getItem('registro_records')||'[]');
+    regs.filter(r => (r.client||r.contract)===contrato && (r.equip||r.tag||'').toUpperCase()===tag).forEach(r => {
+      const svcs = (r.items||[]).map(i => i.name||i.service||String(i)).join(', ');
+      events.push({ ts: r.createdAt || new Date(r.date||Date.now()).getTime(), type:'registro', icon:'🔧', color:'#0284c7',
+        title: 'Manutenção executada',
+        desc: svcs || r.notes || 'Serviço registrado',
+        extra: r.tech ? `Técnico: ${r.tech}` : '' });
+    });
+  } catch(e) {}
+
+  // 4. Preventiva
+  try {
+    const plans = JSON.parse(localStorage.getItem('prev_plans')||'[]');
+    plans.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
+      (p.equipments||[]).filter(eq => (eq.tag||'').toUpperCase()===tag).forEach(eq => {
+        (p.execucoes||[]).forEach(ex => {
+          events.push({ ts: new Date(ex.data||Date.now()).getTime(), type:'preventiva', icon:'📋', color:'#7c3aed',
+            title: `Preventiva N${p.level||'?'} — ${p.period||''}`,
+            desc: `Executada em ${new Date(ex.data).toLocaleDateString('pt-BR')}`,
+            extra: ex.tecnico ? `Técnico: ${ex.tecnico}` : '' });
+        });
+      });
+    });
+  } catch(e) {}
+
+  // 5. Movimentações patrimoniais
+  const movsList = (movimentos||[]).filter(m => m.contrato===contrato && (m.tag||'').toUpperCase()===tag);
+  movsList.forEach(m => {
+    const tipos = { instalar:'📥 Instalação', realocar:'🔄 Realocação', baixar:'🔴 Baixa', adicionar:'➕ Adição' };
+    events.push({ ts: m.createdAt || Date.now(), type:'movimentacao', icon:'📋', color:'#7c3aed',
+      title: `Solicitação: ${tipos[m.tipo]||m.tipo}`,
+      desc: m.motivo || '—',
+      extra: `Status: ${m.status||'pendente'}${m.solicitadoPor?' · Solicitado por '+m.solicitadoPor:''}` });
+  });
+
+  // Ordena por data desc
+  events.sort((a,b) => b.ts - a.ts);
+
+  // Renderiza modal
+  renderEquipHistoryModal(equipRaw, contrato, events);
+}
+
+function renderEquipHistoryModal(equip, contrato, events) {
+  const isInativo = equip._inativo;
+  let modal = document.getElementById('equip-history-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'equip-history-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:#fff;width:100%;max-width:640px;max-height:90vh;border-radius:20px 20px 0 0;overflow:hidden;display:flex;flex-direction:column">
+      <div style="padding:16px;background:${isInativo?'#fef2f2':'#eff6ff'};border-bottom:1px solid #e2e8f0">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <div style="font-size:18px;font-weight:700;color:#0f172a">
+              ${isInativo?'🔴 ':''}${equip.tag}
+              ${isInativo?'<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">BAIXADO</span>':''}
+            </div>
+            <div style="font-size:12px;color:#64748b;margin-top:2px">
+              ${equip.marca||''} ${equip.tipo||''} ${equip.capacidade||''}
+            </div>
+            <div style="font-size:12px;color:#64748b">
+              Contrato ${contrato} · ${equip.estabelecimento||'—'} · ${equip.recinto||'—'}
+            </div>
+          </div>
+          <button onclick="document.getElementById('equip-history-modal').remove()"
+            style="background:none;border:none;font-size:20px;cursor:pointer;color:#64748b">✕</button>
+        </div>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px">
+        <div style="font-size:12px;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">
+          📅 Timeline (${events.length} evento${events.length!==1?'s':''})
+        </div>
+        ${events.length ? events.map(ev => {
+          const dt = new Date(ev.ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+          return `<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #f1f5f9">
+            <div style="width:28px;height:28px;border-radius:50%;background:${ev.color}15;color:${ev.color};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px">
+              ${ev.icon}
+            </div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:#0f172a">${ev.title}</div>
+              <div style="font-size:12px;color:#475569;margin-top:2px">${ev.desc}</div>
+              ${ev.extra?`<div style="font-size:11px;color:#94a3b8;margin-top:2px">${ev.extra}</div>`:''}
+              <div style="font-size:10px;color:#94a3b8;margin-top:4px">${dt}</div>
+            </div>
+          </div>`;
+        }).join('') : '<div style="text-align:center;color:#94a3b8;padding:40px;font-size:13px">Nenhum evento registrado para este equipamento</div>'}
+      </div>
+      <div style="padding:12px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#64748b;text-align:center">
+        Histórico consolidado a partir de chamados, registros, preventiva e movimentações
+      </div>
+    </div>
+  `;
+}
+</script>
+</body>
+</html>
