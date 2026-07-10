@@ -112,6 +112,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="preventiva-table"></div>
   </div>
 
+  <!-- Patrimônio -->
+  <div id="section-patrimonio" class="section-card" style="display:none">
+    <h3>📦 Movimentações de patrimônio</h3>
+    <div id="patrimonio-kpis" class="kpi-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px"></div>
+    <div id="patrimonio-table"></div>
+  </div>
+
   <!-- Vazio -->
   <div id="report-empty" style="text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📊</div>
@@ -191,6 +198,7 @@ function render() {
   const chamados   = JSON.parse(localStorage.getItem('chamados_list')   ||'[]');
   const registros  = JSON.parse(localStorage.getItem('registro_records')||'[]');
   const preventiva = JSON.parse(localStorage.getItem('prev_plans')||'[]');
+  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]');
   const contracts  = JSON.parse(localStorage.getItem('smm_contracts')   ||'[]');
 
   // Filter by period + contract
@@ -210,6 +218,11 @@ function render() {
     const execs = (p.execucoes||p.executions||[]).filter(e=>
       inPeriod((e.data||e.date||'').slice(0,7)));
     return execs.length > 0 && inContract(p.client||p.contract||p.contrato);
+  });
+  // Movimentações de patrimônio: contrato em m.contrato, data em m.criadoEm
+  const filtMovimentos = movimentos.filter(m => {
+    const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
+    return inPeriod(dataStr) && inContract(m.contrato);
   });
 
   // Contract info
@@ -323,6 +336,32 @@ function render() {
       })
     );
   } else { document.getElementById('section-preventiva').style.display='none'; }
+
+  // Patrimônio: indicadores + tabela
+  if (filtMovimentos.length) {
+    document.getElementById('section-patrimonio').style.display='';
+    const porStatus = st => filtMovimentos.filter(m=>m.status===st).length;
+    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
+    document.getElementById('patrimonio-kpis').innerHTML = `
+      <div class="kpi"><div class="kpi-val">${filtMovimentos.length}</div><div class="kpi-label">Total</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:#d97706">${porStatus('pendente')}</div><div class="kpi-label">Pendentes</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:var(--success)">${porStatus('executada')}</div><div class="kpi-label">Executadas</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:#1e40af">${porStatus('aprovada')}</div><div class="kpi-label">Aprovadas</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${porStatus('rejeitada')+porStatus('cancelada')}</div><div class="kpi-label">Rejeit./Cancel.</div></div>`;
+    document.getElementById('patrimonio-table').innerHTML = tableHTML(
+      ['Data','Tipo','TAG','Motivo','Status'],
+      filtMovimentos
+        .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0))
+        .map(m=>[
+          m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—',
+          tipoLabel[m.tipo]||m.tipo||'—',
+          m.tag||m.novaTag||'—',
+          (m.motivo||'—').slice(0,60),
+          statusLabel[m.status]||m.status||'—'
+        ])
+    );
+  } else { document.getElementById('section-patrimonio').style.display='none'; }
 }
 
 function tableHTML(headers, rows) {
@@ -432,6 +471,10 @@ function generatePDF() {
     const execs=(p.execucoes||p.executions||[]).filter(e=>(e.data||e.date||'').startsWith(periodo));
     return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato);
   });
+  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
+    const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
+    return dataStr.startsWith(periodo) && (!contrato || m.contrato===contrato);
+  });
 
   const ensurePage = (threshold) => {
     if (y > threshold) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
@@ -448,7 +491,8 @@ function generatePDF() {
   doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
   doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
   doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
-  doc.text(`Planos de preventiva com execução: ${preventiva.length}`,PDF_M,y);y+=10;
+  doc.text(`Planos de preventiva com execução: ${preventiva.length}`,PDF_M,y);y+=6;
+  doc.text(`Movimentações de patrimônio: ${movimentos.length}`,PDF_M,y);y+=10;
 
   // Chamados
   if (chamados.length) {
@@ -481,6 +525,21 @@ function generatePDF() {
       ensurePage(255);
       const execs=(p.execucoes||[]).filter(e=>(e.data||'').startsWith(periodo));
       doc.text(`TAG: ${p.tag||'—'} | Nível: ${p.nivel||'—'} | Execuções: ${execs.length}`,PDF_M+2,y);y+=5;
+    });
+    y+=4;
+  }
+
+  // Patrimônio
+  if (movimentos.length) {
+    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
+    const porStatus = st => movimentos.filter(m=>m.status===st).length;
+    addSection(`Movimentações de patrimônio (${movimentos.length})`);
+    doc.text(`Pendentes: ${porStatus('pendente')} | Aprovadas: ${porStatus('aprovada')} | Executadas: ${porStatus('executada')} | Rejeitadas/Canceladas: ${porStatus('rejeitada')+porStatus('cancelada')}`,PDF_M+2,y);y+=7;
+    movimentos.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0)).forEach(m=>{
+      ensurePage(255);
+      const dataStr = m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—';
+      doc.text(`${dataStr} | ${tipoLabel[m.tipo]||m.tipo||'—'} | TAG: ${m.tag||m.novaTag||'—'} | ${statusLabel[m.status]||m.status||'—'}`,PDF_M+2,y);y+=5;
     });
   }
 

@@ -480,9 +480,9 @@ function getEffDB() {
   return db;
 }
 
-function persist() {
+function persist(record) {
   localStorage.setItem('prev_plans', JSON.stringify(plans));
-  const last = plans[0];
+  const last = record || plans[0];
   if (last) DB.save('preventiva', last).catch(e => console.warn('Sync preventiva:', e.message));
 }
 
@@ -866,17 +866,16 @@ function savePlan() {
     })),
   };
 
-  plans.unshift(plan)
-  // Assinatura digital
+  plans.unshift(plan);
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sid_plan = plan.id;
-  const _sedit_plan = false;
-  signRecord(_sid_plan, _sedit_plan ? 'editado' : 'criado', 'preventiva').then(sig => {
-    const _rec = plans.find(x=>x.id===_sid_plan);
-    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});;
-  persist();
-  showToast('Plano criado! Iniciando execução…');
-  openPlan(plan.id);
+  signRecord(_sid_plan, 'criado', 'preventiva').then(sig => {
+    plan._signatures = plan._signatures||[]; plan._signatures.push(sig);
+    persist(plan);
+    showToast('Plano criado! Iniciando execução…');
+    openPlan(plan.id);
+  });
 }
 
 // ── Execution ──

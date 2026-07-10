@@ -600,24 +600,24 @@ function saveQuote() {
     const idx = quotes.findIndex(x => x.id === editingId);
     quotes[idx] = q;
   } else {
-    quotes.unshift(q)
-  // Assinatura digital
+    quotes.unshift(q);
+  }
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sid_q = q.id;
   const _sedit_q = !!editingId;
   signRecord(_sid_q, _sedit_q ? 'editado' : 'criado', 'orcamentos').then(sig => {
-    const _rec = quotes.find(x=>x.id===_sid_q);
-    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});;
-  }
-  persist();
-  showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
-  if (isNew) {
-    // Confirma no backend a O.S. gerada automaticamente pra esse orçamento
-    DB.getOrdens().then(list => {
-      const os = (list||[]).find(o => o.orcamentoId === q.id);
-      if (os) showToast(`📋 ${os.numero} gerada — disponível em Registro → O.S. Pendentes`);
-    }).catch(()=>{});
-  }
+    q._signatures = q._signatures||[]; q._signatures.push(sig);
+    persist(q);
+    showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
+    if (isNew) {
+      // Confirma no backend a O.S. gerada automaticamente pra esse orçamento
+      DB.getOrdens().then(list => {
+        const os = (list||[]).find(o => o.orcamentoId === q.id);
+        if (os) showToast(`📋 ${os.numero} gerada — disponível em Registro → O.S. Pendentes`);
+      }).catch(()=>{});
+    }
+  });
   editingId = null;
   newItems = [];
   switchTab('quotes');
@@ -632,10 +632,10 @@ function deleteQuote(id) {
   showToast('Orçamento excluído');
 }
 
-function persist() {
+function persist(record) {
   localStorage.setItem('orcamento_quotes', JSON.stringify(quotes));
   renderQuoteList();
-  const last = quotes[0];
+  const last = record || quotes[0];
   if (last) DB.save('orcamentos', last).catch(e => console.warn('Sync orçamento:', e.message));
 }
 

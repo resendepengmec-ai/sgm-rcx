@@ -517,24 +517,24 @@ function saveChamado() {
   const isNew = !editingId;
   if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
   else { chamados.unshift(c); }
-  // Assinatura digital
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sid_c = c.id;
   const _sedit_c = !!editingId;
   signRecord(_sid_c, _sedit_c ? 'editado' : 'criado', 'chamados').then(sig => {
-    const _rec = chamados.find(x=>x.id===_sid_c);
-    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});
-  showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
-  persist().then(() => {
-    if (isNew) {
-      DB.getOrdensByChamado(c.id).then(list => {
-        if (list && list.length) {
-          ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
-          try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
-          showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`);
-        }
-      }).catch(()=>{});
-    }
+    c._signatures = c._signatures||[]; c._signatures.push(sig);
+    showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
+    persist(c).then(() => {
+      if (isNew) {
+        DB.getOrdensByChamado(c.id).then(list => {
+          if (list && list.length) {
+            ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
+            try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+            showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`);
+          }
+        }).catch(()=>{});
+      }
+    });
   });
   editingId=null; newPhotos=[]; switchTab('list');
 }
@@ -566,7 +566,12 @@ function updateStatus(id, status) {
   c.status = status; // otimista
   try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
   openDetail(id);
-  DB.updateChamadoStatus(id, status).then(() => { renderList(); }).catch(e => {
+  DB.updateChamadoStatus(id, status).then(r => {
+    renderList();
+    if (r?.ordensCanceladas?.length) {
+      showToast(`Chamado cancelado — O.S. ${r.ordensCanceladas.join(', ')} também cancelada`);
+    }
+  }).catch(e => {
     c.status = prev; // reverte em caso de falha (ex.: sem permissão)
     try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e2) {}
     showToast('Erro ao alterar status: ' + e.message);
@@ -574,12 +579,12 @@ function updateStatus(id, status) {
   });
 }
 
-function persist() {
+function persist(record) {
   // Cache local
   try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
   renderList();
-  // Sync backend (último item modificado)
-  const last = chamados[0];
+  // Sync backend (registro explícito, se informado; senão o mais recente)
+  const last = record || chamados[0];
   if (last) return DB.save('chamados', last).catch(e => console.warn('Sync chamado:', e.message));
   return Promise.resolve();
 }

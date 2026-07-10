@@ -831,58 +831,58 @@ function saveRecord() {
   };
   if (editingId) { const i = records.findIndex(x=>x.id===editingId); records[i] = r; }
   else { records.unshift(r); }
-  // Assinatura digital
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sid_r = r.id;
   const _sedit_r = !!editingId;
+  const _itemsSnapshot = newItems; // newItems é resetada logo abaixo; preserva pro callback
   signRecord(_sid_r, _sedit_r ? 'editado' : 'criado', 'registros').then(sig => {
-    const _rec = records.find(x=>x.id===_sid_r);
-    if (_rec) { _rec._signatures = _rec._signatures||[]; _rec._signatures.push(sig); }
-  }).catch(()=>{});
-  persist();
-  showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
+    r._signatures = r._signatures||[]; r._signatures.push(sig);
+    persist(r);
+    showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
 
-  // Item marcado como inviável (equipamento condenado): solicita baixa
-  // automática no Patrimônio, sujeita à aprovação de gestor pra cima.
-  if (newItems.some(it=>it.inviavel) && !isAvulso && r.equip && !r._baixaSolicitada) {
-    const mov = {
-      id: 'mov-' + genId(),
-      contrato: r.client,
-      tipo: 'baixar',
-      tag: r.equip,
-      motivo: `Equipamento condenado — constatado no registro de serviço OS ${r.id.toUpperCase().slice(-6)} (${r.date||'—'}). ${INVIAVEL_NOTE}`,
-      status: 'pendente',
-      criadoEm: Date.now(),
-      origem: 'registro',
-      registroId: r.id,
-    };
-    DB.saveMovimentacao(mov).then(() => {
-      r._baixaSolicitada = true;
-      try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
-      DB.save('registros', r).catch(()=>{});
-      showToast('📋 Baixa do equipamento solicitada — aguardando aprovação no Patrimônio');
-    }).catch(e => showToast('Erro ao solicitar baixa do equipamento: ' + e.message));
-  }
-  // Se havia uma O.S. vinculada, marcar como concluída (o backend também
-  // fecha automaticamente o chamado vinculado como "resolvido")
-  if (window._currentOSId) {
-    const os = ordensCache.find(o=>o.id===window._currentOSId);
-    DB.concluirOrdem(window._currentOSId, r.id).then(() => {
-      if (os) {
-        os.status = 'concluida';
-        os.registroId = r.id;
-        os.concluidaEm = Date.now();
-        os.tecnico = getCurrentUser()?.name || os.tecnico;
-        try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
-        showToast(`✅ O.S. ${os.numero} concluída · Chamado ${os.chamadoId} resolvido`);
-      }
-      updateOSBadge();
-    }).catch(e => showToast('Erro ao concluir a O.S.: ' + e.message));
-    window._currentOSId = null;
-    // Remove OS banner if present
-    document.getElementById('os-link-banner')?.remove();
-    document.getElementById('os-checklist-box')?.remove();
-  }
-  updateOSBadge();
+    // Item marcado como inviável (equipamento condenado): solicita baixa
+    // automática no Patrimônio, sujeita à aprovação de gestor pra cima.
+    if (_itemsSnapshot.some(it=>it.inviavel) && !isAvulso && r.equip && !r._baixaSolicitada) {
+      const mov = {
+        id: 'mov-' + genId(),
+        contrato: r.client,
+        tipo: 'baixar',
+        tag: r.equip,
+        motivo: `Equipamento condenado — constatado no registro de serviço OS ${r.id.toUpperCase().slice(-6)} (${r.date||'—'}). ${INVIAVEL_NOTE}`,
+        status: 'pendente',
+        criadoEm: Date.now(),
+        origem: 'registro',
+        registroId: r.id,
+      };
+      DB.saveMovimentacao(mov).then(() => {
+        r._baixaSolicitada = true;
+        try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+        DB.save('registros', r).catch(()=>{});
+        showToast('📋 Baixa do equipamento solicitada — aguardando aprovação no Patrimônio');
+      }).catch(e => showToast('Erro ao solicitar baixa do equipamento: ' + e.message));
+    }
+    // Se havia uma O.S. vinculada, marcar como concluída (o backend também
+    // fecha automaticamente o chamado vinculado como "resolvido")
+    if (window._currentOSId) {
+      const os = ordensCache.find(o=>o.id===window._currentOSId);
+      DB.concluirOrdem(window._currentOSId, r.id).then(() => {
+        if (os) {
+          os.status = 'concluida';
+          os.registroId = r.id;
+          os.concluidaEm = Date.now();
+          os.tecnico = getCurrentUser()?.name || os.tecnico;
+          try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+          showToast(`✅ O.S. ${os.numero} concluída · Chamado ${os.chamadoId} resolvido`);
+        }
+        updateOSBadge();
+      }).catch(e => showToast('Erro ao concluir a O.S.: ' + e.message));
+      window._currentOSId = null;
+      document.getElementById('os-link-banner')?.remove();
+      document.getElementById('os-checklist-box')?.remove();
+    }
+    updateOSBadge();
+  });
   editingId = null; newItems = []; newPhotos = [];
   switchTab('records');
 }
@@ -912,10 +912,10 @@ function deleteRecord(id) {
   showToast('Registro excluído');
 }
 
-function persist() {
+function persist(record) {
   try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
   renderRecordList();
-  const last = records[0];
+  const last = record || records[0];
   if (last) DB.save('registros', last).catch(e => console.warn('Sync registro:', e.message));
 }
 
@@ -1387,6 +1387,7 @@ function renderOSList() {
   const abertas     = visible.filter(o=>o.status==='aberta');
   const emExecucao  = visible.filter(o=>o.status==='em_execucao');
   const concluidas  = visible.filter(o=>o.status==='concluida');
+  const canceladas  = visible.filter(o=>o.status==='cancelada');
 
   const renderGroup = (titulo, items, cls) => {
     if (!items.length) return '';
@@ -1399,15 +1400,16 @@ function renderOSList() {
           aberta:     'background:#fef3c7;color:#92400e',
           em_execucao:'background:#dbeafe;color:#1e40af',
           concluida:  'background:#d1fae5;color:#065f46',
+          cancelada:  'background:#f1f5f9;color:#64748b',
         }[o.status]||'';
         return `
-        <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:4px solid ${o.status==='aberta'?'#f59e0b':o.status==='em_execucao'?'#3b82f6':'#16a34a'}">
+        <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:4px solid ${o.status==='aberta'?'#f59e0b':o.status==='em_execucao'?'#3b82f6':o.status==='cancelada'?'#94a3b8':'#16a34a'}">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
             <div>
               <div style="font-size:14px;font-weight:700">${o.numero}</div>
               <div style="font-size:12px;color:var(--text-3)">Chamado: ${o.chamadoId}</div>
             </div>
-            <span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída'}[o.status]||o.status}</span>
+            <span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída',cancelada:'Cancelada'}[o.status]||o.status}</span>
           </div>
           <div style="background:var(--bg);border-radius:8px;padding:10px;font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.6">
             <div><strong>TAG:</strong> ${o.tag||'—'} · Contrato ${o.contrato||'—'}</div>
@@ -1418,7 +1420,10 @@ function renderOSList() {
           <button onclick="iniciarRegistroOS('${o.id}')"
             style="width:100%;padding:11px;border-radius:8px;border:none;background:#059669;color:#fff;font-size:13px;font-weight:700;cursor:pointer">
             ${o.status==='aberta'?'▶ Iniciar execução':'✏️ Continuar registro'}
-          </button>` : `
+          </button>` : o.status==='cancelada' ? `
+          <div style="font-size:12px;color:var(--text-3);font-weight:600">
+            🚫 Cancelada${o.motivoCancelamento?' · '+o.motivoCancelamento:''}
+          </div>` : `
           <div style="font-size:12px;color:var(--success);font-weight:600">
             ✅ Concluída · Registro: ${o.registroId||'—'}
           </div>`}
@@ -1429,7 +1434,8 @@ function renderOSList() {
   list.innerHTML =
     renderGroup('⏳ Abertas', abertas) +
     renderGroup('🔧 Em execução', emExecucao) +
-    renderGroup('✅ Concluídas', concluidas);
+    renderGroup('✅ Concluídas', concluidas) +
+    renderGroup('🚫 Canceladas', canceladas);
 }
 
 function iniciarRegistroOS(osId) {
