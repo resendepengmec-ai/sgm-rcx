@@ -626,10 +626,11 @@ function saveQuote() {
 function deleteQuote(id) {
   if (!confirm('Excluir este orçamento?')) return;
   quotes = quotes.filter(q => q.id !== id);
-  persist();
+  try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
   closeDetailModal();
   renderQuoteList();
   showToast('Orçamento excluído');
+  DB.delete('orcamentos', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
 }
 
 function persist(record) {

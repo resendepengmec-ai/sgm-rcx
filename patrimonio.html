@@ -378,6 +378,7 @@ function renderList() {
             <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
           </div>` : ''}
         ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}')">⚙️ Executar no banco</button>` : ''}
+        ${_sigTrail(m._signatures)}
       </div>`;
     }).join('');
   }
@@ -521,10 +522,13 @@ function saveMovimento() {
     criadoEm:         Date.now(),
   };
   movimentos.unshift(mov);
-  saveData(mov);
-  showToast('Solicitação enviada! Aguardando aprovação do admin.');
-  showScreen('list');
-  renderList();
+  signRecord(mov.id, 'criado', 'movimentacoes').then(sig => {
+    mov._signatures = [sig];
+    saveData(mov);
+    showToast('Solicitação enviada! Aguardando aprovação do admin.');
+    showScreen('list');
+    renderList();
+  });
 }
 
 // ── Review modal ──────────────────────────────────────────────────
@@ -566,11 +570,14 @@ function confirmApprove() {
   m.status       = 'aprovada';
   m.aprovadoPor  = user.name;
   m.aprovadoEm   = Date.now();
-  saveData(m);
-  DB.updateMovStatus(m.id, 'aprovada').catch(()=>{});
-  closeModal();
-  showToast('Solicitação aprovada! Clique em "Executar no banco" para aplicar.');
-  renderList();
+  signRecord(m.id, 'aprovado', 'movimentacoes').then(sig => {
+    m._signatures = m._signatures||[]; m._signatures.push(sig);
+    saveData(m);
+    DB.updateMovStatus(m.id, 'aprovada').catch(()=>{});
+    closeModal();
+    showToast('Solicitação aprovada! Clique em "Executar no banco" para aplicar.');
+    renderList();
+  });
 }
 
 function confirmReject() {
@@ -581,11 +588,14 @@ function confirmReject() {
   m.motivoRejeicao  = motivo;
   m.rejeitadoPor    = user.name;
   m.rejeitadoEm     = Date.now();
-  saveData(m);
-  DB.updateMovStatus(m.id, 'rejeitada', motivo).catch(()=>{});
-  closeModal();
-  showToast('Solicitação rejeitada.');
-  renderList();
+  signRecord(m.id, 'rejeitado', 'movimentacoes').then(sig => {
+    m._signatures = m._signatures||[]; m._signatures.push(sig);
+    saveData(m);
+    DB.updateMovStatus(m.id, 'rejeitada', motivo).catch(()=>{});
+    closeModal();
+    showToast('Solicitação rejeitada.');
+    renderList();
+  });
 }
 
 // ── Execute ───────────────────────────────────────────────────────
@@ -642,11 +652,15 @@ function executeMovimento(id) {
   m.status      = 'executada';
   m.executadoEm = Date.now();
   m.executadoPor= user.name;
-  saveData(m);
-  signRecord(m.id, 'executado', 'movimentacoes').catch(()=>{});
-  DB.updateMovStatus(m.id, 'executada').catch(()=>{});
-  showToast('✅ Banco de equipamentos atualizado!');
-  renderList();
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
+  signRecord(m.id, 'executado', 'movimentacoes').then(sig => {
+    m._signatures = m._signatures||[]; m._signatures.push(sig);
+    saveData(m);
+    DB.updateMovStatus(m.id, 'executada').catch(()=>{});
+    showToast('✅ Banco de equipamentos atualizado!');
+    renderList();
+  });
 }
 
 // ── Screen nav ────────────────────────────────────────────────────

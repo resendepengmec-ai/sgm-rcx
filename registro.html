@@ -907,9 +907,11 @@ function editRecord(id) {
 function deleteRecord(id) {
   if (!confirm('Excluir este registro?')) return;
   records = records.filter(r=>r.id!==id);
-  persist();
+  try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+  renderRecordList();
   closeDetailModal();
   showToast('Registro excluído');
+  DB.delete('registros', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
 }
 
 function persist(record) {

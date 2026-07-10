@@ -557,7 +557,9 @@ function editChamado(id) {
 function deleteChamado(id) {
   if (!confirm('Excluir este chamado?')) return;
   chamados=chamados.filter(c=>c.id!==id);
-  persist(); closeDetailModal(); showToast('Chamado excluído');
+  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+  renderList(); closeDetailModal(); showToast('Chamado excluído');
+  DB.delete('chamados', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
 }
 
 function updateStatus(id, status) {

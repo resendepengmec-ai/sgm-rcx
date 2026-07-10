@@ -777,18 +777,25 @@ function saveBatchPlans() {
       })),
     };
     plans.unshift(plan);
-    signRecord(plan.id, 'criado', 'preventiva').then(sig => {
-      const r = plans.find(x=>x.id===plan.id);
-      if (r) { r._signatures = r._signatures||[]; r._signatures.push(sig); }
-    }).catch(()=>{});
     created++;
   });
 
-  persist();
-  showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
-  batchAssignments = {};
-  batchMode = false;
-  switchTab('list');
+  // Assina e sincroniza cada plano criado individualmente — persist() só
+  // manda o mais recente, e aqui pode ter vários criados de uma vez.
+  const newPlans = plans.slice(0, created);
+  Promise.all(newPlans.map(p =>
+    signRecord(p.id, 'criado', 'preventiva').then(sig => {
+      p._signatures = p._signatures||[]; p._signatures.push(sig);
+      return DB.save('preventiva', p).catch(e => console.warn('Sync preventiva:', e.message));
+    })
+  )).then(() => {
+    try { localStorage.setItem('prev_plans', JSON.stringify(plans)); } catch(e) {}
+    renderPlansList();
+    showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
+    batchAssignments = {};
+    batchMode = false;
+    switchTab('list');
+  });
 }
 
 function onContractChange() {
@@ -1038,17 +1045,21 @@ function finalizePlan() {
     if (!confirm(`${total-done} equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?`)) return;
   }
   plan.finalizedAt = Date.now();
-  persist();
-  showToast('Preventiva finalizada!');
-  switchTab('list');
+  signRecord(plan.id, 'finalizado', 'preventiva').then(sig => {
+    plan._signatures = plan._signatures||[]; plan._signatures.push(sig);
+    persist(plan);
+    showToast('Preventiva finalizada!');
+    switchTab('list');
+  });
 }
 
 function deletePlan(id) {
   if (!confirm('Excluir este plano de preventiva?')) return;
   plans = plans.filter(p=>p.id!==id);
-  persist();
+  localStorage.setItem('prev_plans', JSON.stringify(plans));
   showToast('Plano excluído');
   switchTab('list');
+  DB.delete('preventiva', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
 }
 
 // ── History ──
