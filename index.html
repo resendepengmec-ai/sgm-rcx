@@ -930,27 +930,45 @@ function renderBancoTab(el) {
 }
 
 // ── User management ──
-function changeRole(userId, newRole) {
+async function changeRole(userId, newRole) {
   const users = getUsers();
   const u = users.find(x=>x.id===userId);
   if (!u) return;
-  u.role = newRole;
+  const prevRole = u.role;
+  u.role = newRole; // otimista
   saveUsers(users);
-  // Sync whitelist
-  const wl = getWhitelist();
-  const w = wl.find(e=>e.email===u.email);
-  if (w) { w.role = newRole; saveWhitelist(wl); }
-  showToast(`Perfil de ${u.name} atualizado para ${ROLES[newRole]?.label}`);
+  try {
+    await DB.updateUserRole(userId, newRole);
+    // Mantém a whitelist em sincronia (mesmo papel usado em novos convites)
+    const wl = getWhitelist();
+    const w = wl.find(e=>e.email===u.email);
+    if (w) { w.role = newRole; saveWhitelist(wl); }
+    showToast(`Perfil de ${u.name} atualizado para ${ROLES[newRole]?.label}. A mudança vale a partir do próximo login dele.`);
+  } catch(e) {
+    u.role = prevRole; // reverte em caso de falha
+    saveUsers(users);
+    showToast('Erro ao alterar perfil: ' + e.message);
+    renderAdminTab();
+  }
 }
 
-function toggleUser(userId) {
+async function toggleUser(userId) {
   const users = getUsers();
   const u = users.find(x=>x.id===userId);
   if (!u) return;
-  u.active = !u.active;
+  const prevActive = u.active;
+  u.active = !u.active; // otimista
   saveUsers(users);
-  showToast(`${u.name} ${u.active?'ativado':'desativado'}`);
   renderAdminTab();
+  try {
+    await DB.setUserActive(userId, u.active);
+    showToast(`${u.name} ${u.active?'ativado':'desativado'}`);
+  } catch(e) {
+    u.active = prevActive; // reverte em caso de falha
+    saveUsers(users);
+    showToast('Erro ao alterar status: ' + e.message);
+    renderAdminTab();
+  }
 }
 
 // ── DB import ──
@@ -1279,6 +1297,13 @@ if (_user) {
   // NUNCA marcar como admin device baseado no role da sessão —
   // apenas o painel admin pode fazer isso (saveAdminClientId/doAdminGoogleLogin)
   renderDashboard(_user);
+  // Atualiza papel/contrato com o que está no servidor agora (o token só
+  // carrega o valor do momento do login) e re-renderiza se algo mudou.
+  refreshCurrentUser().then(fresh => {
+    if (fresh && (fresh.role !== _user.role || fresh.contract !== _user.contract)) {
+      renderDashboard(fresh);
+    }
+  });
 } else {
   renderLogin();
 }

@@ -95,6 +95,20 @@ function saveSession(token, user) {
   _currentUser = user;
 }
 
+// Busca o papel/contrato atuais no servidor e atualiza a sessão em memória,
+// sem exigir logout — o token (JWT) guarda o papel/contrato só do momento
+// do login, e o backend já revalida a cada chamada, mas a TELA (menus,
+// filtros por contrato) usava o valor congelado do token até isso existir.
+async function refreshCurrentUser() {
+  try {
+    const fresh = await API.get('/auth/me');
+    if (fresh && _currentUser) {
+      _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active };
+    }
+    return _currentUser;
+  } catch(e) { return _currentUser; }
+}
+
 async function logout() {
   try { await DB.logout(); } catch(e) {}
   sessionStorage.removeItem(SESSION_KEY);
@@ -175,6 +189,7 @@ const DB = {
   // Usuários e whitelist
   getUsers:           () => API.get('/users'),
   updateUserRole:     (id, role)  => API.patch(`/users/${id}/role`, { role }),
+  setUserActive:      (id, active) => API.patch(`/users/${id}/active`, { active }),
   deactivateUser:     id          => API.delete(`/users/${id}`),
   getWhitelist:       ()          => API.get('/whitelist'),
   addWhitelist:       (e,r,n,c)   => API.post('/whitelist', { email:e, role:r, name:n, contract:c||null }),
