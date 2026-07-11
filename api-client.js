@@ -244,7 +244,7 @@ async function loadMachineDB() {
   try { _machineDBCache = await DB.getMachineDB(); }
   catch(e) {
     const c = localStorage.getItem('smm_custom_db');
-    _machineDBCache = c ? JSON.parse(c) : (typeof MACHINE_DB!=='undefined' ? MACHINE_DB : {});
+    _machineDBCache = c ? JSON.parse(c) : {};
   }
   return _machineDBCache;
 }
@@ -263,15 +263,10 @@ function getEffDB() {
     });
   } catch(e) {}
 
-  // 3. Se ainda vazio, tenta smm_custom_db (compatibilidade)
+  // 3. Se ainda vazio, tenta smm_custom_db (importação em lote via .xlsx no admin)
   if (Object.keys(db).length === 0) {
     const c = localStorage.getItem('smm_custom_db');
     if (c) try { db = JSON.parse(c); } catch {}
-  }
-
-  // 4. Fallback final: MACHINE_DB global (mock)
-  if (Object.keys(db).length === 0) {
-    db = typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
   }
 
   return db;

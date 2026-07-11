@@ -191,9 +191,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <select id="f-month" onchange="applyFilters()"><option value="">📅 Todos os meses</option></select>
       <select id="f-contract" onchange="applyFilters()">
         <option value="">📋 Todos os contratos</option>
-        <option value="1020">Contrato 1020</option>
-        <option value="1023">Contrato 1023</option>
-        <option value="1123">Contrato 1123</option>
       </select>
     </div>
     <div class="filter-row">
@@ -236,9 +233,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <label>Contrato *</label>
       <select id="f-client" onchange="onContractChange()">
         <option value="">Selecione o contrato…</option>
-        <option value="1020">1020</option>
-        <option value="1023">1023</option>
-        <option value="1123">1123</option>
       </select>
     </div>
     <div class="field">
@@ -459,25 +453,34 @@ const today = () => new Date().toISOString().slice(0,7);
 const fmtMonth = m => { if(!m) return '—'; const [y,mo]=m.split('-'); return new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); };
 const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
 
-function getEffDB() {
-  // 1. Constrói mapa contrato→equipamentos a partir de smm_contracts (fonte principal)
-  let db = {};
+// getEffDB() já vem de api-client.js (fonte única: contratos cadastrados
+// em smm_contracts). A versão local que existia aqui duplicava a lógica e
+// reintroduzia o fallback pro banco embutido de teste (MACHINE_DB/smm_custom_db)
+// mesmo quando o contrato certo já tinha equipamentos cadastrados.
+
+async function populateContractDropdowns() {
   try {
-    const contracts = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
-    contracts.forEach(c => {
-      if (c.numero && Array.isArray(c.equipamentos)) db[c.numero] = c.equipamentos;
-    });
-  } catch(e) {}
-  // 2. Se ainda vazio, tenta smm_custom_db (compatibilidade)
-  if (Object.keys(db).length === 0) {
-    const c = localStorage.getItem('smm_custom_db');
-    if (c) { try { return JSON.parse(c); } catch {} }
-  }
-  // 3. Fallback: MACHINE_DB
-  if (Object.keys(db).length === 0) {
-    db = typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
-  }
-  return db;
+    const contratos = await DB.getContratos();
+    const user = getCurrentUser();
+    const userContract = user?.contract;
+    const visible = userContract
+      ? contratos.filter(c => String(userContract).split(',').map(s=>s.trim()).includes(c.numero))
+      : contratos;
+
+    const formSel = document.getElementById('f-client');
+    if (formSel) {
+      const cur = formSel.value;
+      formSel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
+    }
+
+    const filterSel = document.getElementById('f-contract');
+    if (filterSel) {
+      const cur = filterSel.value;
+      filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
+        visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
+    }
+  } catch(e) { /* backend offline: mantém dropdown vazio */ }
 }
 
 function persist(record) {
@@ -1302,6 +1305,7 @@ async function loadTechnicians() {
 renderPlansList();
 loadTechnicians();
 loadPrestadoraConfig();
+populateContractDropdowns();
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {
