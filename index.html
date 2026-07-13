@@ -641,20 +641,14 @@ function _renderUsersList(el, users, currentUser) {
         <div class="ulast">${lastLogin}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
-          ${isAdmin ? `<button onclick="editUserContracts('${u.email}')"
-            style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
-            ✏️ editar
-          </button>` : ''}
         </div>
       </div>
-      <select class="role-select" onchange="changeRole('${u.id}',this.value)" ${(!isAdmin || u.id===currentUser?.id)?'disabled':''}>
-        ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
-      </select>
-      ${isAdmin
-        ? `<button class="toggle-btn ${u.active?'active':'inactive'}" onclick="toggleUser('${u.id}')" ${u.id===currentUser?.id?'disabled':''}>
-            ${u.active?'Ativo':'Inativo'}
-          </button>`
-        : `<span class="toggle-btn ${u.active?'active':'inactive'}" style="opacity:.7;cursor:default">${u.active?'Ativo':'Inativo'}</span>`}
+      <span style="font-size:12px;color:var(--text-2);white-space:nowrap">${r.icon||''} ${r.label||u.role}</span>
+      <span class="toggle-btn ${u.active?'active':'inactive'}" style="opacity:.85;cursor:default">${u.active?'Ativo':'Inativo'}</span>
+      ${isAdmin ? `<button onclick="editUser('${u.id}','${u.email}')"
+        style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--primary);font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap">
+        ✏️ Editar
+      </button>` : ''}
     </div>`;
   }).join('') + `<p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:8px">
     ${filtered.length} de ${users.length} usuário${users.length!==1?'s':''}
@@ -816,11 +810,13 @@ function _wlToggleContract(numero) {
   _wlRenderPicker();
 }
 
-// Editar contratos de um usuário já cadastrado (modal)
+// Editar só os contratos de uma pré-autorização pendente (sem conta ainda —
+// por isso não tem papel de conta real nem ativo/inativo pra editar aqui).
 async function editUserContracts(email) {
-  const wl = getWhitelist();
+  let wl = [];
+  try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
   const user = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
-  if (!user) { showToast('Usuário não encontrado'); return; }
+  if (!user) { showToast('Pré-autorização não encontrada'); return; }
   if (!_wlAllContracts.length) {
     try { _wlAllContracts = await DB.getContratos(); } catch(e) {}
   }
@@ -852,7 +848,7 @@ async function editUserContracts(email) {
         </button>
         <button id="save-contracts-btn"
           style="padding:8px 16px;border-radius:8px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
-          Salvar
+          💾 Salvar
         </button>
       </div>
     </div>
@@ -867,6 +863,105 @@ async function editUserContracts(email) {
       await syncUsersFromBackend();
       renderAdminTab();
     } catch(e) { showToast('Erro: ' + e.message); }
+  };
+}
+
+// Editar um usuário já cadastrado: papel, ativo/inativo e contratos — tudo
+// num modal só, com um único botão Salvar (antes cada mudança aplicava na
+// hora e se perdia de vista fácil numa lista com muitos usuários).
+async function editUser(userId, email) {
+  let users = [];
+  try { users = await DB.getUsers(); saveUsers(users); } catch(e) { users = getUsers(); }
+  const acct = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (!acct) { showToast('Usuário não encontrado'); return; }
+
+  let wl = [];
+  try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
+  const wlEntry = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+
+  if (!_wlAllContracts.length) {
+    try { _wlAllContracts = await DB.getContratos(); } catch(e) {}
+  }
+  const current = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  const isSelf = acct.id === getCurrentUser()?.id;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.onclick = e => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;max-width:500px;width:100%;max-height:90vh;overflow-y:auto" onclick="event.stopPropagation()">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">Editar usuário</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:16px">${acct.name || acct.email}</div>
+
+      <div class="field" style="margin-bottom:14px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Papel</label>
+        <select id="edit-user-role" ${isSelf?'disabled':''} style="width:100%">
+          ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${acct.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
+        </select>
+        ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível alterar o próprio papel</div>' : ''}
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Status</label>
+        <button type="button" id="edit-user-active-btn" data-active="${acct.active?'1':'0'}" ${isSelf?'disabled':''}
+          onclick="const b=this;const on=b.dataset.active==='1';b.dataset.active=on?'0':'1';b.textContent=on?'Inativo':'Ativo';b.style.background=on?'#f1f5f9':'#f0fdf4';b.style.color=on?'#64748b':'#15803d';b.style.borderColor=on?'#e2e8f0':'#bbf7d0';"
+          style="padding:8px 16px;border-radius:8px;border:1px solid ${acct.active?'#bbf7d0':'#e2e8f0'};background:${acct.active?'#f0fdf4':'#f1f5f9'};color:${acct.active?'#15803d':'#64748b'};font-size:13px;font-weight:600;cursor:pointer">
+          ${acct.active?'Ativo':'Inativo'}
+        </button>
+        ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível desativar a própria conta</div>' : ''}
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos autorizados</label>
+        <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
+          ${_wlAllContracts.length === 0
+            ? '<span style="font-size:12px;color:#94a3b8">Nenhum contrato cadastrado</span>'
+            : _wlAllContracts.map(c => {
+                const sel = current.includes(c.numero);
+                return `<button type="button" data-num="${c.numero}" data-sel="${sel?'1':'0'}"
+                  onclick="var s=this.dataset.sel==='1'?'0':'1';this.dataset.sel=s;this.style.background=s==='1'?'#ede9fe':'#fff';this.style.borderColor=s==='1'?'#7c3aed':'#e2e8f0';this.style.color=s==='1'?'#5b21b6':'#334155';this.textContent=(s==='1'?'✓ ':'')+'${c.numero}'"
+                  style="padding:6px 12px;border-radius:99px;border:1px solid ${sel?'#7c3aed':'#e2e8f0'};background:${sel?'#ede9fe':'#fff'};color:${sel?'#5b21b6':'#334155'};font-size:12px;font-weight:600;cursor:pointer">
+                  ${sel?'✓ ':''}${c.numero}
+                </button>`;
+              }).join('')
+          }
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Nenhum contrato marcado = acesso a todos</div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button onclick="this.closest('div[style*=fixed]').remove()"
+          style="padding:8px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;font-size:13px">
+          Cancelar
+        </button>
+        <button id="save-user-btn"
+          style="padding:8px 16px;border-radius:8px;border:none;background:#7c3aed;color:#fff;cursor:pointer;font-size:13px;font-weight:600">
+          💾 Salvar
+        </button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#save-user-btn').onclick = async () => {
+    const btn = modal.querySelector('#save-user-btn');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const newRole   = modal.querySelector('#edit-user-role').value;
+    const newActive = modal.querySelector('#edit-user-active-btn').dataset.active === '1';
+    const selected  = [...modal.querySelectorAll('button[data-num][data-sel="1"]')].map(b => b.dataset.num);
+    try {
+      const tasks = [];
+      if (!isSelf && newRole !== acct.role) tasks.push(DB.updateUserRole(acct.id, newRole));
+      if (!isSelf && newActive !== !!acct.active) tasks.push(DB.setUserActive(acct.id, newActive));
+      tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
+      await Promise.all(tasks);
+      showToast('✅ Usuário atualizado');
+      modal.remove();
+      await syncUsersFromBackend();
+      renderAdminTab();
+    } catch(e) {
+      showToast('Erro ao salvar: ' + e.message);
+      btn.disabled = false; btn.textContent = '💾 Salvar';
+    }
   };
 }
 
