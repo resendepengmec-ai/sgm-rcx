@@ -345,6 +345,7 @@ function renderList() {
       const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
       const canReview = canApproveMov && m.status==='pendente';
       const canExecute= canApproveMov && m.status==='aprovada';
+      const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
       return `
       <div class="mov-card ${m.status}">
@@ -378,6 +379,7 @@ function renderList() {
             <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
           </div>` : ''}
         ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}')">⚙️ Executar no banco</button>` : ''}
+        ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}')">🗑️ Excluir</button>` : ''}
         ${_sigTrail(m._signatures)}
       </div>`;
     }).join('');
@@ -599,6 +601,20 @@ function confirmReject() {
 }
 
 // ── Execute ───────────────────────────────────────────────────────
+function deleteMovimento(id) {
+  if (!confirm('Excluir esta solicitação de movimentação?')) return;
+  const prev = movimentos;
+  movimentos = movimentos.filter(m=>m.id!==id);
+  saveData();
+  renderList();
+  DB.deleteMovimentacao(id).catch(e => {
+    movimentos = prev; // reverte em caso de falha
+    saveData();
+    renderList();
+    showToast('Erro ao excluir: ' + e.message);
+  });
+}
+
 function executeMovimento(id) {
   const m = movimentos.find(x=>x.id===id);
   if (!m || m.status!=='aprovada') return;

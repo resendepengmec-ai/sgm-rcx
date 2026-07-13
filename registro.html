@@ -268,7 +268,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <button class="user-menu-item danger" onclick="logout()">🚪 Sair</button>
     </div>`;
   document.addEventListener('click', e => { if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
-  if (!role.canCreate) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  const canCreateRegistro = ['admin','diretor','supervisor','gestor','tecnico'].includes(user.role);
+  if (!canCreateRegistro) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
   window._currentUser = user; window._currentRole = role;
 })();
 </script>
@@ -1345,7 +1346,8 @@ const _origOpenDetailR = openDetail;
 openDetail = function(id) {
   _origOpenDetailR(id);
   const role = window._currentRole || {};
-  if (!role.canEdit) document.querySelectorAll('[onclick*="editRecord"]').forEach(b => b.style.display='none');
+  const canEditRegistro = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
+  if (!canEditRegistro) document.querySelectorAll('[onclick*="editRecord"]').forEach(b => b.style.display='none');
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteRecord"]').forEach(b => b.style.display='none');
 };
 // ── Ordens de Serviço ────────────────────────────────────────────

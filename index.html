@@ -621,6 +621,7 @@ function _renderUsersList(el, users, currentUser) {
     return;
   }
 
+  const isAdmin = currentUser?.role === 'admin';
   el.innerHTML = filterBar + filtered.map(({u, conts}) => {
     const r = ROLES[u.role] || {};
     const ll = u.last_login || u.lastLogin;
@@ -640,21 +641,24 @@ function _renderUsersList(el, users, currentUser) {
         <div class="ulast">${lastLogin}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
-          <button onclick="editUserContracts('${u.email}')"
+          ${isAdmin ? `<button onclick="editUserContracts('${u.email}')"
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar
-          </button>
+          </button>` : ''}
         </div>
       </div>
-      <select class="role-select" onchange="changeRole('${u.id}',this.value)" ${u.id===currentUser?.id?'disabled':''}>
+      <select class="role-select" onchange="changeRole('${u.id}',this.value)" ${(!isAdmin || u.id===currentUser?.id)?'disabled':''}>
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${u.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
       </select>
-      <button class="toggle-btn ${u.active?'active':'inactive'}" onclick="toggleUser('${u.id}')" ${u.id===currentUser?.id?'disabled':''}>
-        ${u.active?'Ativo':'Inativo'}
-      </button>
+      ${isAdmin
+        ? `<button class="toggle-btn ${u.active?'active':'inactive'}" onclick="toggleUser('${u.id}')" ${u.id===currentUser?.id?'disabled':''}>
+            ${u.active?'Ativo':'Inativo'}
+          </button>`
+        : `<span class="toggle-btn ${u.active?'active':'inactive'}" style="opacity:.7;cursor:default">${u.active?'Ativo':'Inativo'}</span>`}
     </div>`;
   }).join('') + `<p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:8px">
     ${filtered.length} de ${users.length} usuário${users.length!==1?'s':''}
+    ${!isAdmin ? ' · modo visualização' : ''}
   </p>`;
 }
 
@@ -683,6 +687,7 @@ function _renderWLContent(el, wl) {
   // Lista de contratos disponíveis para os selects
   const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
 
+  const isAdmin = getCurrentUser()?.role === 'admin';
   const renderRow = (e) => {
     const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
     const contBadges = conts.length
@@ -695,17 +700,18 @@ function _renderWLContent(el, wl) {
         <div style="font-size:11px;color:var(--text-3)">${e.email}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
-          <button onclick="editUserContracts('${e.email}')"
+          ${isAdmin ? `<button onclick="editUserContracts('${e.email}')"
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar contratos
-          </button>
+          </button>` : ''}
         </div>
       </div>
+      ${isAdmin ? `
       <select class="role-select" onchange="changeWLRole('${e.email}',this.value)" style="min-width:120px">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
-      </select>
+      </select>` : `<span style="font-size:12px;color:var(--text-2)">${ROLES[e.role]?.icon||''} ${ROLES[e.role]?.label||e.role}</span>`}
       <span class="wl-status ${e.hasAccount||e.usedAt?'used':'pending'}">${e.hasAccount||e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
-      <button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>
+      ${isAdmin ? `<button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>` : ''}
     </div>`;
   };
 
@@ -714,6 +720,7 @@ function _renderWLContent(el, wl) {
       Cadastre o e-mail e o perfil do usuário. Após cadastrar, o usuário
       pode entrar diretamente com a conta Google — sem token ou configuração adicional.
     </p>
+    ${isAdmin ? `
     <div class="add-wl-form" style="flex-wrap:wrap">
       <input type="email" id="wl-email" placeholder="email@dominio.com" style="flex:1;min-width:150px">
       <input type="text" id="wl-name" placeholder="Nome" style="flex:1;min-width:100px">
@@ -727,7 +734,7 @@ function _renderWLContent(el, wl) {
       <div id="wl-contracts-picker" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:200px;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface-0);min-height:36px">
         <span style="font-size:11px;color:var(--text-3)">Carregando contratos…</span>
       </div>
-    </div>
+    </div>` : `<p style="font-size:12px;color:var(--text-3);font-style:italic">Modo visualização — só o admin pode pré-autorizar novos usuários.</p>`}
     ${wl.length === 0
       ? `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:16px 0">Nenhum usuário pré-autorizado.</p>`
       : pendentes.length

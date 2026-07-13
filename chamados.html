@@ -235,9 +235,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     window._filterByUser = true;
     window._userId = user.email;
   }
-  if (!role.canCreate) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
-  // Gestor: sem botão novo
-  if (user.role === 'gestor') document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
+  // Criar chamado: liberado pra todos os papéis (ver tabela CRUD) — não esconde o botão de novo
   window._currentUser = user; window._currentRole = role;
 })();
 </script>
@@ -699,7 +697,7 @@ function openDetail(id){
   const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
   const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
   const statusOpts=['aberto','andamento','resolvido','cancelado'].map(st=>`<option value="${st}" ${c.status===st?'selected':''}>${STATUS_MAP[st].label}</option>`).join('');
-  const canChangeStatus = !!(window._currentRole && window._currentRole.canApprove);
+  const canChangeStatus = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
   const statusControl = canChangeStatus
     ? `<select onchange="updateStatus('${c.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
     : '';
@@ -708,7 +706,7 @@ function openDetail(id){
 
   // O.S. vinculadas
   const osVinculadas=ordensCache.filter(o=>o.chamadoId===c.id);
-  const canGerarOS=['admin','gestor'].includes(window._currentUser?.role);
+  const canGerarOS=['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
   const osSection=osVinculadas.length?`
     <div style="margin-top:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:12px">
       <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px">📋 Ordens de Serviço (${osVinculadas.length})</div>
@@ -1023,7 +1021,8 @@ const _origOpenDetailC = openDetail;
 openDetail = function(id) {
   _origOpenDetailC(id);
   const role = window._currentRole || {};
-  if (!role.canEdit) document.querySelectorAll('[onclick*="editChamado"]').forEach(b => b.style.display='none');
+  const canEditChamado = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
+  if (!canEditChamado) document.querySelectorAll('[onclick*="editChamado"]').forEach(b => b.style.display='none');
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteChamado"]').forEach(b => b.style.display='none');
 };
 

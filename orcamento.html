@@ -251,13 +251,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden');
   });
 
-  // Apply role restrictions
-  if (!role.canCreate) {
-    document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display = 'none');
-  }
-  if (!role.canDelete) {
-    // hide delete buttons - handled in openDetail
-  }
+  // Criar orçamento: liberado pra todos que acessam o módulo (técnico pra cima)
   window._currentUser = user;
   window._currentRole = role;
 })();

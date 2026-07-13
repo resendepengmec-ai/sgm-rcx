@@ -21,13 +21,13 @@ const ROLES = {
                  canApprove:true, canManageUsers:true },
 
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
-                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
-                 modules:['chamados','registro','relatorios','preventiva','contratos','patrimonio'],
-                 canCreate:true, canEdit:true, canDelete:false, canViewPrices:true,
+                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
@@ -36,8 +36,8 @@ const ROLES = {
                  canApprove:false, canManageUsers:false },
 
   tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669',
-                 modules:['chamados','registro','preventiva','patrimonio'],
-                 canCreate:true, canEdit:true, canDelete:false, canViewPrices:false,
+                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 canCreate:true, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
   solicitante: { label:'Solicitante',   icon:'📋', color:'#d97706',
@@ -203,6 +203,7 @@ const DB = {
   // Movimentações
   getMovimentacoes:   ()    => API.get('/movimentacoes'),
   saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),
+  deleteMovimentacao: id    => API.delete(`/movimentacoes/${id}`),
   updateMovStatus:    (id, status, motivoRejeicao) =>
                               API.patch(`/movimentacoes/${id}/status`, { status, motivoRejeicao }),
 

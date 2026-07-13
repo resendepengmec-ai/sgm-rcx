@@ -903,7 +903,7 @@ function openPlan(id) {
         ${plan.tech?`<div style="font-size:12px;color:var(--text-3)">👷 ${plan.tech}</div>`:''}
       </div>
       <div style="margin-left:auto;display:flex;gap:6px">
-        <button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}')">🗑️</button>
+        ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}')">🗑️</button>` : ''}
       </div>
     </div>
     ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;

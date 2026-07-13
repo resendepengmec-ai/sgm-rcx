@@ -225,6 +225,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
 if (!user) { window.location.href = 'index.html'; }
+else if (!ROLES[user.role]?.modules.includes('contratos')) { window.location.href = 'index.html'; }
 else { document.getElementById('auth-overlay').style.display = 'none';
   DB.getContratos().then(data => {
     if (data && data.length) {
@@ -277,7 +278,7 @@ function renderList() {
   list.innerHTML = contracts.map(c => {
     const equip  = c.equipamentos || [];
     const docs   = c.documentos   || [];
-    const canEdit= ['admin','diretor'].includes(getCurrentUser()?.role);
+    const canEdit= ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
     return `
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -420,7 +421,7 @@ function handleServicoFile(e) {
 
 function openNewContract() {
   const u = getCurrentUser();
-  if (!u || !['admin','diretor'].includes(u.role)) { showToast('Apenas admin ou diretor pode criar contratos'); return; }
+  if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode criar contratos'); return; }
   editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
@@ -435,7 +436,7 @@ function openNewContract() {
 
 function openEdit(id) {
   const u = getCurrentUser();
-  if (!u || !['admin','diretor'].includes(u.role)) { showToast('Apenas admin ou diretor pode editar contratos'); return; }
+  if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode editar contratos'); return; }
   load();
   const c = contracts.find(x=>x.id===id);
   if (!c) return;
