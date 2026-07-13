@@ -375,6 +375,12 @@ function buildFilterOptions() {
 async function populateContractDropdowns() {
   try {
     const contratos = await DB.getContratos();
+    // Mantém o cache local completo (equipamentos inclusos) atualizado —
+    // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
+    // Sem isso, ficava preso ao que contratos.html tivesse gravado por
+    // último (ou vazio, se o usuário nunca tivesse aberto lá).
+    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+
     const user = getCurrentUser();
     const userContract = user?.contract;
     // O backend já retorna só os contratos permitidos pro usuário (pode ser

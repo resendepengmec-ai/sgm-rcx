@@ -1314,6 +1314,9 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 async function populateContractDropdownsReg() {
   try {
     const contratos = await DB.getContratos();
+    // Mantém o cache local completo (equipamentos inclusos) atualizado —
+    // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
+    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
     // O backend já retorna só os contratos permitidos pro usuário — não
     // precisa refiltrar aqui (o filtro antigo comparava como valor único e
     // quebrava quando o usuário tinha mais de um contrato vinculado).

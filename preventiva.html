@@ -461,6 +461,9 @@ const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
 async function populateContractDropdowns() {
   try {
     const contratos = await DB.getContratos();
+    // Mantém o cache local completo (equipamentos inclusos) atualizado —
+    // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
+    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
     const user = getCurrentUser();
     const userContract = user?.contract;
     const visible = userContract
