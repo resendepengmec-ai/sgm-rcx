@@ -531,9 +531,8 @@ function showToast(msg) {
     </div>`;
   document.addEventListener('click', e => { if (!e.target.closest('.user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
   window._user = user; window._role = role;
-  // Apenas admin/diretor/gestor podem criar planos de preventiva
-  // Técnicos só executam planos onde foram atribuídos
-  const canCreatePlan = ['admin','diretor','gestor'].includes(user.role);
+  // Supervisor pra cima pode criar planos de preventiva (bate com o backend)
+  const canCreatePlan = ['admin','diretor','supervisor','gestor'].includes(user.role);
   if (!canCreatePlan) {
     document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
   }
@@ -666,7 +665,8 @@ function renderPlansList() {
 // ── New plan ──
 function startNew() {
   selectedLevel = null; selectedEquip = new Set(); allEquipForContract = [];
-  document.getElementById('f-client').value='';
+  const clientSelP = document.getElementById('f-client');
+  if (!clientSelP.disabled) clientSelP.value=''; // não zera se travado num único contrato permitido
   document.getElementById('f-period').value=today();
   document.getElementById('f-tech').value = '';
   document.getElementById('f-obs').value='';
@@ -893,9 +893,22 @@ function savePlan() {
 
 // ── Execution ──
 function openPlan(id) {
-  currentPlanId = id;
   const plan = plans.find(p=>p.id===id);
   if (!plan) return;
+
+  // Técnico só pode ver/executar planos atribuídos a ele mesmo (mesma regra
+  // já aplicada na lista) — sem isso, dava pra abrir qualquer plano sabendo
+  // o ID, contornando o filtro da listagem.
+  const user = window._user;
+  if (user && user.role === 'tecnico') {
+    const attributed = plan.techEmail || plan.tech;
+    if (!attributed || (attributed !== user.email && attributed !== user.name)) {
+      showToast('Você não está atribuído a este plano');
+      return;
+    }
+  }
+
+  currentPlanId = id;
 
   document.getElementById('exec-header-info').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">

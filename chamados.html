@@ -485,7 +485,8 @@ function renderList() {
 // ── New / Edit ──
 function startNew() {
   editingId=null; newPhotos=[]; selectedMachine=null;
-  document.getElementById('f-client').value='';
+  const clientSel = document.getElementById('f-client');
+  if (!clientSel.disabled) clientSel.value=''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value='';
   document.getElementById('f-date').value=today();
   document.getElementById('f-priority').value='normal';

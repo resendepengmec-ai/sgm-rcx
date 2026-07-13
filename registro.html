@@ -747,7 +747,8 @@ function startNew() {
   window._currentOSId = null;
   document.getElementById('os-link-banner')?.remove();
   document.getElementById('os-checklist-box')?.remove();
-  document.getElementById('f-client').value = '';
+  const clientSelR = document.getElementById('f-client');
+  if (!clientSelR.disabled) clientSelR.value = ''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value = '';
   document.getElementById('f-date').value = today();
   document.getElementById('f-tech').value = settings.defaultTech || '';

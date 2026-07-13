@@ -254,6 +254,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   // Criar orçamento: liberado pra todos que acessam o módulo (técnico pra cima)
   window._currentUser = user;
   window._currentRole = role;
+  window.HIDE_PRICES = !role.canViewPrices;
 })();
 </script>
 <script>
@@ -523,7 +524,7 @@ function renderQuoteList() {
         <div class="qc-meta">${q.date || ''} · ${q.items.length} serviço(s) · <span class="badge ${sCls}">${sLabel}</span></div>
         ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${q.equip}${q.machine ? ' · '+q.machine.marca+' · '+q.machine.estabelecimento : ''}</div>` : ''}
       </div>
-      <div class="qc-total">${fmt(total)}  ${_sigTrail(q._signatures)}
+      <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${_sigTrail(q._signatures)}
 </div>
     </div>`;
   }).join('');
@@ -535,7 +536,8 @@ function startNew() {
   hideMachineInfo();
   document.getElementById('tag-suggestions').style.display = 'none';
   newItems = [];
-  document.getElementById('f-client').value = '';
+  const clientSelO = document.getElementById('f-client');
+  if (!clientSelO.disabled) clientSelO.value = ''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value = '';
   document.getElementById('f-date').value = today();
   document.getElementById('f-notes').value = '';
@@ -658,7 +660,7 @@ function renderNewItems() {
     return `<div class="quote-item" style="flex-wrap:wrap">
       <div class="qi-info">
         <div class="qi-name">${it.name}</div>
-        <div class="qi-price">${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong></div>
+        <div class="qi-price">${window.HIDE_PRICES ? '' : `${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong>`}</div>
       </div>
       <div class="qty-ctrl">
         <button class="qty-btn" onclick="chgQty(${i},-1)">−</button>
@@ -666,20 +668,25 @@ function renderNewItems() {
         <button class="qty-btn" onclick="chgQty(${i},1)">+</button>
       </div>
       <button class="btn-del" onclick="removeItem(${i})">×</button>
+      ${window.HIDE_PRICES ? '' : `
       <div style="flex-basis:100%;display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-2)">
         <span>Mão de obra (R$):</span>
         <input type="number" min="0" step="0.01" value="${it.labor || 0}" onchange="setItemLabor(${i}, this.value)"
           style="width:90px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px">
-      </div>
+      </div>`}
     </div>`;
   }).join('');
-  document.getElementById('t-sub').textContent = fmt(sub);
-  document.getElementById('t-tax').textContent = fmt(tax);
-  const laborRow = document.getElementById('t-labor-row');
-  if (laborRow) laborRow.style.display = labor > 0 ? '' : 'none';
-  const laborEl = document.getElementById('t-labor');
-  if (laborEl) laborEl.textContent = fmt(labor);
-  document.getElementById('t-total').textContent = fmt(sub + tax + labor);
+  if (window.HIDE_PRICES) {
+    tc.style.display = 'none';
+  } else {
+    document.getElementById('t-sub').textContent = fmt(sub);
+    document.getElementById('t-tax').textContent = fmt(tax);
+    const laborRow = document.getElementById('t-labor-row');
+    if (laborRow) laborRow.style.display = labor > 0 ? '' : 'none';
+    const laborEl = document.getElementById('t-labor');
+    if (laborEl) laborEl.textContent = fmt(labor);
+    document.getElementById('t-total').textContent = fmt(sub + tax + labor);
+  }
 }
 
 function setItemLabor(i, val) {
@@ -748,7 +755,7 @@ function filterServices() {
     return `<div class="service-item" onclick="addService(${idx})">
       <div class="svc-info">
         <div class="svc-name">${s.name}${customBadge}</div>
-        <div class="svc-price">${fmt(s.price)}${s.unit?' / '+s.unit:''}</div>
+        <div class="svc-price">${window.HIDE_PRICES ? '' : fmt(s.price)+(s.unit?' / '+s.unit:'')}</div>
       </div>
       <button class="svc-add" onclick="addService(${idx});event.stopPropagation()">+</button>
     </div>`;
@@ -801,14 +808,16 @@ function openDetail(id) {
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
-          <span>${it.name} × ${it.qty}${it.labor ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
-          <span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>
+          <span>${it.name} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
+          ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>`}
         </div>`).join('')}
     </div>
+    ${window.HIDE_PRICES ? '' : `
     <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Subtotal</span><span>${fmt(sub)}</span></div>
     <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Impostos</span><span>${fmt(tax)}</span></div>
     ${laborTotal ? `<div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Mão de obra</span><span>${fmt(laborTotal)}</span></div>` : ''}
     <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub + laborTotal)}</span></div>
+    `}
     ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${q.notes}</div>` : ''}
   `;
   document.getElementById('detail-modal').classList.remove('hidden');
