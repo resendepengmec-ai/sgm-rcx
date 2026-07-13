@@ -377,20 +377,18 @@ async function populateContractDropdowns() {
     const contratos = await DB.getContratos();
     const user = getCurrentUser();
     const userContract = user?.contract;
-
-    // Se solicitante com vínculo, filtra somente aquele contrato
-    const visible = userContract
-      ? contratos.filter(c => c.numero === userContract)
-      : contratos;
+    // O backend já retorna só os contratos permitidos pro usuário (pode ser
+    // mais de um, separados por vírgula) — não precisa refiltrar aqui.
+    const visible = contratos;
 
     // Dropdown do formulário novo chamado (mostra a razão social ou número)
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
         visible.map(c => `<option value="${c.numero}">${c.numero}</option>`).join('');
-      // Se solicitante com vínculo, pré-seleciona e trava
-      if (userContract && visible.length === 1) {
-        formSel.value = userContract;
+      // Se o usuário só tem 1 contrato permitido, pré-seleciona e trava
+      if (visible.length === 1) {
+        formSel.value = visible[0].numero;
         formSel.disabled = true;
       }
     }

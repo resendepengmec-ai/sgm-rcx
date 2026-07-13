@@ -1314,11 +1314,10 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 async function populateContractDropdownsReg() {
   try {
     const contratos = await DB.getContratos();
-    const user = getCurrentUser();
-    const userContract = user?.contract;
-    const visible = userContract
-      ? contratos.filter(c => c.numero === userContract)
-      : contratos;
+    // O backend já retorna só os contratos permitidos pro usuário — não
+    // precisa refiltrar aqui (o filtro antigo comparava como valor único e
+    // quebrava quando o usuário tinha mais de um contrato vinculado).
+    const visible = contratos;
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +

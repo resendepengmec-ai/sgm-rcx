@@ -1151,21 +1151,18 @@ async function populateContractDropdowns() {
     // tivesse gravado por último (ou vazio, se o usuário nunca abriu lá).
     try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
 
-    const user = getCurrentUser();
-    const userContract = user?.contract;
-
-    // Se usuário vinculado a um contrato específico, filtra somente aquele
-    const visible = userContract
-      ? contratos.filter(c => c.numero === userContract)
-      : contratos;
+    // O backend já retorna só os contratos permitidos pro usuário — não
+    // precisa refiltrar aqui (o filtro antigo comparava como valor único e
+    // quebrava quando o usuário tinha mais de um contrato vinculado).
+    const visible = contratos;
 
     // Dropdown do formulário novo orçamento
     const formSel = document.getElementById('f-client');
     if (formSel) {
       formSel.innerHTML = '<option value="">Selecione um contrato…</option>' +
         visible.map(c => `<option value="${c.numero}">${c.numero}</option>`).join('');
-      if (userContract && visible.length === 1) {
-        formSel.value = userContract;
+      if (visible.length === 1) {
+        formSel.value = visible[0].numero;
         formSel.disabled = true;
       }
     }
