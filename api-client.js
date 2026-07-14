@@ -32,7 +32,7 @@ const ROLES = {
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
                  modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
-                 canCreate:false, canEdit:false, canDelete:false, canViewPrices:true,
+                 canCreate:false, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
   tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669',

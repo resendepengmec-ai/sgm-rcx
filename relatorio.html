@@ -56,8 +56,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         </select>
       </div>
       <div class="field" style="margin-bottom:0">
-        <label>Mês/Ano</label>
-        <input id="f-periodo" type="month" onchange="render()">
+        <label>Período (início)</label>
+        <input id="f-periodo-ini" type="month" onchange="render()">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Período (fim)</label>
+        <input id="f-periodo-fim" type="month" onchange="render()">
       </div>
       <button class="btn btn-primary" style="padding:10px 16px" onclick="render()">🔍 Gerar</button>
     </div>
@@ -119,6 +123,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="patrimonio-table"></div>
   </div>
 
+  <!-- Reincidências por equipamento -->
+  <div id="section-reincidencias" class="section-card" style="display:none">
+    <h3>🔁 Reincidências por equipamento</h3>
+    <p style="font-size:12px;color:var(--text-3);margin-bottom:10px">Equipamentos com 2 ou mais chamados no período selecionado</p>
+    <div id="reincidencias-table"></div>
+  </div>
+
   <!-- Vazio -->
   <div id="report-empty" style="text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📊</div>
@@ -171,10 +182,11 @@ function loadPrestadoraConfig() {
 }
 
 function init() {
-  // Default: current month
+  // Default: mês atual pros dois campos
   const now = new Date();
-  document.getElementById('f-periodo').value =
-    `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const mesAtual = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('f-periodo-ini').value = mesAtual;
+  document.getElementById('f-periodo-fim').value = mesAtual;
 
   // Load contracts
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
@@ -187,12 +199,19 @@ function init() {
 
 // ── Render ────────────────────────────────────────────────────────
 function render() {
-  const periodo  = document.getElementById('f-periodo').value;
+  const periodoIni = document.getElementById('f-periodo-ini').value;
+  const periodoFim = document.getElementById('f-periodo-fim').value;
   const contrato = document.getElementById('f-contrato').value;
-  if (!periodo) { showToast('Selecione o período'); return; }
+  if (!periodoIni || !periodoFim) { showToast('Selecione o início e o fim do período'); return; }
+  if (periodoFim < periodoIni) { showToast('O fim do período não pode ser antes do início'); return; }
 
-  const [year, month] = periodo.split('-');
-  const mesLabel = new Date(year, month-1, 1).toLocaleString('pt-BR',{month:'long',year:'numeric'});
+  const labelOf = (ymStr, fmt) => {
+    const [y, m] = ymStr.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleString('pt-BR', fmt);
+  };
+  const mesLabel = periodoIni === periodoFim
+    ? labelOf(periodoIni, {month:'long', year:'numeric'})
+    : `${labelOf(periodoIni, {month:'short', year:'numeric'})} a ${labelOf(periodoFim, {month:'short', year:'numeric'})}`;
 
   // Load data
   const chamados   = JSON.parse(localStorage.getItem('chamados_list')   ||'[]');
@@ -201,8 +220,12 @@ function render() {
   const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]');
   const contracts  = JSON.parse(localStorage.getItem('smm_contracts')   ||'[]');
 
-  // Filter by period + contract
-  const inPeriod = (dateStr) => dateStr && dateStr.startsWith(periodo);
+  // Filter by period (intervalo início–fim, inclusive) + contract
+  const inPeriod = (dateStr) => {
+    if (!dateStr) return false;
+    const ym = dateStr.slice(0,7);
+    return ym >= periodoIni && ym <= periodoFim;
+  };
   const inContract = (c) => !contrato || c === contrato;
 
   // Chamados: contrato em c.client, TAG em c.equip, descrição em c.desc
@@ -292,13 +315,14 @@ function render() {
   if (filtChamados.length) {
     document.getElementById('section-chamados').style.display='';
     document.getElementById('chamados-table').innerHTML = tableHTML(
-      ['Data','TAG','Descrição','Prioridade','Status'],
+      ['Data','TAG','Descrição','Prioridade','Status','Fotos'],
       filtChamados.map(c=>[
         c.date||'—',
         c.equip||c.tag||'—',
         (c.desc||c.descricao||c.description||'—').slice(0,60),
         c.priority||c.prioridade||'—',
-        c.status||'aberto'
+        c.status||'aberto',
+        photoCell(c.photos)
       ])
     );
   } else { document.getElementById('section-chamados').style.display='none'; }
@@ -307,12 +331,13 @@ function render() {
   if (filtRegistros.length) {
     document.getElementById('section-registros').style.display='';
     document.getElementById('registros-table').innerHTML = tableHTML(
-      ['Data','TAG','Serviços','Técnico'],
+      ['Data','TAG','Serviços','Técnico','Fotos'],
       filtRegistros.map(r=>[
         r.date||'—',
         r.equip||r.tag||'—',
         (r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60)||'—',
-        r.tech||r.technician||r.tecnico||'—'
+        r.tech||r.technician||r.tecnico||'—',
+        photoCell(r.photos)
       ])
     );
   } else { document.getElementById('section-registros').style.display='none'; }
@@ -323,7 +348,6 @@ function render() {
     document.getElementById('preventiva-table').innerHTML = tableHTML(
       ['TAG','Nível','Execuções no período','Progresso'],
       filtPreventiva.map(p=>{
-        const periodo = document.getElementById('f-periodo').value;
         const execs = (p.execucoes||p.executions||[]).filter(e=>
           inPeriod((e.data||e.date||'').slice(0,7)));
         const equips = (p.equipments||[]);
@@ -336,6 +360,27 @@ function render() {
       })
     );
   } else { document.getElementById('section-preventiva').style.display='none'; }
+
+  // Reincidências por equipamento: TAGs com 2+ chamados no período
+  const porEquip = {};
+  filtChamados.forEach(c => {
+    const tag = c.equip || c.tag || '—';
+    if (tag === '—') return;
+    if (!porEquip[tag]) porEquip[tag] = { tag, count:0, estab: c.machine?.estabelecimento||'—', datas:[] };
+    porEquip[tag].count++;
+    porEquip[tag].datas.push(c.date||'—');
+  });
+  const reincidencias = Object.values(porEquip).filter(e=>e.count>=2).sort((a,b)=>b.count-a.count);
+  if (reincidencias.length) {
+    document.getElementById('section-reincidencias').style.display='';
+    document.getElementById('reincidencias-table').innerHTML = tableHTML(
+      ['TAG','Estabelecimento','Nº de chamados','Datas'],
+      reincidencias.map(e=>[
+        e.tag, e.estab, e.count,
+        e.datas.sort().join(', ')
+      ])
+    );
+  } else { document.getElementById('section-reincidencias').style.display='none'; }
 
   // Patrimônio: indicadores + tabela
   if (filtMovimentos.length) {
@@ -362,6 +407,24 @@ function render() {
         ])
     );
   } else { document.getElementById('section-patrimonio').style.display='none'; }
+}
+
+function photoCell(photos) {
+  if (!photos || !photos.length) return '<span style="color:var(--text-3)">—</span>';
+  const first = photos[0].dataUrl || photos[0];
+  return `<img src="${first}" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
+    ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}`;
+}
+function showPhotoModal(src) {
+  let modal = document.getElementById('photo-zoom-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'photo-zoom-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out';
+    modal.onclick = () => modal.remove();
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<img src="${src}" style="max-width:100%;max-height:100%;border-radius:8px">`;
 }
 
 function tableHTML(headers, rows) {
@@ -449,31 +512,42 @@ function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
-  const periodo  = document.getElementById('f-periodo').value;
+  const periodoIni = document.getElementById('f-periodo-ini').value;
+  const periodoFim = document.getElementById('f-periodo-fim').value;
   const contrato = document.getElementById('f-contrato').value;
-  if (!periodo) { showToast('Gere o relatório primeiro'); return; }
+  if (!periodoIni || !periodoFim) { showToast('Gere o relatório primeiro'); return; }
 
-  const [year,month] = periodo.split('-');
-  const mesLabel = new Date(year,month-1,1).toLocaleString('pt-BR',{month:'long',year:'numeric'});
+  const labelOfPdf = (ymStr, fmt) => {
+    const [y, m] = ymStr.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleString('pt-BR', fmt);
+  };
+  const mesLabel = periodoIni === periodoFim
+    ? labelOfPdf(periodoIni, {month:'long', year:'numeric'})
+    : `${labelOfPdf(periodoIni, {month:'short', year:'numeric'})} a ${labelOfPdf(periodoFim, {month:'short', year:'numeric'})}`;
   const contracts= JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const cont     = contrato ? contracts.find(c=>c.numero===contrato) : null;
 
   let y = drawPdfHeader(doc, { full:true, mesLabel, contrato });
   if (cont && cont.inicio) { doc.setFontSize(10); doc.setTextColor(90,90,90); doc.text(`Vigência: ${cont.inicio||'—'} a ${cont.fim||'—'}`, PDF_M, y); doc.setTextColor(0,0,0); y += 8; }
 
+  const inPeriodPdf = (dateStr) => {
+    if (!dateStr) return false;
+    const ym = dateStr.slice(0,7);
+    return ym >= periodoIni && ym <= periodoFim;
+  };
   const chamados  = JSON.parse(localStorage.getItem('chamados_list')   ||'[]').filter(c=>
-    (c.date||'').startsWith(periodo) &&
+    inPeriodPdf(c.date) &&
     (!contrato||(c.client||c.contract||c.contrato)===contrato));
   const registros = JSON.parse(localStorage.getItem('registro_records')||'[]').filter(r=>
-    (r.date||'').startsWith(periodo) &&
+    inPeriodPdf(r.date) &&
     (!contrato||(r.client||r.contract||r.contrato)===contrato));
   const preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]').filter(p=>{
-    const execs=(p.execucoes||p.executions||[]).filter(e=>(e.data||e.date||'').startsWith(periodo));
+    const execs=(p.execucoes||p.executions||[]).filter(e=>inPeriodPdf(e.data||e.date));
     return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato);
   });
   const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
-    return dataStr.startsWith(periodo) && (!contrato || m.contrato===contrato);
+    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato);
   });
 
   const ensurePage = (threshold) => {
@@ -503,6 +577,15 @@ function generatePDF() {
       doc.setFontSize(12);
       doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,PDF_M+2,y);y+=5;
       doc.setFontSize(10);
+      if (c.photos && c.photos.length) {
+        ensurePage(240);
+        try {
+          const src = c.photos[0].dataUrl || c.photos[0];
+          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
+          if (c.photos.length > 1) doc.text(`+${c.photos.length-1} foto(s)`, PDF_M+27, y+9);
+        } catch(e) {}
+        y += 19;
+      }
     });
     y+=4;
   }
@@ -514,6 +597,15 @@ function generatePDF() {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
       doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
+      if (r.photos && r.photos.length) {
+        ensurePage(240);
+        try {
+          const src = r.photos[0].dataUrl || r.photos[0];
+          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
+          if (r.photos.length > 1) doc.text(`+${r.photos.length-1} foto(s)`, PDF_M+27, y+9);
+        } catch(e) {}
+        y += 19;
+      }
     });
     y+=4;
   }
@@ -523,8 +615,27 @@ function generatePDF() {
     addSection(`Manutenção preventiva (${preventiva.length} planos)`);
     preventiva.forEach(p=>{
       ensurePage(255);
-      const execs=(p.execucoes||[]).filter(e=>(e.data||'').startsWith(periodo));
+      const execs=(p.execucoes||[]).filter(e=>inPeriodPdf(e.data));
       doc.text(`TAG: ${p.tag||'—'} | Nível: ${p.nivel||'—'} | Execuções: ${execs.length}`,PDF_M+2,y);y+=5;
+    });
+    y+=4;
+  }
+
+  // Reincidências por equipamento
+  const porEquipPdf = {};
+  chamados.forEach(c => {
+    const tag = c.equip || c.tag || '—';
+    if (tag === '—') return;
+    if (!porEquipPdf[tag]) porEquipPdf[tag] = { tag, count:0, estab: c.machine?.estabelecimento||'—', datas:[] };
+    porEquipPdf[tag].count++;
+    porEquipPdf[tag].datas.push(c.date||'—');
+  });
+  const reincidenciasPdf = Object.values(porEquipPdf).filter(e=>e.count>=2).sort((a,b)=>b.count-a.count);
+  if (reincidenciasPdf.length) {
+    addSection(`Reincidências por equipamento (${reincidenciasPdf.length})`);
+    reincidenciasPdf.forEach(e=>{
+      ensurePage(255);
+      doc.text(`TAG: ${e.tag} | ${e.estab} | ${e.count} chamados | ${e.datas.sort().join(', ')}`,PDF_M+2,y);y+=5;
     });
     y+=4;
   }
@@ -544,7 +655,7 @@ function generatePDF() {
   }
 
   drawPdfFooters(doc, cont);
-  try { doc.save(`relatorio-${periodo}-${contrato||'geral'}.pdf`); }
+  try { doc.save(`relatorio-${periodoIni}${periodoFim!==periodoIni?'_a_'+periodoFim:''}-${contrato||'geral'}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('PDF gerado!');
 }

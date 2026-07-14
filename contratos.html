@@ -329,7 +329,7 @@ function renderServicosList() {
     list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;font-size:13px">Nenhum serviço cadastrado ainda</div>';
     return;
   }
-  const canPrice = ['admin','diretor','supervisor','gestor'].includes(getCurrentUser()?.role);
+  const canPrice = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
   list.innerHTML = pendingServicos.map((s,i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
       <div style="flex:1">

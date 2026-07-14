@@ -261,24 +261,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 const INVIAVEL_NOTE = 'Equipamento condenado. Constatada a inviabilidade técnica e econômica do reparo em razão da indisponibilidade de peças de reposição no mercado e/ou pelo custo estimado do conserto.';
 
+// Única entrada "de catálogo" que não vem do contrato — é uma função do
+// sistema (marcar equipamento condenado), não um preço. Os preços de
+// serviço reais vêm sempre do contrato (aba Serviços & Preços em
+// Contratos) — um catálogo genérico com preços fixos foi removido daqui
+// porque duplicava (com valores de teste) os serviços reais do contrato.
 const SERVICES = [
   { name: "⚠️ Inviável — Equipamento condenado", price: 0.00, taxRate: 0.00, inviavel: true },
-  { name: "Instalação nova", price: 1200.00, taxRate: 0.20 },
-  { name: "Realocação", price: 874.50, taxRate: 0.20 },
-  { name: "Troca de compressor", price: 2260.20, taxRate: 0.20 },
-  { name: "Troca de capacitor", price: 192.50, taxRate: 0.20 },
-  { name: "Recarga de gás R22", price: 692.40, taxRate: 0.20 },
-  { name: "Recarga de gás R410", price: 692.40, taxRate: 0.20 },
-  { name: "Recarga de gás R32", price: 692.40, taxRate: 0.20 },
-  { name: "Troca de placa eletrônica", price: 494.50, taxRate: 0.20 },
-  { name: "Troca da turbina evaporadora", price: 552.50, taxRate: 0.20 },
-  { name: "Troca motoventilador cond./evap.", price: 749.60, taxRate: 0.20 },
-  { name: "Troca da hélice da condensadora", price: 502.40, taxRate: 0.20 },
-  { name: "Troca de contatora, relé ou afins", price: 303.80, taxRate: 0.20 },
-  { name: "Troca do sensor da evaporadora", price: 341.50, taxRate: 0.20 },
-  { name: "Troca do sensor condensadora", price: 196.80, taxRate: 0.20 },
-  { name: "Rede frigorífera", price: 247.60, taxRate: 0.20 },
-  { name: "Cabo de comunicação PP", price: 174.70, taxRate: 0.20 },
 ];
 
 // ── State ──
