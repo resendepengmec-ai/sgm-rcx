@@ -1304,12 +1304,9 @@ async function loadTechnicians() {
   const sel = document.getElementById('f-tech');
   if (!sel) return;
   try {
-    const users = await DB.getUsers();
-    const techs = (users || []).filter(u =>
-      u.active !== false && ['tecnico','gestor','admin','diretor','supervisor'].includes(u.role)
-    );
+    const techs = await DB.getTechnicians();
     sel.innerHTML = '<option value="">Selecione um técnico…</option>' +
-      techs.map(u => `<option value="${u.email}" data-name="${u.name||u.email}">${u.name||u.email} · ${u.role}</option>`).join('');
+      (techs||[]).map(u => `<option value="${u.email}" data-name="${u.name||u.email}">${u.name||u.email} · ${u.role}</option>`).join('');
   } catch(e) {
     // Fallback: usuário logado
     const u = window._user;

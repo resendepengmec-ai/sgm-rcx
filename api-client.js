@@ -188,6 +188,7 @@ const DB = {
 
   // Usuários e whitelist
   getUsers:           () => API.get('/users'),
+  getTechnicians:     () => API.get('/technicians'),
   updateUserRole:     (id, role)  => API.patch(`/users/${id}/role`, { role }),
   setUserActive:      (id, active) => API.patch(`/users/${id}/active`, { active }),
   deactivateUser:     id          => API.delete(`/users/${id}`),
