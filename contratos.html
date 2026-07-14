@@ -42,7 +42,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <header class="app-header" style="background:var(--primary)">
   <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
   <h1 style="flex:1;margin-left:8px">Contratos</h1>
-  <button class="btn-icon" onclick="openNewContract()" title="Novo contrato" style="color:#fff;font-size:22px;background:rgba(255,255,255,.15);border-radius:50%;width:36px;height:36px;border:none;cursor:pointer">+</button>
 </header>
 
 <!-- Lista de contratos -->
@@ -214,6 +213,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div id="detail-content"></div>
 </div>
 
+<!-- FAB -->
+<button class="fab hidden" id="fab" onclick="openNewContract()">+</button>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -227,6 +229,9 @@ const user = getCurrentUser();
 if (!user) { window.location.href = 'index.html'; }
 else if (!ROLES[user.role]?.modules.includes('contratos')) { window.location.href = 'index.html'; }
 else { document.getElementById('auth-overlay').style.display = 'none';
+  loadPrestadoraConfig();
+  const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
+  document.getElementById('fab')?.classList.toggle('hidden', !canCreateContractInit);
   DB.getContratos().then(data => {
     if (data && data.length) {
       contracts = data;
@@ -283,7 +288,10 @@ function renderList() {
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <h3>Contrato ${c.numero} — ${c.razao}</h3>
-        ${canEdit ? `<button onclick="openEdit('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
+        <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
+          <button onclick="generateContractPDF('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
+          ${canEdit ? `<button onclick="openEdit('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
+        </div>
       </div>
       <div class="contract-meta">
         <span>CNPJ: ${c.cnpj||'—'}</span>
@@ -306,7 +314,154 @@ function renderList() {
   }).join('');
 }
 
-// ── Form helpers ──────────────────────────────────────────────────
+// ── PDF do contrato ──────────────────────────────────────────────
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
+
+const PDF_M = 20, PDF_W = 210;
+function drawPdfHeader(doc, { title, metaLines }) {
+  let y = 14, textX = PDF_M;
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+  const rightW = 62;
+  const maxTextW = PDF_W - PDF_M - textX - rightW;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadoraConfig.company || 'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y + 2);
+  let ly = y + 2 + nameLines.length*4.5 + 2.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (prestadoraConfig.address) { const a = doc.splitTextToSize(prestadoraConfig.address, maxTextW); doc.text(a, textX, ly); ly += a.length*4.5; }
+  if (prestadoraConfig.cnpj) { doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly); ly += 4.5; }
+  doc.setTextColor(0,0,0);
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(title, PDF_W-PDF_M, 14, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  let my = 20;
+  (metaLines||[]).forEach(line => { doc.text(line, PDF_W-PDF_M, my, {align:'right'}); my += 5.5; });
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly, my) + 3;
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY);
+  return ruleY + 8;
+}
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M*2;
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    let fy = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      const contLine = `Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`;
+      const contLines = doc.splitTextToSize(contLine, maxW).slice(0, 2);
+      doc.text(contLines, PDF_M, fy);
+      fy += contLines.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${getCurrentUser()?.name||''}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
+
+function addSectionTitle(doc, text, y) {
+  if (y > 260) { doc.addPage(); y = 28; }
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  doc.text(text, PDF_M, y);
+  doc.setDrawColor(230,230,230);
+  doc.line(PDF_M, y+2, PDF_W-PDF_M, y+2);
+  doc.setFont('helvetica','normal'); doc.setTextColor(0,0,0);
+  return y + 8;
+}
+
+async function generateContractPDF(id) {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
+  const c = contracts.find(x=>x.id===id);
+  if (!c) { showToast('Contrato não encontrado'); return; }
+  showToast('Gerando PDF…');
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  const canPriceDoc = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+
+  let y = drawPdfHeader(doc, { title:`Contrato ${c.numero}`, metaLines:[`Emitido em ${new Date().toLocaleDateString('pt-BR')}`] });
+
+  // Dados do contrato
+  y = addSectionTitle(doc, 'Dados do contrato', y);
+  doc.setFontSize(10);
+  [
+    [`Contratante: ${c.razao||'—'}`, `CNPJ: ${c.cnpj||'—'}`],
+    [`Responsável: ${c.responsavel||'—'}`, `Telefone: ${c.tel||'—'}`],
+    [`ART: ${c.art||'—'}`, `Vigência: ${c.inicio||'—'} a ${c.fim||'—'} (${vigenciaLabel(c.fim)})`],
+  ].forEach(([a,b])=>{ doc.text(a, PDF_M, y); doc.text(b, PDF_M+95, y); y += 6; });
+  y += 4;
+
+  // Equipamentos
+  const equip = c.equipamentos || [];
+  if (equip.length) {
+    y = addSectionTitle(doc, `Equipamentos (${equip.length})`, y);
+    doc.setFontSize(10);
+    equip.forEach(eq=>{
+      if (y > 275) { doc.addPage(); y = 28; }
+      doc.text(`${eq.tag||'—'} · ${eq.marca||'—'} ${eq.tipo||''} ${eq.capacidade||''} · ${eq.estabelecimento||''} ${eq.recinto?'/ '+eq.recinto:''}`.slice(0,110), PDF_M, y);
+      y += 5;
+    });
+    y += 4;
+  }
+
+  // Serviços & preços
+  const servicos = c.servicos || [];
+  if (servicos.length) {
+    y = addSectionTitle(doc, `Serviços${canPriceDoc?' e preços':''} (${servicos.length})`, y);
+    doc.setFontSize(10);
+    servicos.forEach(s=>{
+      if (y > 275) { doc.addPage(); y = 28; }
+      const priceTxt = canPriceDoc && s.price ? `R$ ${Number(s.price).toFixed(2)}${s.unit?' / '+s.unit:''}` : (s.unit||'');
+      doc.text(`${s.name||'—'}`, PDF_M, y);
+      doc.text(priceTxt, PDF_W-PDF_M, y, {align:'right'});
+      y += 5;
+    });
+    y += 4;
+  }
+
+  // Documentos anexados
+  const docs = c.documentos || [];
+  if (docs.length) {
+    y = addSectionTitle(doc, `Documentos anexados (${docs.length})`, y);
+    doc.setFontSize(10);
+    for (const d of docs) {
+      if (y > 250) { doc.addPage(); y = 28; }
+      if ((d.type||'').startsWith('image/') && d.data) {
+        try {
+          doc.text(`📄 ${d.name}`, PDF_M, y); y += 5;
+          const fmt = d.type.includes('png') ? 'PNG' : 'JPEG';
+          doc.addImage(d.data, fmt, PDF_M, y, 60, 42);
+          y += 46;
+        } catch(e) { doc.text(`📄 ${d.name} (não foi possível incluir a imagem)`, PDF_M, y); y += 6; }
+      } else {
+        doc.text(`📄 ${d.name} — anexado no sistema (${d.type||'arquivo'}, ${d.size ? (d.size/1024).toFixed(0)+' KB' : ''})`, PDF_M, y);
+        y += 6;
+      }
+    }
+  }
+
+  drawPdfFooters(doc, c);
+  try { doc.save(`contrato-${c.numero}.pdf`); showToast('✅ PDF gerado'); }
+  catch(e) { showToast('Erro ao salvar PDF: ' + e.message); }
+}
+
+
 function switchFormTab(tab) {
   const tabs = ['dados','equipamentos','servicos','documentos'];
   tabs.forEach(t => {
@@ -491,31 +646,39 @@ async function saveContract() {
   const idx = contracts.findIndex(x=>x.id===editId);
   if (idx>=0) contracts[idx]=c; else contracts.push(c);
   save();
-  // Assinatura digital
+
+  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
+  // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sedit_c = !!editId;
-  signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos').then(sig => {
+  signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos').then(async sig => {
+    c._signatures = c._signatures||[]; c._signatures.push(sig);
     const _idx = contracts.findIndex(x=>x.id===c.id);
-    if (_idx>=0) { contracts[_idx]._signatures = contracts[_idx]._signatures||[]; contracts[_idx]._signatures.push(sig); }
-  }).catch(()=>{});
+    if (_idx>=0) contracts[_idx] = c;
+    save();
 
-  // Sync backend
-  try {
-    await DB.saveContrato(c);
-    showToast(`✅ Contrato ${c.numero} salvo no servidor!`);
-  } catch(e) {
-    showToast(`Contrato ${c.numero} salvo localmente (sem sync com servidor)`);
-  }
+    // Sync backend
+    try {
+      const resp = await DB.saveContrato(c);
+      if (resp?.renamed) {
+        showToast(`✅ Contrato salvo! Número atualizado de ${resp.renamed.from} para ${resp.renamed.to} em ${resp.renamed.updated} registro(s) vinculados.`, 4500);
+      } else {
+        showToast(`✅ Contrato ${c.numero} salvo no servidor!`);
+      }
+    } catch(e) {
+      showToast(`Erro ao salvar no servidor: ${e.message}`, 4000);
+    }
 
-  // Sync machine DB com os equipamentos do contrato
-  if (c.equipamentos.length) {
-    const mdb = getEffDB() || {};
-    mdb[c.numero] = c.equipamentos;
-    localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
-    DB.saveMachineDB(mdb).catch(()=>{});
-  }
+    // Sync machine DB com os equipamentos do contrato
+    if (c.equipamentos.length) {
+      const mdb = getEffDB() || {};
+      mdb[c.numero] = c.equipamentos;
+      localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
+      DB.saveMachineDB(mdb).catch(()=>{});
+    }
 
-  showScreen('list');
-  renderList();
+    showScreen('list');
+    renderList();
+  });
 }
 
 // ── File handlers ─────────────────────────────────────────────────
@@ -722,6 +885,8 @@ function showScreen(s) {
     target.classList.add('active');
     target.style.display = '';  // remove inline display:none dos elementos iniciais
   }
+  const canCreateContract = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+  document.getElementById('fab')?.classList.toggle('hidden', s !== 'list' || !canCreateContract);
 }
 
 // ── Init ──────────────────────────────────────────────────────────

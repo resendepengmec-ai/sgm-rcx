@@ -54,7 +54,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <header class="app-header" style="background:var(--primary)">
   <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
   <h1 style="flex:1;margin-left:8px">Movimentação Patrimonial</h1>
-  <button id="btn-nova-mov" onclick="openNewMovimento()" style="color:#fff;font-size:22px;background:rgba(255,255,255,.15);border-radius:50%;width:36px;height:36px;border:none;cursor:pointer">+</button>
 </header>
 
 <!-- Lista -->
@@ -105,6 +104,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     Carregando…
   </div>
 </div>
+
+<!-- FAB -->
+<button class="fab" id="fab" onclick="openNewMovimento()">+</button>
 
 <!-- Form nova movimentação -->
 <div id="screen-form" style="padding:12px;display:none">
@@ -683,6 +685,7 @@ function executeMovimento(id) {
 function showScreen(s) {
   document.getElementById('screen-list').style.display = s==='list' ? 'block' : 'none';
   document.getElementById('screen-form').style.display = s==='form' ? 'block' : 'none';
+  document.getElementById('fab')?.classList.toggle('hidden', s !== 'list');
 }
 
 // ── Init ──────────────────────────────────────────────────────────

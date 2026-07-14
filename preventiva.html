@@ -598,9 +598,16 @@ function getPlanStatus(plan) {
   return 'partial';
 }
 
+function getLevelsFor(level) {
+  const levels = [1];
+  if (level >= 2) levels.push(2);
+  if (level >= 3) levels.push(3);
+  return levels;
+}
+
 function isEquipDone(equip, level) {
-  const items = getChecklistItems(level);
-  return items.every((_,i) => equip.checks && equip.checks[i] !== undefined && equip.checks[i] !== null);
+  const levels = getLevelsFor(level);
+  return levels.every(lv => equip.checks && equip.checks[lv] === true);
 }
 
 function getChecklistItems(level) {
@@ -610,10 +617,9 @@ function getChecklistItems(level) {
 }
 
 function getEquipProgress(equip, level) {
-  const items = getChecklistItems(level);
-  if (!equip.checks) return {done:0, total:items.length};
-  const done = items.filter((_,i) => equip.checks[i] !== undefined && equip.checks[i] !== null).length;
-  return {done, total:items.length};
+  const levels = getLevelsFor(level);
+  const done = equip.checks ? levels.filter(lv => equip.checks[lv] === true).length : 0;
+  return {done, total: levels.length};
 }
 
 // ── Plans list ──
@@ -779,7 +785,7 @@ function saveBatchPlans() {
       equipments: items.map(e => ({
         tag: e.tag, marca: e.marca, tipo: e.tipo,
         capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
-        checks: {}, obsItems: {},
+        checks: {}, photos: [],
       })),
     };
     plans.unshift(plan);
@@ -875,7 +881,7 @@ function savePlan() {
     equipments: equipList.map(e => ({
       tag: e.tag, marca: e.marca, tipo: e.tipo,
       capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
-      checks: {}, obsItems: {},
+      checks: {}, photos: [],
     })),
   };
 
@@ -940,41 +946,28 @@ function renderExecList(plan) {
     if (done) totalDone++;
     const pct = Math.round(prog.done/prog.total*100);
 
-    // Build checklist by level sections
-    let checkHtml = '';
-    let idx = 0;
+    // Nível(s) do plano — um toggle "Feito" por nível, sem item a item
+    const levels = getLevelsFor(plan.level);
+    let checkHtml = levels.map(lv => {
+      const doneLv = equip.checks && equip.checks[lv] === true;
+      return `
+        <div class="chk-level-title">
+          <span style="width:16px;height:16px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
+          ${LEVEL_LABEL[lv]}
+        </div>
+        <button class="chk-btn ${doneLv?'active-ok':''}" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-bottom:10px" onclick="setLevelCheck(${ei},${lv},${!doneLv})">
+          ${doneLv?'✅ Nível concluído':'☐ Marcar nível como concluído'}
+        </button>`;
+    }).join('');
 
-    const levels = plan.level >= 1 ? [1] : [];
-    if (plan.level >= 2) levels.push(2);
-    if (plan.level >= 3) levels.push(3);
-
-    levels.forEach(lv => {
-      const lvItems = CHECKLIST[lv];
-      checkHtml += `<div class="chk-level-title">
-        <span style="width:16px;height:16px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
-        ${LEVEL_LABEL[lv]}
-      </div>`;
-      lvItems.forEach(item => {
-        const i = idx;
-        const val = equip.checks[i];
-        const obs = equip.obsItems[i] || '';
-        checkHtml += `
-          <div class="chk-item" id="chk-${ei}-${i}">
-            <div class="chk-content">
-              <div class="chk-text">${item}</div>
-              <div class="chk-actions">
-                <button class="chk-btn ${val===true?'active-ok':''}" onclick="setCheck(${ei},${i},true)">✓ Feito</button>
-                <button class="chk-btn ${val===false?'active-na':''}" onclick="setCheck(${ei},${i},false)">N/A</button>
-                <button class="chk-btn" onclick="toggleObs(${ei},${i})">📝 Obs</button>
-              </div>
-              <div class="chk-obs" id="obs-${ei}-${i}" style="${obs?'':'display:none'}">
-                <textarea rows="2" placeholder="Observação…" oninput="saveObs(${ei},${i},this.value)">${obs}</textarea>
-              </div>
-            </div>
-          </div>`;
-        idx++;
-      });
-    });
+    const photos = equip.photos || [];
+    const photosHtml = photos.length ? `
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
+        ${photos.map((p,pi)=>`<div style="position:relative">
+          <img src="${p.dataUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="showPhotoZoom('${p.dataUrl}')">
+          <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
+        </div>`).join('')}
+      </div>` : '';
 
     return `<div class="exec-card">
       <div class="exec-header" onclick="toggleExecBody(${ei})">
@@ -990,6 +983,12 @@ function renderExecList(plan) {
       </div>
       <div class="exec-body ${ei===0?'open':''}" id="exec-body-${ei}">
         <div class="exec-progress-bar"><div class="exec-progress-fill" id="pbar-${ei}" style="width:${pct}%"></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="chk-btn" onclick="showChecklistItems(${plan.level})">📋 Ver itens do checklist</button>
+          <button class="chk-btn" onclick="document.getElementById('photo-input-${ei}').click()">📷 Enviar foto${photos.length?` (${photos.length})`:''}</button>
+          <input type="file" id="photo-input-${ei}" accept="image/*" capture="environment" style="display:none" onchange="addEquipPhoto(${ei}, this.files[0])">
+        </div>
+        ${photosHtml}
         ${checkHtml}
       </div>
     </div>`;
@@ -1005,37 +1004,90 @@ function toggleExecBody(ei) {
   body.classList.toggle('open');
 }
 
-function setCheck(ei, itemIdx, value) {
+function setLevelCheck(ei, level, value) {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
   const equip = plan.equipments[ei];
-  // Toggle: click same value to deselect
-  equip.checks[itemIdx] = equip.checks[itemIdx] === value ? null : value;
-  persist();
-  updateCheckUI(ei, itemIdx, equip.checks[itemIdx]);
-  updateEquipProgress(ei, plan);
+  equip.checks[level] = value;
+  signRecord(plan.id, `nivel_${level}_${value?'concluido':'reaberto'}`, 'preventiva').then(sig => {
+    equip._signatures = equip._signatures||[]; equip._signatures.push(sig);
+    persist();
+  });
+  renderExecList(plan);
   updatePlanSummary(plan);
 }
 
-function updateCheckUI(ei, i, val) {
-  const row = document.getElementById(`chk-${ei}-${i}`);
-  if (!row) return;
-  const btns = row.querySelectorAll('.chk-btn');
-  btns[0].className = 'chk-btn' + (val===true?' active-ok':'');
-  btns[1].className = 'chk-btn' + (val===false?' active-na':'');
+// Modal somente-leitura com a relação de itens do checklist (referência
+// pro técnico saber o que verificar em cada nível, já que a marcação
+// agora é só "feito" por nível, não item a item).
+function showChecklistItems(planLevel) {
+  const levels = getLevelsFor(planLevel);
+  let modal = document.getElementById('checklist-ref-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'checklist-ref-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;justify-content:center';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div style="background:#fff;width:100%;max-width:560px;max-height:80vh;border-radius:16px 16px 0 0;overflow-y:auto;padding:20px" onclick="event.stopPropagation()">
+      <div style="font-size:16px;font-weight:700;margin-bottom:12px">📋 Itens do checklist</div>
+      ${levels.map(lv => `
+        <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin:14px 0 6px;display:flex;align-items:center;gap:6px">
+          <span style="width:12px;height:12px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
+          ${LEVEL_LABEL[lv]}
+        </div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;color:var(--text-2);line-height:1.9">
+          ${CHECKLIST[lv].map(item=>`<li>${item}</li>`).join('')}
+        </ul>`).join('')}
+      <button onclick="document.getElementById('checklist-ref-modal').remove()" style="width:100%;margin-top:16px;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;font-size:13px;cursor:pointer">Fechar</button>
+    </div>`;
 }
 
-function toggleObs(ei, i) {
-  const el = document.getElementById(`obs-${ei}-${i}`);
-  if (!el) return;
-  el.style.display = el.style.display==='none' ? '' : 'none';
-}
-
-function saveObs(ei, i, text) {
+// Foto por equipamento (evidência da execução)
+function addEquipPhoto(ei, file) {
+  if (!file) return;
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
-  plan.equipments[ei].obsItems[i] = text;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      let w = img.width, h = img.height;
+      if (w > MAX || h > MAX) { if (w>h){h=Math.round(h*MAX/w);w=MAX;} else {w=Math.round(w*MAX/h);h=MAX;} }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const equip = plan.equipments[ei];
+      equip.photos = equip.photos || [];
+      equip.photos.push({ dataUrl: canvas.toDataURL('image/jpeg', 0.75), name: file.name, addedAt: Date.now() });
+      persist();
+      renderExecList(plan);
+      showToast('📷 Foto adicionada');
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function removeEquipPhoto(ei, pi) {
+  const plan = plans.find(p=>p.id===currentPlanId);
+  if (!plan) return;
+  plan.equipments[ei].photos.splice(pi, 1);
   persist();
+  renderExecList(plan);
+}
+function showPhotoZoom(src) {
+  let modal = document.getElementById('photo-zoom-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'photo-zoom-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out';
+    modal.onclick = () => modal.remove();
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<img src="${src}" style="max-width:100%;max-height:100%;border-radius:8px">`;
 }
 
 function updateEquipProgress(ei, plan) {
@@ -1189,45 +1241,47 @@ function generatePlanPDF(plan) {
     doc.text(`${eq.estabelecimento} · ${eq.recinto}`, M+CW/2, y+20);
     y+=32;
 
-    const items = getChecklistItems(plan.level);
-    let globalIdx = 0;
     const levelGroups = [{lv:1, items:CHECKLIST[1]}];
     if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
     if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
 
     levelGroups.forEach(({lv, items:lvItems}) => {
-      if(y>260){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
+      if(y>250){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
       const lc = LEVEL_COLOR[lv].replace('#','');
       const lr=parseInt(lc.slice(0,2),16), lg=parseInt(lc.slice(2,4),16), lb2=parseInt(lc.slice(4,6),16);
       doc.setFillColor(lr,lg,lb2); doc.rect(M,y,CW,7,'F');
       doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
       doc.text(LEVEL_LABEL[lv].toUpperCase(), M+3, y+4.8);
+      const lvDone = eq.checks && eq.checks[lv] === true;
+      doc.text(lvDone?'FEITO':'PENDENTE', M+CW-3, y+4.8, {align:'right'});
       y+=7;
 
+      // Lista de referência dos itens cobertos por esse nível (sem status
+      // individual — a marcação passou a ser só por nível concluído)
+      doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(10);
       lvItems.forEach(item => {
-        if(y>268){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
-        const val = eq.checks[globalIdx];
-        const obs = eq.obsItems[globalIdx]||'';
-        const rowH = obs ? 14 : 8;
-        if(val===true){doc.setFillColor(240,253,244);}
-        else if(val===false){doc.setFillColor(248,250,252);}
-        else{doc.setFillColor(255,251,235);}
-        doc.rect(M,y,CW,rowH,'F');
-        // Status indicator
-        const fr=val===true?22:val===false?148:217; const fg=val===true?163:val===false?163:119; const fb=val===true?74:val===false?184:10; doc.setFillColor(fr,fg,fb);
-        doc.rect(M,y,3,rowH,'F');
-        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-        const itemLines = doc.splitTextToSize(item, CW-36);
-        doc.text(itemLines[0]||'', M+6, y+5.5);
-        doc.setFont('helvetica','bold');
-        const tc1=val===true?22:(val===false?100:180); const tc2=val===true?163:(val===false?100:120); const tc3=val===true?74:(val===false?100:0); doc.setTextColor(tc1,tc2,tc3);
-        doc.text(val===true?'FEITO':val===false?'N/A':'PENDENTE', M+CW-3, y+5.5, {align:'right'});
-        if(obs){ doc.setTextColor(120,80,0); doc.setFont('helvetica','italic'); doc.setFontSize(12); doc.text(`Obs: ${obs}`, M+6, y+11); }
-        y+=rowH+1;
-        globalIdx++;
+        if(y>270){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}
+        const itemLines = doc.splitTextToSize(`• ${item}`, CW-8);
+        doc.text(itemLines, M+4, y+4);
+        y += itemLines.length*4.5 + 1;
       });
-      y+=3;
+      y+=4;
     });
+
+    // Fotos anexadas do equipamento
+    if (eq.photos && eq.photos.length) {
+      if (y>240) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+      doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
+      let px = M;
+      eq.photos.forEach(p => {
+        if (px + 32 > M+CW) { px = M; y += 36; }
+        if (y > 250) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); px=M; }
+        try { doc.addImage(p.dataUrl, 'JPEG', px, y, 30, 22); } catch(e) {}
+        px += 34;
+      });
+      y += 28;
+    }
   });
 
   drawPdfFooters(doc, cont);
