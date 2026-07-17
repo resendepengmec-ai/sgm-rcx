@@ -595,27 +595,35 @@ function printFilteredPDF() {
   doc.text(`Total de registros: ${filtered.length}   |   Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, M+4, y+32);
   y += 42;
 
+  function fitText(doc, text, maxW) {
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
+  const colEstabR=M+3, colDataR=M+CW*0.45, colTagR=M+CW*0.60, colSvcR=M+CW*0.75;
+  const wEstabR=colDataR-colEstabR-3, wTagR=colSvcR-colTagR-3, wSvcR=(M+CW)-colSvcR-3;
+
   // ── Summary table ──
   doc.setFillColor(5,150,105);
   doc.rect(M, y, CW, 8, 'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text('RESUMO', M+3, y+5.5);
-  doc.text('DATA', M+CW*0.45, y+5.5);
-  doc.text('TAG', M+CW*0.60, y+5.5);
-  doc.text('SERVIÇOS', M+CW*0.75, y+5.5);
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('ESTABELECIMENTO', colEstabR, y+5.5);
+  doc.text('DATA', colDataR, y+5.5);
+  doc.text('TAG', colTagR, y+5.5);
+  doc.text('SERVIÇOS', colSvcR, y+5.5);
   y += 8;
 
   filtered.forEach((r, idx) => {
     if (y > 272) { doc.addPage(); y = drawPdfHeader(doc, {title:'RELATÓRIO DE SERVIÇOS EXECUTADOS', metaLines:[]}); }
     if (idx%2===0) { doc.setFillColor(240,253,244); } else { doc.setFillColor(255,255,255); }
     doc.rect(M, y, CW, 7, 'F');
-    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    const estabShort = (r.machine?.estabelecimento||'—').slice(0,28);
-    const svcShort = r.items.map(i=>i.inviavel?'Inviável':i.name.split(' ').slice(0,2).join(' ')).join(', ').slice(0,28);
-    doc.text(estabShort, M+3, y+4.5);
-    doc.text(r.date||'—', M+CW*0.45, y+4.5);
-    doc.text(r.equip||'—', M+CW*0.60, y+4.5);
-    doc.text(svcShort, M+CW*0.75, y+4.5);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    const svcShort = r.items.map(i=>i.inviavel?'Inviável':i.name.split(' ').slice(0,2).join(' ')).join(', ');
+    doc.text(fitText(doc, r.machine?.estabelecimento||'—', wEstabR), colEstabR, y+4.5);
+    doc.text(r.date||'—', colDataR, y+4.5);
+    doc.text(fitText(doc, r.equip||'—', wTagR), colTagR, y+4.5);
+    doc.text(fitText(doc, svcShort, wSvcR), colSvcR, y+4.5);
     y += 7;
   });
 

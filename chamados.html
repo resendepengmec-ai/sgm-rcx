@@ -858,14 +858,25 @@ function printFilteredPDF(){
   doc.text(`Total: ${filtered.length} chamado${filtered.length!==1?'s':''}   |   Emitido em: ${new Date().toLocaleDateString('pt-BR')}`,M+4,y+38);
   y+=48;
 
+  // Trunca o texto pra caber na largura da coluna (evita sobrepor a coluna
+  // seguinte quando o valor é longo, como o número completo do contrato)
+  function fitText(doc, text, maxW) {
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
+  const colId=M+3, colData=M+CW*0.20, colContrato=M+CW*0.32, colEstab=M+CW*0.52, colPrior=M+CW*0.76;
+  const wId=colData-colId-3, wContrato=colEstab-colContrato-3, wEstab=colPrior-colEstab-3;
+
   // Summary table
   doc.setFillColor(124,58,237);doc.rect(M,y,CW,8,'F');
-  doc.setTextColor(255,255,255);doc.setFontSize(10);doc.setFont('helvetica','bold');
-  doc.text('Nº CHAMADO',M+3,y+5.5);
-  doc.text('DATA',M+CW*0.20,y+5.5);
-  doc.text('CONTRATO/TAG',M+CW*0.32,y+5.5);
-  doc.text('ESTABELECIMENTO',M+CW*0.52,y+5.5);
-  doc.text('PRIORIDADE',M+CW*0.76,y+5.5);
+  doc.setTextColor(255,255,255);doc.setFontSize(9);doc.setFont('helvetica','bold');
+  doc.text('Nº CHAMADO',colId,y+5.5);
+  doc.text('DATA',colData,y+5.5);
+  doc.text('CONTRATO/TAG',colContrato,y+5.5);
+  doc.text('ESTABELECIMENTO',colEstab,y+5.5);
+  doc.text('PRIORIDADE',colPrior,y+5.5);
   doc.text('STATUS',M+CW-3,y+5.5,{align:'right'});
   y+=8;
 
@@ -873,14 +884,14 @@ function printFilteredPDF(){
     if(y>272){doc.addPage();y=drawPdfHeader(doc, {title:'RELATÓRIO DE CHAMADOS', metaLines:[]});}
     if(i%2===0){doc.setFillColor(248,244,255);}else{doc.setFillColor(255,255,255);}
     doc.rect(M,y,CW,7,'F');
-    doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');doc.setFontSize(10);
+    doc.setTextColor(30,30,30);doc.setFont('helvetica','normal');doc.setFontSize(9);
     const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
     const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
-    doc.text(c.id,M+3,y+4.8);
-    doc.text(c.date||'—',M+CW*0.20,y+4.8);
-    doc.text(`${c.client}·T${c.equip||'?'}`,M+CW*0.32,y+4.8);
-    doc.text((c.machine?.estabelecimento||'—').slice(0,15),M+CW*0.52,y+4.8);
-    doc.text(p.label,M+CW*0.76,y+4.8);
+    doc.text(fitText(doc, c.id, wId),colId,y+4.8);
+    doc.text(c.date||'—',colData,y+4.8);
+    doc.text(fitText(doc, `${c.client}·T${c.equip||'?'}`, wContrato),colContrato,y+4.8);
+    doc.text(fitText(doc, c.machine?.estabelecimento||'—', wEstab),colEstab,y+4.8);
+    doc.text(p.label,colPrior,y+4.8);
     doc.text(s.label,M+CW-3,y+4.8,{align:'right'});
     y+=7;
   });

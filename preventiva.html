@@ -1328,13 +1328,25 @@ function printFilteredPDF() {
   doc.text(`Concluídas: ${totDone}/${filtered.length}`, M+4, y+32);
   y+=42;
 
+  // Trunca o texto pra caber na largura da coluna (evita sobrepor a coluna
+  // seguinte quando o valor é longo, como o número completo do contrato)
+  function fitText(doc, text, maxW) {
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
+
+  const colContrato = M+3, colPeriodo = M+CW*0.32, colNivel = M+CW*0.50, colTecnico = M+CW*0.60, colEquip = M+CW*0.85;
+  const wContrato = colPeriodo-colContrato-3, wTecnico = colEquip-colTecnico-3;
+
   doc.setFillColor(3,105,161); doc.rect(M,y,CW,8,'F');
-  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text('CONTRATO', M+3, y+5.5);
-  doc.text('PERÍODO', M+CW*0.18, y+5.5);
-  doc.text('NÍVEL', M+CW*0.35, y+5.5);
-  doc.text('TÉCNICO', M+CW*0.50, y+5.5);
-  doc.text('EQUIP', M+CW*0.73, y+5.5);
+  doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+  doc.text('CONTRATO', colContrato, y+5.5);
+  doc.text('PERÍODO', colPeriodo, y+5.5);
+  doc.text('NÍVEL', colNivel, y+5.5);
+  doc.text('TÉCNICO', colTecnico, y+5.5);
+  doc.text('EQUIP', colEquip, y+5.5);
   doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
   y+=8;
 
@@ -1343,12 +1355,12 @@ function printFilteredPDF() {
     if(i%2===0){doc.setFillColor(240,249,255);doc.rect(M,y,CW,7,'F');}
     const st=getPlanStatus(p);
     const done=p.equipments.filter(e=>isEquipDone(e,p.level)).length;
-    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(`Cto. ${p.client}`, M+3, y+4.8);
-    doc.text(fmtMonth(p.period).slice(0,14), M+CW*0.18, y+4.8);
-    doc.text(`N${p.level}`, M+CW*0.35, y+4.8);
-    doc.text((p.tech||'—').slice(0,16), M+CW*0.50, y+4.8);
-    doc.text(`${done}/${p.equipments.length}`, M+CW*0.73, y+4.8);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
+    doc.text(fitText(doc, `Cto. ${p.client}`, wContrato), colContrato, y+4.8);
+    doc.text(fmtMonth(p.period).slice(0,10), colPeriodo, y+4.8);
+    doc.text(`N${p.level}`, colNivel, y+4.8);
+    doc.text(fitText(doc, p.tech||'—', wTecnico), colTecnico, y+4.8);
+    doc.text(`${done}/${p.equipments.length}`, colEquip, y+4.8);
     doc.setFont('helvetica','bold');
     const sr=st==='done'?22:(st==='partial'?217:100); const sg=st==='done'?163:(st==='partial'?119:100); const sb=st==='done'?74:(st==='partial'?10:100); doc.setTextColor(sr,sg,sb);
     doc.text(st==='done'?'Concluída':st==='partial'?'Parcial':'Pendente', M+CW-3, y+4.8, {align:'right'});
