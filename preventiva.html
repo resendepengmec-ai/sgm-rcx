@@ -1169,10 +1169,10 @@ function printExecPDF() {
   generatePlanPDF(plan);
 }
 
-function generatePlanPDF(plan) {
-  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
+function generatePlanPDF(plan, sharedDoc) {
+  if (!sharedDoc && !window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const {jsPDF} = window.jspdf;
-  const doc = new jsPDF({unit:'mm', format:'a4'});
+  const doc = sharedDoc || new jsPDF({unit:'mm', format:'a4'});
   const W=210, M=20, CW=W-M*2;
   let y = M;
   const color = LEVEL_COLOR[plan.level].replace('#','');
@@ -1289,11 +1289,13 @@ function generatePlanPDF(plan) {
     }
   });
 
-  drawPdfFooters(doc, cont);
-
-  try { doc.save(`preventiva-${plan.client}-${plan.period}-N${plan.level}.pdf`); }
-  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
-  showToast('PDF gerado!');
+  if (!sharedDoc) {
+    drawPdfFooters(doc, cont);
+    try { doc.save(`preventiva-${plan.client}-${plan.period}-N${plan.level}.pdf`); }
+    catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
+    showToast('PDF gerado!');
+  }
+  return doc;
 }
 
 // ── PDF: filtered report ──
@@ -1301,12 +1303,14 @@ function printFilteredPDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const filtered = getFiltered();
   if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
+  if (filtered.length > 15 && !confirm(`Isso vai gerar um relatório completo de ${filtered.length} planos (pode ficar longo e demorar um pouco). Continuar?`)) return;
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
   const W=210, M=20, CW=W-M*2;
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const contFilter = fContract ? contracts.find(x=>x.numero===fContract) : null;
 
+  // Capa: resumo tabular de todos os planos filtrados
   let y = drawPdfHeader(doc, { title: 'RELATÓRIO DE MANUTENÇÃO PREVENTIVA', metaLines: [] });
   doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50,50,50);
   doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${filtered.length} plano${filtered.length!==1?'s':''}`, M, y);
@@ -1351,11 +1355,18 @@ function printFilteredPDF() {
     y+=7;
   });
 
+  // Detalhamento completo de cada plano filtrado — o mesmo relatório
+  // completo já usado individualmente na aba Histórico, consolidado aqui.
+  filtered.forEach(p => {
+    doc.addPage();
+    generatePlanPDF(p, doc);
+  });
+
   drawPdfFooters(doc, contFilter);
 
-  try { doc.save(`relatorio-preventiva-${new Date().toISOString().slice(0,7)}.pdf`); }
+  try { doc.save(`relatorio-preventiva-completo-${new Date().toISOString().slice(0,7)}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
-  showToast('Relatório gerado!');
+  showToast('Relatório completo gerado!');
 }
 
 // Popula dropdown de técnicos a partir dos usuários cadastrados
