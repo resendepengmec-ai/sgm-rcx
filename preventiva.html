@@ -915,6 +915,7 @@ function openPlan(id) {
   }
 
   currentPlanId = id;
+  _openExecCards = new Set([0]);
 
   document.getElementById('exec-header-info').innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
@@ -933,6 +934,8 @@ function openPlan(id) {
   renderExecList(plan);
   switchTab('exec');
 }
+
+let _openExecCards = new Set([0]); // cards abertos na tela de execução (sobrevive a re-renders)
 
 function renderExecList(plan) {
   const items = getChecklistItems(plan.level);
@@ -981,7 +984,7 @@ function renderExecList(plan) {
           ${done?'<span style="font-size:11px;font-weight:700;color:var(--success)">✅ OK</span>':''}
         </div>
       </div>
-      <div class="exec-body ${ei===0?'open':''}" id="exec-body-${ei}">
+      <div class="exec-body ${_openExecCards.has(ei)?'open':''}" id="exec-body-${ei}">
         <div class="exec-progress-bar"><div class="exec-progress-fill" id="pbar-${ei}" style="width:${pct}%"></div></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
           <button class="chk-btn" onclick="showChecklistItems(${plan.level})">📋 Ver itens do checklist</button>
@@ -1002,6 +1005,8 @@ function renderExecList(plan) {
 function toggleExecBody(ei) {
   const body = document.getElementById(`exec-body-${ei}`);
   body.classList.toggle('open');
+  if (body.classList.contains('open')) _openExecCards.add(ei);
+  else _openExecCards.delete(ei);
 }
 
 function setLevelCheck(ei, level, value) {
