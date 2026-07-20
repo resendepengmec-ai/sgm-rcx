@@ -1,92 +1,99 @@
-# Sistema de Manutenção — Guia de Instalação e Uso
+Sistema de Manutenção (SGM) — Guia de Instalação e Uso
 =======================================================
-
-## Arquivos do sistema
-
-  index.html        → Dashboard, login e painel de administração
-  auth-callback.html→ Recebe token do Google após login
-  auth.js           → Motor de autenticação, perfis e whitelist
-  db.js             → Banco de dados de equipamentos (3.313 TAGs embutido)
-  shared.css        → Estilos compartilhados entre módulos
-  chamados.html     → Módulo de chamados de manutenção
-  registro.html     → Módulo de registro de serviços
-  orcamento.html    → Módulo de orçamentos
-
-
-## Como publicar (obrigatório — Google OAuth exige URL real)
-
-Opção A — GitHub Pages (gratuito):
-  1. github.com → novo repositório público
-  2. Upload de todos os arquivos
-  3. Settings → Pages → Branch: main
-  4. URL: https://seu-usuario.github.io/repositorio/
-
-Opção B — Netlify (gratuito):
-  1. netlify.com → "Add new site" → "Deploy manually"
-  2. Arraste a pasta com todos os arquivos
-
-
-## Configurar Google OAuth
-
-  1. console.cloud.google.com → selecione ou crie um projeto
-  2. APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID
-  3. Tipo: Web application
-  4. Authorized JavaScript origins: https://seu-dominio.com
-  5. Authorized redirect URIs:     https://seu-dominio.com/auth-callback.html
-  6. Copie o Client ID gerado
-
-  No app: abra index.html → clique em "Configurar Google Client ID" → cole o Client ID
-
-
-## Primeiro acesso
-
-  O PRIMEIRO usuário a fazer login via Google torna-se Administrador automaticamente.
-  Os demais ficam bloqueados até que o Admin pré-autorize o e-mail deles.
-
-
-## Pré-autorizar usuários (Admin)
-
-  Dashboard → card "Administração" → aba "Pré-autorizar"
-  → Informe o e-mail Google e escolha o perfil → clique "+ Adicionar"
-  O usuário poderá fazer login normalmente após isso.
-
-
-## Gerenciar usuários existentes (Admin)
-
-  Dashboard → Administração → aba "Usuários"
-  → Altere o perfil ou ative/desative qualquer conta
-
-
-## Atualizar banco de dados de equipamentos (Admin)
-
-  Dashboard → Administração → aba "Banco"
-  → Clique em "Importar novo arquivo .xlsx"
-  → O arquivo deve ter uma aba por contrato (ex: aba "1020", "1023", "1123")
-     com colunas: A=TAG  B=Marca  C=Tipo  D=Capacidade  E=Estabelecimento  F=Recinto
-  → O novo banco é salvo localmente e usado em todos os módulos imediatamente
-  → Para voltar ao banco original: botão "Restaurar banco original"
-
-
-## Perfis de acesso
-
-  Perfil          Chamados   Registro   Orçamentos   Relatórios   Admin
-  ─────────────── ────────── ────────── ──────────── ──────────── ─────
-  Administrador   ✅ Total    ✅ Total    ✅ Total      ✅            ✅
-  Gestor          👁 Ver      👁 Ver      👁 Ver        ✅            ❌
-  Técnico         ✅ Criar    ✅ Criar    ❌            ❌            ❌
-  Solicitante     ✅ Criar    ❌          ❌            ❌            ❌
-
-  Solicitante: vê apenas os próprios chamados
-
-
-## Instalar como app no celular (PWA)
-
-  iPhone: Safari → Compartilhar → "Adicionar à Tela de Início"
-  Android: Chrome → Menu (⋮) → "Adicionar à tela inicial"
-
-
-## Dados e sincronização
-
-  Os dados ficam no localStorage de cada navegador/dispositivo.
-  Para sincronizar entre dispositivos, use a integração com Google Drive
-  disponível nas Configurações de cada módulo.
+Arquitetura do sistema
+O sistema tem duas partes que precisam estar publicadas e funcionando juntas:
+Frontend — páginas HTML estáticas, hospedadas no GitHub Pages.
+Backend — servidor Node.js/Express com banco de dados SQLite, hospedado no Render, com disco persistente. É a fonte de verdade dos dados; o navegador guarda uma cópia local (cache) só pra funcionar mais rápido e ter alguma tolerância a instabilidade de conexão.
+As duas partes são publicadas e atualizadas separadamente.
+Arquivos do sistema
+Frontend:
+```
+index.html         → Dashboard, login, painel de administração
+auth-callback.html → Recebe o retorno do login do Google
+api-client.js       → Comunicação com o backend, perfis de acesso (ROLES), funções compartilhadas
+db.js               → Placeholder legado (sem dado embutido — mantido só por compatibilidade)
+shared.css          → Estilos compartilhados entre os módulos
+chamados.html       → Módulo de chamados de manutenção
+registro.html       → Módulo de registro de serviços executados
+orcamento.html      → Módulo de orçamentos
+preventiva.html     → Módulo de manutenção preventiva (planos e execução)
+patrimonio.html     → Módulo de movimentação patrimonial (instalar/realocar/baixar equipamento)
+contratos.html      → Cadastro de contratos, equipamentos e serviços/preços
+relatorio.html      → Relatório gerencial (indicadores, reincidência por equipamento, exportação em PDF)
+```
+Backend (pasta `src/`):
+```
+server.js  → Configuração do servidor Express
+api.js     → Todas as rotas da API e regras de permissão
+auth.js    → Login Google, sessões (JWT), controle de acesso
+db.js      → Acesso ao banco SQLite
+```
+> `auth.js` **do frontend** foi removido do projeto — era código antigo, nenhuma página carregava esse arquivo. A autenticação de verdade roda inteiramente no backend.
+Como publicar
+Frontend — GitHub Pages (gratuito)
+github.com → repositório (pode ser o já existente)
+Sobe os arquivos do frontend (Add file → Upload files → Commit changes)
+Settings → Pages → Branch: main
+URL final: `https://seu-usuario.github.io/repositorio/`
+Backend — Render (gratuito ou plano pago)
+render.com → New → Web Service, apontando pra pasta do backend
+Build command: `npm install` · Start command: `node src/server.js`
+Disco persistente (obrigatório — sem isso os dados somem a cada deploy):
+Settings → Disks → Add Disk → Mount Path: `/opt/render/project/data` → tamanho conforme a necessidade (ver seção "Armazenamento e disco" abaixo)
+Variável de ambiente `DATA_DIR` apontando pro mesmo caminho do disco
+URL gerada (ex: `https://smm-backend-xxxx.onrender.com`) precisa ser colocada em `window.SMM_API` no início de cada arquivo `.html` do frontend
+Depois de qualquer atualização, os dois lados (frontend e backend) são publicados de forma independente — só é preciso subir os arquivos que realmente mudaram.
+Configurar Google OAuth
+console.cloud.google.com → selecione ou crie um projeto
+APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID
+Tipo: Web application
+Authorized JavaScript origins: a URL do frontend (GitHub Pages)
+Authorized redirect URIs: `.../auth-callback.html`
+Copie o Client ID gerado
+No app: `index.html` → menu do Administrador → "Configurar Google Client ID" → cole e salve
+O Client ID fica salvo no backend (não só no navegador que configurou) — uma vez configurado, vale pra todo mundo que acessar o sistema.
+Primeiro acesso
+O primeiro usuário a fazer login com o Google se torna Administrador automaticamente. Os demais ficam bloqueados até que o Admin pré-autorize o e-mail deles.
+Pré-autorizar usuários (Admin)
+Dashboard → "Administração" → aba "Pré-autorizar" → informe e-mail, nome, perfil e (opcionalmente) o(s) contrato(s) que a pessoa poderá acessar → "+ Adicionar". A aba mostra só quem ainda não acessou pela primeira vez — depois do primeiro login, a pessoa passa a aparecer na aba "Usuários".
+Gerenciar usuários existentes (Admin)
+Dashboard → Administração → aba "Usuários" → botão "✏️ Editar" abre uma janela única com papel, status (ativo/inativo) e contratos autorizados — tudo com um botão "💾 Salvar" só, aplicando as três mudanças de uma vez.
+Diretor também consegue abrir essa tela pra consultar (visualização), mas só o Admin edita de fato.
+Restrição por contrato: quando um usuário tem um ou mais contratos marcados, ele só vê chamados, registros, orçamentos, planos de preventiva, movimentações e o próprio contrato daquele(s) número(s) — em qualquer módulo. Sem contrato marcado = acesso irrestrito (vê tudo).
+Cadastro de equipamentos por contrato (forma principal)
+Dashboard → "Contratos" → abrir ou criar um contrato → aba "Equipamentos" → upload de planilha CSV, XLS ou XLSX, com uma linha por equipamento e as colunas:
+```
+TAG · Patrimônio · Marca · Tipo · Capacidade · Estabelecimento · Recinto · Área
+```
+Só a coluna `TAG` é obrigatória — as demais podem ficar em branco. O sistema faz merge inteligente: TAGs novas são adicionadas, já existentes são atualizadas, e equipamentos já baixados (via módulo Patrimônio) são preservados automaticamente, mesmo que a TAG apareça de novo numa planilha reenviada.
+Renomear o número do contrato depois de já ter chamados/registros/planos vinculados é seguro — o sistema propaga a mudança automaticamente pra tudo que referenciava o número antigo (chamados, registros, orçamentos, preventiva, movimentações, O.S., e os contratos autorizados de cada usuário).
+Importação em lote (recurso complementar, opcional)
+Dashboard → Administração → aba "Banco" → "Importar novo arquivo .xlsx" — útil só pra popular vários contratos de uma vez antes de cadastrá-los individualmente. O cadastro por contrato (acima) é a forma recomendada no dia a dia, porque mantém tudo vinculado ao contrato certo automaticamente.
+Perfis de acesso
+Hierarquia: Admin > Diretor > Supervisor > Gestor > Técnico > Solicitante
+Módulo	Ver	Criar	Editar	Excluir
+Chamados	Todos	Todos	Gestor pra cima	Supervisor pra cima
+Registro	Técnico pra cima	Técnico pra cima	Gestor pra cima	Supervisor pra cima
+Orçamentos	Técnico pra cima	Técnico pra cima	Supervisor pra cima	Supervisor pra cima
+Preventiva	Técnico pra cima*	Técnico pra cima**	Supervisor pra cima	Supervisor pra cima
+Contratos	Técnico pra cima	Supervisor pra cima	Supervisor pra cima	Supervisor pra cima
+Patrimônio	Técnico pra cima	Técnico pra cima***	Gestor pra cima***	Supervisor pra cima
+Relatórios	Gestor pra cima	Gestor pra cima	—	—
+Administração	Diretor (só ver)	Admin	Admin	Admin
+* Técnico só vê e executa os planos atribuídos a ele mesmo — os demais nem aparecem na lista.
+** Na prática, técnico não cria plano novo — "criar" pra ele é executar o checklist do plano que foi atribuído.
+*** Em Patrimônio, "criar" é solicitar uma movimentação; "editar" é aprovar/rejeitar/executar a solicitação — ações diferentes, por isso as permissões diferem.
+Preços (valores de serviços/orçamentos) só aparecem pra Supervisor pra cima — Gestor e Técnico nunca veem valor, em nenhuma tela ou PDF.
+Assinatura digital e trilha de auditoria
+Toda ação relevante do sistema (criar, editar, excluir, aprovar, executar) gera uma assinatura própria — nome, papel, e-mail, data/hora e um hash de verificação — visível no card de cada registro. Isso cria um histórico rastreável de quem fez o quê, sem depender de anotação manual.
+Armazenamento e disco
+Todos os dados (incluindo fotos, comprimidas antes do envio) ficam no disco persistente do backend, no Render. Uma estimativa de referência: com ~2.000 fotos por mês, 1GB de disco dura entre 3 e 6 meses, dependendo do peso médio das fotos. O disco pode ser redimensionado a qualquer momento pelo painel do Render (Settings → Disks → Resize), sem perda de dados — o custo é de US$ 0,25 por GB/mês.
+Geolocalização em fotos
+Ao anexar uma foto em Registro ou Preventiva, o navegador pede permissão de localização e, se concedida, anexa a coordenada e o endereço legível (rua, bairro, cidade) à foto — visível na tela e nos PDFs gerados, com link direto pro mapa. Se a permissão for negada ou a localização não puder ser obtida, a foto é salva normalmente, só sem esse dado extra. Só vale pra fotos enviadas depois que esse recurso foi ativado — fotos antigas não têm essa informação.
+Instalar como app no celular (PWA)
+iPhone: Safari → Compartilhar → "Adicionar à Tela de Início"
+Android: Chrome → Menu (⋮) → "Adicionar à tela inicial"
+Dúvidas frequentes
+"Perdi acesso depois que o admin mudou meu contrato" — não deveria mais acontecer; a tela busca os dados atualizados direto do servidor a cada carregamento, sem precisar de logout.
+"O botão de excluir sumiu" — depende do seu perfil; veja a tabela de permissões acima.
+"Enviei foto mas não apareceu localização" — confira se a permissão de localização foi concedida no navegador, e lembre que só fotos novas (depois da ativação do recurso) trazem esse dado.
