@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#1e1b4b">
+<title>Sobre o Sistema de Manutenção</title>
+<style>
+:root{
+  --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
+  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+  --radius:14px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 24px rgba(0,0,0,.10);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);}
+
+.hero{min-height:38vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;
+  background:linear-gradient(135deg,#1e1b4b 0%,#4c1d95 50%,#7c3aed 100%);padding:56px 24px 64px;}
+.hero-logo{font-size:48px;margin-bottom:12px;}
+.hero-title{font-size:1.7rem;font-weight:800;color:#fff;margin-bottom:8px;}
+.hero-subtitle{font-size:0.95rem;color:rgba(255,255,255,.75);max-width:480px;line-height:1.6;}
+
+.content{max-width:720px;margin:-32px auto 0;padding:0 16px 48px;position:relative;}
+.card{background:var(--surface);border-radius:var(--radius);padding:24px 22px;box-shadow:var(--shadow-md);margin-bottom:16px;}
+.card h2{font-size:1.05rem;font-weight:700;margin:0 0 10px;color:var(--text);}
+.card p{font-size:0.92rem;color:var(--text-2);line-height:1.65;margin:0 0 10px;}
+.card p:last-child{margin-bottom:0;}
+
+.modules{display:grid;grid-template-columns:1fr;gap:10px;margin-top:4px;}
+@media(min-width:560px){.modules{grid-template-columns:1fr 1fr;}}
+.module-item{display:flex;gap:12px;padding:14px;border-radius:10px;background:var(--bg);border:1px solid var(--border);}
+.module-icon{font-size:22px;flex-shrink:0;line-height:1;}
+.module-name{font-weight:700;font-size:0.88rem;margin-bottom:3px;}
+.module-desc{font-size:0.8rem;color:var(--text-2);line-height:1.5;}
+
+.benefits{display:flex;flex-direction:column;gap:12px;}
+.benefit{display:flex;gap:12px;align-items:flex-start;}
+.benefit-icon{width:34px;height:34px;border-radius:9px;background:var(--primary-light);color:var(--primary);
+  display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.benefit-text{font-size:0.88rem;color:var(--text-2);line-height:1.55;padding-top:5px;}
+.benefit-text strong{color:var(--text);}
+
+.back-wrap{max-width:720px;margin:0 auto;padding:0 16px 40px;text-align:center;}
+.back-btn{display:inline-block;padding:12px 28px;border-radius:10px;background:var(--primary);color:#fff;
+  font-weight:700;font-size:0.9rem;text-decoration:none;border:none;cursor:pointer;}
+.back-btn:active{transform:scale(.97);}
+
+.footnote{text-align:center;font-size:0.75rem;color:var(--text-3);padding:0 24px 24px;}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-logo">🔧</div>
+  <div class="hero-title">Sistema de Gestão de Manutenção</div>
+  <div class="hero-subtitle">Uma plataforma única para organizar toda a operação de manutenção predial — do chamado à nota fiscal, com rastreabilidade em cada etapa.</div>
+</div>
+
+<div class="content">
+
+  <div class="card">
+    <h2>O que é</h2>
+    <p>O sistema centraliza, num só lugar, tudo que envolve a manutenção de equipamentos de climatização e instalações prediais dentro de um contrato de prestação de serviço: abertura e acompanhamento de chamados, registro fotográfico do serviço executado, orçamentos, manutenção preventiva programada, controle patrimonial dos equipamentos e relatórios gerenciais — cada contrato com seus próprios dados, equipamentos e usuários autorizados.</p>
+    <p>Foi pensado pra ser usado tanto do escritório quanto em campo, direto do celular do técnico, sem precisar instalar nada — funciona como um aplicativo dentro do próprio navegador.</p>
+  </div>
+
+  <div class="card">
+    <h2>Módulos</h2>
+    <div class="modules">
+      <div class="module-item">
+        <div class="module-icon">🔔</div>
+        <div><div class="module-name">Chamados</div><div class="module-desc">Abertura e acompanhamento de solicitações de manutenção corretiva, com prioridade, fotos e geração automática de ordem de serviço.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">🔧</div>
+        <div><div class="module-name">Registro</div><div class="module-desc">Relato do serviço executado pelo técnico em campo — o que foi feito, em qual equipamento, com evidência fotográfica e localização.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">💰</div>
+        <div><div class="module-name">Orçamentos</div><div class="module-desc">Geração de propostas de serviço com itens, mão de obra e valores, prontas para aprovação e impressão.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">📋</div>
+        <div><div class="module-name">Preventiva</div><div class="module-desc">Planejamento e execução de manutenções programadas por nível de complexidade, com checklist por equipamento.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">📦</div>
+        <div><div class="module-name">Patrimônio</div><div class="module-desc">Controle de instalação, transferência e baixa de equipamentos, com fluxo de solicitação e aprovação.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">📄</div>
+        <div><div class="module-name">Contratos</div><div class="module-desc">Cadastro de contratos, equipamentos vinculados e tabela de serviços/preços — a base de tudo que roda nos outros módulos.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">📊</div>
+        <div><div class="module-name">Relatórios</div><div class="module-desc">Indicadores gerenciais por período e contrato, incluindo reincidência por equipamento e exportação em PDF.</div></div>
+      </div>
+      <div class="module-item">
+        <div class="module-icon">👥</div>
+        <div><div class="module-name">Administração</div><div class="module-desc">Controle de quem acessa o quê — cada usuário só vê e age dentro do que seu perfil e contrato permitem.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>O que torna diferente</h2>
+    <div class="benefits">
+      <div class="benefit">
+        <div class="benefit-icon">🔒</div>
+        <div class="benefit-text"><strong>Rastreabilidade real.</strong> Cada ação importante (criar, aprovar, executar) fica registrada com nome, papel, data/hora e um código de verificação — um histórico que não se perde.</div>
+      </div>
+      <div class="benefit">
+        <div class="benefit-icon">🏢</div>
+        <div class="benefit-text"><strong>Organizado por contrato.</strong> Cada cliente/contrato tem seus próprios equipamentos, usuários autorizados e histórico — sem mistura de dados entre operações diferentes.</div>
+      </div>
+      <div class="benefit">
+        <div class="benefit-icon">📍</div>
+        <div class="benefit-text"><strong>Evidência em campo.</strong> Fotos do serviço executado, com localização e endereço anexados automaticamente — comprovação de que a visita realmente aconteceu.</div>
+      </div>
+      <div class="benefit">
+        <div class="benefit-icon">📱</div>
+        <div class="benefit-text"><strong>Funciona em qualquer aparelho.</strong> Sem aplicativo pra instalar — abre no navegador do celular, tablet ou computador, com acesso adequado a cada perfil de usuário.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="back-wrap">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Voltar para o login</button>
+</div>
+
+<div class="footnote">Sistema de Gestão de Manutenção</div>
+
+</body>
+</html>
