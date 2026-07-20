@@ -509,9 +509,9 @@ function renderQuoteList() {
     }
     return header + `<div class="quote-card" onclick="openDetail('${q.id}')">
       <div class="qi-info" style="flex:1">
-        <div class="qc-client">Contrato: ${q.client || '—'}</div>
+        <div class="qc-client">Contrato: ${esc(q.client) || '—'}</div>
         <div class="qc-meta">${q.date || ''} · ${q.items.length} serviço(s) · <span class="badge ${sCls}">${sLabel}</span></div>
-        ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${q.equip}${q.machine ? ' · '+q.machine.marca+' · '+q.machine.estabelecimento : ''}</div>` : ''}
+        ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${esc(q.equip)}${q.machine ? ' · '+esc(q.machine.marca)+' · '+esc(q.machine.estabelecimento) : ''}</div>` : ''}
       </div>
       <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${_sigTrail(q._signatures)}
 </div>
@@ -648,7 +648,7 @@ function renderNewItems() {
     }
     return `<div class="quote-item" style="flex-wrap:wrap">
       <div class="qi-info">
-        <div class="qi-name">${it.name}</div>
+        <div class="qi-name">${esc(it.name)}</div>
         <div class="qi-price">${window.HIDE_PRICES ? '' : `${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong>`}</div>
       </div>
       <div class="qty-ctrl">
@@ -743,7 +743,7 @@ function filterServices() {
     }
     return `<div class="service-item" onclick="addService(${idx})">
       <div class="svc-info">
-        <div class="svc-name">${s.name}${customBadge}</div>
+        <div class="svc-name">${esc(s.name)}${customBadge}</div>
         <div class="svc-price">${window.HIDE_PRICES ? '' : fmt(s.price)+(s.unit?' / '+s.unit:'')}</div>
       </div>
       <button class="svc-add" onclick="addService(${idx});event.stopPropagation()">+</button>
@@ -782,7 +782,7 @@ function openDetail(id) {
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px">
       <div>
-        <div style="font-size:19px;font-weight:700">Contrato: ${q.client}</div>
+        <div style="font-size:19px;font-weight:700">Contrato: ${esc(q.client)}</div>
         ${q.equip ? `<div style="font-size:14px;color:var(--text-2);margin-top:2px">🏷️ TAG: ${q.equip}</div>` : ''}
         ${q.machine ? `
           <div style="font-size:13px;color:var(--text-2)">${q.machine.marca} ${q.machine.tipo}${q.machine.capacidade ? ' · '+q.machine.capacidade+' BTU' : ''}</div>
@@ -797,7 +797,7 @@ function openDetail(id) {
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
-          <span>${it.name} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
+          <span>${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
           ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>`}
         </div>`).join('')}
     </div>
@@ -807,7 +807,7 @@ function openDetail(id) {
     ${laborTotal ? `<div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Mão de obra</span><span>${fmt(laborTotal)}</span></div>` : ''}
     <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub + laborTotal)}</span></div>
     `}
-    ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${q.notes}</div>` : ''}
+    ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${esc(q.notes)}</div>` : ''}
   `;
   document.getElementById('detail-modal').classList.remove('hidden');
 }

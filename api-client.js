@@ -14,6 +14,19 @@ const SMM_API_URL = (() => {
 
 const SESSION_KEY = 'smm_jwt';
 
+// Escapa texto de usuário antes de inserir em innerHTML — sem isso, um nome,
+// descrição ou observação contendo tags/script poderia rodar código na tela
+// de outra pessoa que visualizasse aquele dado (XSS armazenado).
+function esc(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
                  modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'],
@@ -55,7 +68,14 @@ async function _call(method, path, body) {
     method, headers,
     body: body ? JSON.stringify(body) : undefined,
   });
-  const json = await res.json();
+  let json;
+  try {
+    json = await res.json();
+  } catch(e) {
+    // O servidor não devolveu JSON (erro interno, instabilidade do
+    // serviço, etc.) — mensagem clara em vez do erro de parse cru.
+    throw new Error(`O servidor não respondeu corretamente (status ${res.status}). Tente novamente em instantes.`);
+  }
   if (!json.ok) {
     const e = new Error(json.error || `Erro ${res.status}`);
     e.status = res.status;

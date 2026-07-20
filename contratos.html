@@ -287,7 +287,7 @@ function renderList() {
     return `
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <h3>Contrato ${c.numero} — ${c.razao}</h3>
+        <h3>Contrato ${esc(c.numero)} — ${esc(c.razao)}</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
           <button onclick="generateContractPDF('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
           ${canEdit ? `<button onclick="openEdit('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
@@ -301,12 +301,12 @@ function renderList() {
       <div class="contract-body">
         <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
         <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
-        <div><label>Contratante</label><div>${c.razao}</div></div>
+        <div><label>Contratante</label><div>${esc(c.razao)}</div></div>
         <div><label>Telefone</label><div>${c.tel||'—'}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span class="tag-count">📊 ${equip.length} equipamentos</span>
-        ${docs.map(d=>`<span class="doc-chip">📄 ${d.name}</span>`).join('')}
+        ${docs.map(d=>`<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
         ${equip.length ? `<button onclick="viewEquipamentos('${c.id}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
       ${_sigTrail(c._signatures)}
       </div>
@@ -488,7 +488,7 @@ function renderServicosList() {
   list.innerHTML = pendingServicos.map((s,i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
       <div style="flex:1">
-        <div style="font-size:13px;font-weight:600">${s.name}</div>
+        <div style="font-size:13px;font-weight:600">${esc(s.name)}</div>
         <div style="font-size:11px;color:var(--text-3)">
           ${s.unit||'un'}${canPrice&&s.price?` · <strong style="color:var(--primary)">R$ ${Number(s.price).toFixed(2)}</strong>`:''}
         </div>
@@ -826,7 +826,7 @@ function renderDocsList() {
   list.innerHTML = pendingDocs.map((d,i) => `
     <div class="file-row">
       <span style="font-size:18px">${d.type?.includes('pdf')?'📄':'🖼️'}</span>
-      <span class="file-name">${d.name}</span>
+      <span class="file-name">${esc(d.name)}</span>
       <span class="file-size">${(d.size/1024).toFixed(0)}KB</span>
       <button onclick="removeDoc(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px">✕</button>
     </div>`).join('');
@@ -849,7 +849,7 @@ function viewEquipamentos(id) {
   detail.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <button onclick="showScreen('list')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px">← Contratos</button>
-      <h2 style="font-size:16px;font-weight:700">Equipamentos — Contrato ${c.numero}</h2>
+      <h2 style="font-size:16px;font-weight:700">Equipamentos — Contrato ${esc(c.numero)}</h2>
       <span class="tag-count">${equip.length} total</span>
     </div>
     ${Object.entries(byEstab).map(([estab,items])=>`
@@ -864,13 +864,13 @@ function viewEquipamentos(id) {
             </tr></thead>
             <tbody>
               ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
-                <td style="padding:5px 8px;font-weight:700;color:var(--primary)">${eq.tag||eq['tag']||'—'}</td>
-                <td style="padding:5px 8px">${eq.patrimonio||eq['patrimonio']||'—'}</td>
-                <td style="padding:5px 8px">${eq.marca||eq['marca']||'—'}</td>
-                <td style="padding:5px 8px">${eq.tipo||eq['tipo']||'—'}</td>
-                <td style="padding:5px 8px">${eq.capacidade||eq['capacidade']||'—'}</td>
-                <td style="padding:5px 8px">${eq.recinto||eq['recinto']||'—'}</td>
-                <td style="padding:5px 8px">${eq.area||eq['area']||'—'}</td>
+                <td style="padding:5px 8px;font-weight:700;color:var(--primary)">${esc(eq.tag||eq['tag'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.patrimonio||eq['patrimonio'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.marca||eq['marca'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.tipo||eq['tipo'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.capacidade||eq['capacidade'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.recinto||eq['recinto'])||'—'}</td>
+                <td style="padding:5px 8px">${esc(eq.area||eq['area'])||'—'}</td>
               </tr>`).join('')}
             </tbody>
           </table>
@@ -982,7 +982,7 @@ function checkExistingClient() {
     const nEquip = (c.equipamentos||[]).filter(e=>!e._inativo).length;
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:#fff;border-radius:6px;margin-bottom:6px;border:1px solid #e2e8f0">
       <div>
-        <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${c.numero} — ${c.razao||''}</div>
+        <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${esc(c.numero)} — ${esc(c.razao)}</div>
         <div style="font-size:11px;color:#64748b">${nEquip} equipamento(s) ativo(s)</div>
       </div>
       <button type="button" onclick="importFromContract('${c.id}')"

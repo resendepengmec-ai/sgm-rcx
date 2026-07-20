@@ -359,17 +359,17 @@ function renderList() {
           <span style="font-size:11px;color:var(--text-3)">${dataStr}</span>
         </div>
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">
-          TAG: ${m.tag||m.novaTag||'—'} · Contrato ${m.contrato||'—'}
+          TAG: ${esc(m.tag||m.novaTag)||'—'} · Contrato ${esc(m.contrato)||'—'}
         </div>
         <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
           Solicitado por: ${m.solicitanteNome||'—'}
         </div>
         <div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
-          ${m.motivo}
+          ${esc(m.motivo)}
         </div>
         ${m.status==='rejeitada' && m.motivoRejeicao ? `
           <div style="font-size:12px;color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 10px;margin-bottom:6px">
-            Motivo da rejeição: ${m.motivoRejeicao}
+            Motivo da rejeição: ${esc(m.motivoRejeicao)}
           </div>` : ''}
         ${m.status==='executada' ? `
           <div style="font-size:12px;color:var(--success);margin-top:4px">
@@ -542,12 +542,12 @@ function openReview(id, action) {
   const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
   document.getElementById('modal-title').textContent = `Revisar: ${tipoLabel} — TAG ${m.tag||m.novaTag||'—'}`;
   document.getElementById('modal-details').innerHTML = `
-    <strong>Contrato:</strong> ${m.contrato}<br>
+    <strong>Contrato:</strong> ${esc(m.contrato)}<br>
     <strong>Tipo:</strong> ${tipoLabel}<br>
     <strong>TAG:</strong> ${m.tag||m.novaTag||'—'}<br>
     ${m.estabelecimentoDestino ? `<strong>Destino:</strong> ${m.estabelecimentoDestino}${m.recintoDestino?' / '+m.recintoDestino:''}<br>` : ''}
-    <strong>Motivo:</strong> ${m.motivo}<br>
-    <strong>Solicitado por:</strong> ${m.solicitanteNome} (${m.solicitantePerfil})<br>
+    <strong>Motivo:</strong> ${esc(m.motivo)}<br>
+    <strong>Solicitado por:</strong> ${esc(m.solicitanteNome)} (${esc(m.solicitantePerfil)})<br>
     <strong>Data:</strong> ${new Date(m.criadoEm).toLocaleDateString('pt-BR')}`;
 
   const rejectField = document.getElementById('modal-reject-field');
@@ -856,9 +856,9 @@ function renderEquipHistoryModal(equip, contrato, events) {
               ${ev.icon}
             </div>
             <div style="flex:1;min-width:0">
-              <div style="font-size:13px;font-weight:600;color:#0f172a">${ev.title}</div>
-              <div style="font-size:12px;color:#475569;margin-top:2px">${ev.desc}</div>
-              ${ev.extra?`<div style="font-size:11px;color:#94a3b8;margin-top:2px">${ev.extra}</div>`:''}
+              <div style="font-size:13px;font-weight:600;color:#0f172a">${esc(ev.title)}</div>
+              <div style="font-size:12px;color:#475569;margin-top:2px">${esc(ev.desc)}</div>
+              ${ev.extra?`<div style="font-size:11px;color:#94a3b8;margin-top:2px">${esc(ev.extra)}</div>`:''}
               <div style="font-size:10px;color:#94a3b8;margin-top:4px">${dt}</div>
             </div>
           </div>`;

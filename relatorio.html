@@ -342,8 +342,8 @@ function render() {
       <div class="event-row">
         <div class="event-dot ${e.tipo}"></div>
         <div class="event-info">
-          <div class="event-tag">${e.tag} <span class="status-pill" style="${statusColors[e.status]||''}">${e.status}</span></div>
-          <div class="event-desc">${e.desc}</div>
+          <div class="event-tag">${esc(e.tag)} <span class="status-pill" style="${statusColors[e.status]||''}">${e.status}</span></div>
+          <div class="event-desc">${esc(e.desc)}</div>
         </div>
         <div class="event-date">${e.data||'—'}</div>
       </div>`).join('') +
@@ -359,8 +359,8 @@ function render() {
       ['Data','TAG','Descrição','Prioridade','Status','Fotos'],
       filtChamados.map(c=>[
         c.date||'—',
-        c.equip||c.tag||'—',
-        (c.desc||c.descricao||c.description||'—').slice(0,60),
+        esc(c.equip||c.tag)||'—',
+        esc((c.desc||c.descricao||c.description||'—').slice(0,60)),
         c.priority||c.prioridade||'—',
         c.status||'aberto',
         photoCell(c.photos)
@@ -375,9 +375,9 @@ function render() {
       ['Data','TAG','Serviços','Técnico','Fotos'],
       filtRegistros.map(r=>[
         r.date||'—',
-        r.equip||r.tag||'—',
-        (r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60)||'—',
-        r.tech||r.technician||r.tecnico||'—',
+        esc(r.equip||r.tag)||'—',
+        esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
+        esc(r.tech||r.technician||r.tecnico)||'—',
         photoCell(r.photos)
       ])
     );
@@ -393,7 +393,7 @@ function render() {
           inPeriod((e.data||e.date||'').slice(0,7)));
         const equips = (p.equipments||[]);
         return [
-          equips.length ? equips.map(e=>e.tag).join(', ').slice(0,40) : (p.tag||'—'),
+          esc(equips.length ? equips.map(e=>e.tag).join(', ').slice(0,40) : (p.tag||'—')),
           p.level||p.nivel||'—',
           execs.length,
           execs.filter(e=>e.completo||e.completed).length+'/'+execs.length
@@ -417,7 +417,7 @@ function render() {
     document.getElementById('reincidencias-table').innerHTML = tableHTML(
       ['TAG','Estabelecimento','Nº de chamados','Datas'],
       reincidencias.map(e=>[
-        e.tag, e.estab, e.count,
+        esc(e.tag), esc(e.estab), e.count,
         e.datas.sort().join(', ')
       ])
     );
@@ -442,8 +442,8 @@ function render() {
         .map(m=>[
           m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—',
           tipoLabel[m.tipo]||m.tipo||'—',
-          m.tag||m.novaTag||'—',
-          (m.motivo||'—').slice(0,60),
+          esc(m.tag||m.novaTag)||'—',
+          esc((m.motivo||'—').slice(0,60)),
           statusLabel[m.status]||m.status||'—'
         ])
     );
@@ -550,6 +550,182 @@ function drawPdfFooters(doc, cont) {
     doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
     doc.setTextColor(0,0,0);
   }
+}
+
+// ── Preventiva: mesmas constantes e regras de progresso usadas em
+// preventiva.html — necessárias pra gerar aqui o mesmo relatório completo
+// por plano (nível concluído/pendente, itens de referência, fotos).
+const CHECKLIST = {
+  1: [
+    "Verificação geral de funcionamento do equipamento (ligamento, refrigeração e ruídos anormais)",
+    "Limpeza superficial dos filtros de ar",
+    "Limpeza externa do gabinete da evaporadora",
+    "Inspeção visual de possíveis anomalias aparentes (vazamentos, sujeira excessiva, obstruções)",
+    "Conferência do controle remoto e ajustes básicos de operação",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  2: [
+    "Lavagem dos filtros de ar com água corrente",
+    "Limpeza detalhada do gabinete da evaporadora, cantos, frestas e entalhes",
+    "Verificação do dreno e possível desobstrução simples com água corrente",
+    "Avaliação básica da vazão de ar e temperaturas para verificar o rendimento da máquina",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  3: [
+    "Lavagem completa dos filtros de ar",
+    "Limpeza das serpentinas da evaporadora (com uso de produto adequado e água sob pressão)",
+    "Limpeza do gabinete interno da evaporadora",
+    "Limpeza da serpentina e gabinete da condensadora",
+    "Verificação do estado de conservação dos componentes (hélice, motor ventilador, isolamentos)",
+    "Inspeção e limpeza do sistema de drenagem com produto adequado e água sob pressão",
+    "Verificação de pressão de fluido refrigerante, temperatura e corrente elétrica de refrigeração",
+    "Reaperto de conexões elétricas aparentes e isolamento de emendas quando necessário",
+    "Reaperto de sistemas de fixação da condensadora e substituição do coxim se necessário",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+};
+const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'Nível 3 — Pesada'};
+const LEVEL_COLOR = {1:'#2563eb', 2:'#d97706', 3:'#dc2626'};
+const fmtMonthPrev = m => { if(!m) return '—'; const [y,mo]=m.split('-'); return new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); };
+const fmtDatePrev  = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
+function getLevelsForPrev(level) {
+  const levels = [1];
+  if (level >= 2) levels.push(2);
+  if (level >= 3) levels.push(3);
+  return levels;
+}
+function isEquipDonePrev(equip, level) {
+  return getLevelsForPrev(level).every(lv => equip.checks && equip.checks[lv] === true);
+}
+function getEquipProgressPrev(equip, level) {
+  const levels = getLevelsForPrev(level);
+  const done = equip.checks ? levels.filter(lv => equip.checks[lv] === true).length : 0;
+  return {done, total: levels.length};
+}
+
+// Relatório completo de um plano de preventiva — mesmo formato e conteúdo
+// do PDF individual gerado em preventiva.html (resumo, tabela de
+// equipamentos, detalhamento por nível com itens de referência, e fotos
+// com localização), só que embutido dentro do relatório gerencial.
+function renderPreventivaPlanDetail(doc, plan) {
+  const W=210, M=20, CW=W-M*2;
+  let y = M;
+  const color = (LEVEL_COLOR[plan.level]||'#2563eb').replace('#','');
+  const r = parseInt(color.slice(0,2),16), g=parseInt(color.slice(2,4),16), b=parseInt(color.slice(4,6),16);
+
+  function header(label) {
+    y = drawPdfHeader(doc, {});
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+    doc.text('MANUTENÇÃO PREVENTIVA — ' + label, M, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50,50,50);
+    doc.text(`Contrato ${plan.client} · ${fmtMonthPrev(plan.period)} · ${LEVEL_LABEL[plan.level]||''}`, M, y);
+    doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDatePrev(plan.finalizedAt||plan.createdAt)}`, M, y+6);
+    doc.setTextColor(0,0,0);
+    y += 12;
+  }
+
+  header('Relatório de Execução');
+  const equipamentos = plan.equipments || [];
+  const done = equipamentos.filter(e=>isEquipDonePrev(e,plan.level)).length;
+  const total = equipamentos.length;
+  const pct = total ? Math.round(done/total*100) : 0;
+
+  doc.setFillColor(240,249,255);
+  doc.rect(M,y,CW,28,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('RESUMO DA EXECUÇÃO', M+4, y+7);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  doc.text(`Equipamentos concluídos: ${done} de ${total} (${pct}%)`, M+4, y+15);
+  doc.text(`Status: ${pct===100?'Concluída':'Em andamento'}`, M+4, y+22);
+  if(plan.obs) doc.text(`Obs: ${esc ? esc(plan.obs) : plan.obs}`, M+CW/2, y+22);
+  y += 36;
+
+  doc.setFillColor(r,g,b);
+  doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('TAG', M+3, y+5.5);
+  doc.text('EQUIPAMENTO', M+CW*0.18, y+5.5);
+  doc.text('ESTABELECIMENTO', M+CW*0.52, y+5.5);
+  doc.text('ITENS', M+CW*0.80, y+5.5);
+  doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
+  y+=8;
+
+  equipamentos.forEach((eq,idx) => {
+    if(y>272){doc.addPage();y=M;header('(continuação)');}
+    if(idx%2===0){doc.setFillColor(240,249,255); doc.rect(M,y,CW,7,'F');}
+    const prog = getEquipProgressPrev(eq, plan.level);
+    const eqDone = isEquipDonePrev(eq, plan.level);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(eq.tag||'—', M+3, y+4.8);
+    doc.text(`${eq.marca||''} ${eq.tipo||''}`.slice(0,24), M+CW*0.18, y+4.8);
+    doc.text((eq.estabelecimento||'').slice(0,22), M+CW*0.52, y+4.8);
+    doc.text(`${prog.done}/${prog.total}`, M+CW*0.80, y+4.8);
+    doc.setFont('helvetica','bold');
+    doc.setTextColor(eqDone?22:220, eqDone?163:38, eqDone?74:38);
+    doc.text(eqDone?'OK':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    y+=7;
+  });
+
+  equipamentos.forEach(eq => {
+    doc.addPage(); y=M; header(`TAG ${eq.tag||'—'}`);
+    doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
+    doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text(`TAG ${eq.tag||'—'}  ·  Contrato ${plan.client}`, M+4, y+14);
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`${eq.marca||''} ${eq.tipo||''}${eq.capacidade?' · '+eq.capacidade+' BTU':''}`, M+4, y+20);
+    doc.text(`${eq.estabelecimento||''} · ${eq.recinto||''}`, M+CW/2, y+20);
+    y+=32;
+
+    const levelGroups = [{lv:1, items:CHECKLIST[1]}];
+    if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
+    if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
+
+    levelGroups.forEach(({lv, items:lvItems}) => {
+      if(y>250){doc.addPage();y=M;header(`TAG ${eq.tag||'—'} (cont.)`);}
+      const lc = LEVEL_COLOR[lv].replace('#','');
+      const lr=parseInt(lc.slice(0,2),16), lg=parseInt(lc.slice(2,4),16), lb2=parseInt(lc.slice(4,6),16);
+      doc.setFillColor(lr,lg,lb2); doc.rect(M,y,CW,7,'F');
+      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text(LEVEL_LABEL[lv].toUpperCase(), M+3, y+4.8);
+      const lvDone = eq.checks && eq.checks[lv] === true;
+      doc.text(lvDone?'FEITO':'PENDENTE', M+CW-3, y+4.8, {align:'right'});
+      y+=7;
+
+      doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      lvItems.forEach(item => {
+        if(y>270){doc.addPage();y=M;header(`TAG ${eq.tag||'—'} (cont.)`);}
+        const itemLines = doc.splitTextToSize(`• ${item}`, CW-8);
+        doc.text(itemLines, M+4, y+4);
+        y += itemLines.length*4.5 + 1;
+      });
+      y+=4;
+    });
+
+    if (eq.photos && eq.photos.length) {
+      if (y>240) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+      doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
+      let px = M;
+      eq.photos.forEach(p => {
+        if (px + 32 > M+CW) { px = M; y += 40; }
+        if (y > 246) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); px=M; }
+        try { doc.addImage(p.dataUrl, 'JPEG', px, y, 30, 22); } catch(e) {}
+        if (p.geo) {
+          doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+          const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
+          const lines = doc.splitTextToSize(label, 30).slice(0,2);
+          doc.textWithLink(lines[0], px, y+25, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          if (lines[1]) doc.text(lines[1], px, y+28);
+          doc.setTextColor(0,0,0);
+        }
+        px += 34;
+      });
+      y += 34;
+    }
+  });
 }
 
 function generatePDF() {
@@ -679,15 +855,13 @@ function generatePDF() {
     y+=4;
   }
 
-  // Preventiva
+  // Preventiva — mesmo relatório completo por plano usado em preventiva.html
+  // (resumo, tabela de equipamentos, detalhamento por nível e fotos)
   if (preventiva.length) {
-    addSection(`Manutenção preventiva (${preventiva.length} planos)`);
     preventiva.forEach(p=>{
-      ensurePage(255);
-      const execs=(p.execucoes||[]).filter(e=>inPeriodPdf(e.data));
-      doc.text(`TAG: ${p.tag||'—'} | Nível: ${p.nivel||'—'} | Execuções: ${execs.length}`,PDF_M+2,y);y+=5;
+      doc.addPage();
+      renderPreventivaPlanDetail(doc, p);
     });
-    y+=4;
   }
 
   // Reincidências por equipamento

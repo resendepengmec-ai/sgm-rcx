@@ -468,9 +468,9 @@ function renderList() {
       ${thumb}
       <div class="cc-info">
         <div class="cc-title">${c.id} · TAG ${c.equip||'—'}</div>
-        <div class="cc-meta">Contrato ${c.client} · ${fmtDate(c.date)}${c.requester?' · '+c.requester:''}</div>
+        <div class="cc-meta">Contrato ${esc(c.client)} · ${fmtDate(c.date)}${c.requester?' · '+esc(c.requester):''}</div>
         ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
-        <div class="cc-desc">${c.desc||''}</div>
+        <div class="cc-desc">${esc(c.desc)}</div>
       </div>
       <div class="cc-right">
         <span class="badge ${s.cls}">${s.label}</span>
@@ -734,13 +734,13 @@ function openDetail(id){
     </div>
     <div style="background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-size:13px;line-height:1.8">
       <div style="font-weight:600;color:var(--primary);margin-bottom:4px">📍 Equipamento</div>
-      <div>Contrato ${c.client} · TAG ${c.equip||'—'}</div>
+      <div>Contrato ${esc(c.client)} · TAG ${esc(c.equip)||'—'}</div>
       ${c.machine?`<div>${c.machine.marca} ${c.machine.tipo}${c.machine.capacidade?' · '+c.machine.capacidade+' BTU':''}</div><div>${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
     </div>
-    <div style="font-size:13px;color:var(--text-2);margin-bottom:10px">📅 ${fmtDate(c.date)}${c.requester?' · 👤 '+c.requester:''}</div>
+    <div style="font-size:13px;color:var(--text-2);margin-bottom:10px">📅 ${fmtDate(c.date)}${c.requester?' · 👤 '+esc(c.requester):''}</div>
     <div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px;font-size:14px;line-height:1.6;margin-bottom:12px">
       <div style="font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Descrição do problema</div>
-      ${c.desc||'—'}
+      ${esc(c.desc)||'—'}
     </div>
     ${osSection}
     ${canGerarOS && c.status!=='resolvido' && c.status!=='cancelado' ? `

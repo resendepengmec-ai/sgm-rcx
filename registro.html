@@ -549,14 +549,14 @@ function renderRecordList() {
       <div class="rc-info">
         <div class="rc-client">
           ${r._avulso
-            ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${r.machine?.cliente||'Cliente avulso'} · ${r.equip}`
+            ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${esc(r.machine?.cliente)||'Cliente avulso'} · ${esc(r.equip)}`
             : `Contrato ${r.client} · TAG ${r.equip||'—'}`
           }
         </div>
-        <div class="rc-meta">${r.date||'—'}${r.tech?' · 👷 '+r.tech:''}</div>
+        <div class="rc-meta">${r.date||'—'}${r.tech?' · 👷 '+esc(r.tech):''}</div>
         <div class="rc-meta">${svcNames}</div>
-        ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${r.machine.estabelecimento}${r.machine.recinto?' · '+r.machine.recinto:''}</div>` : ''}
-        ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${r.machine.endereco}</div>` : ''}
+        ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.estabelecimento)}${r.machine.recinto?' · '+esc(r.machine.recinto):''}</div>` : ''}
+        ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.endereco)}</div>` : ''}
       </div>
       <div class="rc-count">${r.photos?r.photos.length:0}📷</div>
     </div>`;
@@ -951,7 +951,7 @@ function renderNewItems() {
       </div>`
     : `<div class="svc-item-row" style="flex-wrap:wrap;align-items:flex-start;gap:6px;padding:12px 0">
         <div style="flex:1;min-width:0">
-          <div class="svc-item-name" style="margin-bottom:6px">${it.name}</div>
+          <div class="svc-item-name" style="margin-bottom:6px">${esc(it.name)}</div>
           <textarea
             placeholder="Observação sobre este serviço (opcional)..."
             rows="2"
@@ -1284,7 +1284,7 @@ function openDetail(id){
         <div style="font-size:12px;color:#dc2626;line-height:1.5">${it.desc||INVIAVEL_NOTE}</div>
       </div>`
     : `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
-        <div style="font-size:14px;font-weight:600;margin-bottom:3px">${it.name}</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:3px">${esc(it.name)}</div>
         <div style="font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:${it.obs?'6px':'0'}">${it.desc||''}</div>
         ${it.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:6px;padding:7px 10px;margin-top:4px">📝 ${it.obs}</div>`:''}
       </div>`
@@ -1294,11 +1294,11 @@ function openDetail(id){
   document.getElementById('detail-content').innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:19px;font-weight:700">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
-      ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${r.machine.marca} ${r.machine.tipo}${r.machine.capacidade?' · '+r.machine.capacidade+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${r.machine.estabelecimento} · ${r.machine.recinto}</div>`:''}
-      <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${r.date||'—'}${r.tech?' · 👷 '+r.tech:''}</div>
+      ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${esc(r.machine.marca)} ${esc(r.machine.tipo)}${r.machine.capacidade?' · '+esc(r.machine.capacidade)+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${esc(r.machine.estabelecimento)} · ${esc(r.machine.recinto)}</div>`:''}
+      <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${r.date||'—'}${r.tech?' · 👷 '+esc(r.tech):''}</div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${svcList}</div>
-    ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${r.notes}</div>`:''}
+    ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${esc(r.notes)}</div>`:''}
     ${photos}`;
   document.getElementById('detail-modal').classList.remove('hidden');
 }
