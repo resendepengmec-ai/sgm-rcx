@@ -415,7 +415,7 @@ function photoCell(photos) {
   const geo = photos[0].geo;
   return `<img src="${first}" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
     ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}
-    ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="Ver localização">📍</a>`:''}`;
+    ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="${geo.shortAddress||geo.address||'Ver localização'}">📍</a>`:''}`;
 }
 function showPhotoModal(src) {
   let modal = document.getElementById('photo-zoom-modal');
@@ -514,6 +514,12 @@ function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
+  function fitText(doc, text, maxW) {
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
   const periodoIni = document.getElementById('f-periodo-ini').value;
   const periodoFim = document.getElementById('f-periodo-fim').value;
   const contrato = document.getElementById('f-contrato').value;
@@ -588,7 +594,8 @@ function generatePDF() {
           const geo0 = c.photos[0].geo;
           if (geo0) {
             doc.setFontSize(7); doc.setTextColor(37,99,235);
-            doc.textWithLink(`${geo0.lat.toFixed(4)}, ${geo0.lng.toFixed(4)}`, PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo0.lat},${geo0.lng}` });
+            const label0 = geo0.shortAddress || `${geo0.lat.toFixed(4)}, ${geo0.lng.toFixed(4)}`;
+            doc.textWithLink(fitText(doc, label0, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo0.lat},${geo0.lng}` });
             doc.setTextColor(0,0,0); doc.setFontSize(10);
           }
         } catch(e) {}
@@ -614,7 +621,8 @@ function generatePDF() {
           const geo1 = r.photos[0].geo;
           if (geo1) {
             doc.setFontSize(7); doc.setTextColor(37,99,235);
-            doc.textWithLink(`${geo1.lat.toFixed(4)}, ${geo1.lng.toFixed(4)}`, PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo1.lat},${geo1.lng}` });
+            const label1 = geo1.shortAddress || `${geo1.lat.toFixed(4)}, ${geo1.lng.toFixed(4)}`;
+            doc.textWithLink(fitText(doc, label1, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo1.lat},${geo1.lng}` });
             doc.setTextColor(0,0,0); doc.setFontSize(10);
           }
         } catch(e) {}

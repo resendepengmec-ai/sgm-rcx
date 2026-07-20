@@ -969,7 +969,7 @@ function renderExecList(plan) {
         ${photos.map((p,pi)=>`<div style="position:relative">
           <img src="${p.dataUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="showPhotoZoom('${p.dataUrl}')">
           <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
-          ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
+          ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
         </div>`).join('')}
       </div>` : '';
 
@@ -1052,15 +1052,45 @@ function showChecklistItems(planLevel) {
 }
 
 // Foto por equipamento (evidência da execução)
-// Pede a localização atual do navegador. Não trava o fluxo se o usuário
-// negar ou o aparelho não suportar — a foto continua sendo salva
-// normalmente, só sem a coordenada anexada.
+// Pede a localização atual do navegador e converte a coordenada num
+// endereço legível (rua, bairro, cidade) via geocodificação reversa
+// gratuita (OpenStreetMap/Nominatim). Nada disso trava o fluxo: se a
+// permissão for negada, o endereço não vier, ou a internet cair no meio,
+// a foto é salva do mesmo jeito — só sem esse extra.
+async function reverseGeocode(lat, lng) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      { headers: { 'Accept-Language': 'pt-BR' }, signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const a = data.address || {};
+    const rua = a.road || a.pedestrian || '';
+    const numero = a.house_number ? ', ' + a.house_number : '';
+    const bairro = a.suburb || a.neighbourhood || a.city_district || '';
+    const cidade = a.city || a.town || a.municipality || '';
+    const uf = a.state_code || (a.state ? a.state.slice(0,2).toUpperCase() : '');
+    const short = [rua ? rua+numero : '', bairro, [cidade,uf].filter(Boolean).join('-')].filter(Boolean).join(', ');
+    return { full: data.display_name || null, short: short || null };
+  } catch(e) { return null; }
+}
+
 function getGeoTag(timeoutMs = 8000) {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
     const timer = setTimeout(() => resolve(null), timeoutMs);
     navigator.geolocation.getCurrentPosition(
-      pos => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy||0) }); },
+      async pos => {
+        clearTimeout(timer);
+        const geo = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy||0) };
+        const addr = await reverseGeocode(geo.lat, geo.lng);
+        if (addr) { geo.address = addr.full; geo.shortAddress = addr.short; }
+        resolve(geo);
+      },
       () => { clearTimeout(timer); resolve(null); },
       { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60000 }
     );
@@ -1298,17 +1328,20 @@ function generatePlanPDF(plan, sharedDoc) {
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
       let px = M;
       eq.photos.forEach(p => {
-        if (px + 32 > M+CW) { px = M; y += 36; }
-        if (y > 250) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); px=M; }
+        if (px + 32 > M+CW) { px = M; y += 40; }
+        if (y > 246) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); px=M; }
         try { doc.addImage(p.dataUrl, 'JPEG', px, y, 30, 22); } catch(e) {}
         if (p.geo) {
           doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-          doc.textWithLink(`${p.geo.lat.toFixed(4)}, ${p.geo.lng.toFixed(4)}`, px, y+25, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
+          const lines = doc.splitTextToSize(label, 30).slice(0,2);
+          doc.textWithLink(lines[0], px, y+25, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          if (lines[1]) doc.text(lines[1], px, y+28);
           doc.setTextColor(0,0,0);
         }
         px += 34;
       });
-      y += 30;
+      y += 34;
     }
   });
 

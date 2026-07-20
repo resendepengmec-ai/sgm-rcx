@@ -724,7 +724,7 @@ function printFilteredPDF() {
       doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
       doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
       y += 5;
-      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=4;
+      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=8;
       r.photos.forEach((p, pi) => {
         const col=pi%cols, row=Math.floor(pi/cols);
         const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
@@ -732,8 +732,10 @@ function printFilteredPDF() {
         try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
         if (p.geo) {
           doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-          const coordTxt = `Local: ${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
-          doc.textWithLink(coordTxt, px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
+          const lines = doc.splitTextToSize(label, imgW).slice(0,2);
+          doc.textWithLink(lines[0], px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          if (lines[1]) doc.text(lines[1], px, py+imgH+6);
           doc.setTextColor(0,0,0);
         }
       });
@@ -1032,15 +1034,45 @@ function addService(i){
 }
 
 // ── Photos ──
-// Pede a localização atual do navegador (uma vez por lote de fotos). Não
-// trava o fluxo se o usuário negar ou o aparelho não suportar — a foto
-// continua sendo salva normalmente, só sem a coordenada anexada.
+// Pede a localização atual do navegador (uma vez por lote de fotos) e
+// converte a coordenada num endereço legível (rua, bairro, cidade) via
+// geocodificação reversa gratuita (OpenStreetMap/Nominatim). Nada disso
+// trava o fluxo: se a permissão for negada, o endereço não vier, ou a
+// internet cair no meio, a foto é salva do mesmo jeito — só sem esse extra.
+async function reverseGeocode(lat, lng) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const resp = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+      { headers: { 'Accept-Language': 'pt-BR' }, signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const a = data.address || {};
+    const rua = a.road || a.pedestrian || '';
+    const numero = a.house_number ? ', ' + a.house_number : '';
+    const bairro = a.suburb || a.neighbourhood || a.city_district || '';
+    const cidade = a.city || a.town || a.municipality || '';
+    const uf = a.state_code || (a.state ? a.state.slice(0,2).toUpperCase() : '');
+    const short = [rua ? rua+numero : '', bairro, [cidade,uf].filter(Boolean).join('-')].filter(Boolean).join(', ');
+    return { full: data.display_name || null, short: short || null };
+  } catch(e) { return null; }
+}
+
 function getGeoTag(timeoutMs = 8000) {
   return new Promise(resolve => {
     if (!navigator.geolocation) { resolve(null); return; }
     const timer = setTimeout(() => resolve(null), timeoutMs);
     navigator.geolocation.getCurrentPosition(
-      pos => { clearTimeout(timer); resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy||0) }); },
+      async pos => {
+        clearTimeout(timer);
+        const geo = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: Math.round(pos.coords.accuracy||0) };
+        const addr = await reverseGeocode(geo.lat, geo.lng);
+        if (addr) { geo.address = addr.full; geo.shortAddress = addr.short; }
+        resolve(geo);
+      },
       () => { clearTimeout(timer); resolve(null); },
       { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 60000 }
     );
@@ -1089,7 +1121,7 @@ function renderPhotoGrid(){
     <div class="photo-thumb" style="position:relative">
       <img src="${p.dataUrl}" alt="foto ${i+1}" onclick="openLightbox('${p.dataUrl}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
       <button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button>
-      ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none">📍 mapa</a>` : ''}
+      ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📍 ${p.geo.shortAddress ? p.geo.shortAddress.split(',')[0] : 'mapa'}</a>` : ''}
     </div>`).join('');
 }
 
@@ -1290,7 +1322,7 @@ function printPDF(id){
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
     y+=4;
-    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=4;
+    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=8;
     r.photos.slice(0,6).forEach((p,i)=>{
       const col=i%cols, row=Math.floor(i/cols);
       const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
@@ -1298,7 +1330,10 @@ function printPDF(id){
       try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
       if (p.geo) {
         doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-        doc.textWithLink(`Local: ${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`, px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+        const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
+        const lines = doc.splitTextToSize(label, imgW).slice(0,2);
+        doc.textWithLink(lines[0], px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+        if (lines[1]) doc.text(lines[1], px, py+imgH+6);
         doc.setTextColor(0,0,0);
       }
     });
