@@ -412,8 +412,10 @@ function render() {
 function photoCell(photos) {
   if (!photos || !photos.length) return '<span style="color:var(--text-3)">—</span>';
   const first = photos[0].dataUrl || photos[0];
+  const geo = photos[0].geo;
   return `<img src="${first}" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
-    ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}`;
+    ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}
+    ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="Ver localização">📍</a>`:''}`;
 }
 function showPhotoModal(src) {
   let modal = document.getElementById('photo-zoom-modal');
@@ -583,6 +585,12 @@ function generatePDF() {
           const src = c.photos[0].dataUrl || c.photos[0];
           doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
           if (c.photos.length > 1) doc.text(`+${c.photos.length-1} foto(s)`, PDF_M+27, y+9);
+          const geo0 = c.photos[0].geo;
+          if (geo0) {
+            doc.setFontSize(7); doc.setTextColor(37,99,235);
+            doc.textWithLink(`${geo0.lat.toFixed(4)}, ${geo0.lng.toFixed(4)}`, PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo0.lat},${geo0.lng}` });
+            doc.setTextColor(0,0,0); doc.setFontSize(10);
+          }
         } catch(e) {}
         y += 19;
       }
@@ -603,6 +611,12 @@ function generatePDF() {
           const src = r.photos[0].dataUrl || r.photos[0];
           doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
           if (r.photos.length > 1) doc.text(`+${r.photos.length-1} foto(s)`, PDF_M+27, y+9);
+          const geo1 = r.photos[0].geo;
+          if (geo1) {
+            doc.setFontSize(7); doc.setTextColor(37,99,235);
+            doc.textWithLink(`${geo1.lat.toFixed(4)}, ${geo1.lng.toFixed(4)}`, PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo1.lat},${geo1.lng}` });
+            doc.setTextColor(0,0,0); doc.setFontSize(10);
+          }
         } catch(e) {}
         y += 19;
       }

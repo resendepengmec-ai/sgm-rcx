@@ -1301,9 +1301,14 @@ function generatePlanPDF(plan, sharedDoc) {
         if (px + 32 > M+CW) { px = M; y += 36; }
         if (y > 250) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); px=M; }
         try { doc.addImage(p.dataUrl, 'JPEG', px, y, 30, 22); } catch(e) {}
+        if (p.geo) {
+          doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+          doc.textWithLink(`${p.geo.lat.toFixed(4)}, ${p.geo.lng.toFixed(4)}`, px, y+25, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          doc.setTextColor(0,0,0);
+        }
         px += 34;
       });
-      y += 28;
+      y += 30;
     }
   });
 

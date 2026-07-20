@@ -724,14 +724,20 @@ function printFilteredPDF() {
       doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
       doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
       y += 5;
-      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75;
+      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=4;
       r.photos.forEach((p, pi) => {
         const col=pi%cols, row=Math.floor(pi/cols);
-        const px=M+col*(imgW+4), py=y+row*(imgH+4);
-        if(py+imgH>280){doc.addPage();y=M;}
+        const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
+        if(py+imgH+capH>280){doc.addPage();y=M;}
         try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+        if (p.geo) {
+          doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+          const coordTxt = `Local: ${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
+          doc.textWithLink(coordTxt, px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+          doc.setTextColor(0,0,0);
+        }
       });
-      y += Math.ceil(r.photos.length/cols)*(imgH+4)+4;
+      y += Math.ceil(r.photos.length/cols)*(imgH+capH+4)+4;
     }
   });
 
@@ -1284,14 +1290,19 @@ function printPDF(id){
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
     y+=4;
-    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75;
+    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=4;
     r.photos.slice(0,6).forEach((p,i)=>{
       const col=i%cols, row=Math.floor(i/cols);
-      const px=M+col*(imgW+4), py=y+row*(imgH+4);
-      if(py+imgH>280){doc.addPage();y=M;}
+      const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
+      if(py+imgH+capH>280){doc.addPage();y=M;}
       try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+      if (p.geo) {
+        doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+        doc.textWithLink(`Local: ${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`, px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
+        doc.setTextColor(0,0,0);
+      }
     });
-    y += Math.ceil(Math.min(r.photos.length,6)/cols)*(imgH+4)+6;
+    y += Math.ceil(Math.min(r.photos.length,6)/cols)*(imgH+capH+4)+6;
   }
 
   drawPdfFooters(doc, cont);
