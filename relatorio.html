@@ -51,9 +51,14 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="flex:1;min-width:140px;margin-bottom:0">
         <label>Contrato</label>
-        <select id="f-contrato" onchange="render()">
+        <select id="f-contrato" onchange="onContratoChangeRel()">
           <option value="">Todos os contratos</option>
         </select>
+      </div>
+      <div class="field" style="min-width:140px;margin-bottom:0">
+        <label>TAG (opcional)</label>
+        <input id="f-tag" list="f-tag-list" placeholder="Todas as TAGs" onchange="render()" style="width:100%">
+        <datalist id="f-tag-list"></datalist>
       </div>
       <div class="field" style="margin-bottom:0">
         <label>Período (início)</label>
@@ -188,13 +193,42 @@ function init() {
   document.getElementById('f-periodo-ini').value = mesAtual;
   document.getElementById('f-periodo-fim').value = mesAtual;
 
-  // Load contracts
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
-  const sel = document.getElementById('f-contrato');
-  sel.innerHTML = '<option value="">Todos os contratos</option>' +
-    contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+  // Load contracts (busca fresca do servidor, com os equipamentos —
+  // necessário pro filtro de TAG poder sugerir as TAGs do contrato)
+  DB.getContratos().then(data => {
+    if (data) {
+      localStorage.setItem('smm_contracts', JSON.stringify(data));
+      const sel = document.getElementById('f-contrato');
+      sel.innerHTML = '<option value="">Todos os contratos</option>' +
+        data.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+      populateTagList();
+    }
+  }).catch(()=>{
+    const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+    const sel = document.getElementById('f-contrato');
+    sel.innerHTML = '<option value="">Todos os contratos</option>' +
+      contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+    populateTagList();
+  });
 
   loadPrestadoraConfig();
+}
+
+// Sugestões de TAG no campo de filtro — todas as TAGs do contrato
+// selecionado (ou de todos os contratos, se nenhum estiver selecionado)
+function populateTagList() {
+  const contrato = document.getElementById('f-contrato').value;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const relevantes = contrato ? contracts.filter(c=>c.numero===contrato) : contracts;
+  const tags = [];
+  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); }));
+  document.getElementById('f-tag-list').innerHTML =
+    [...new Set(tags)].sort().map(t=>`<option value="${t}">`).join('');
+}
+function onContratoChangeRel() {
+  document.getElementById('f-tag').value = '';
+  populateTagList();
+  render();
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -227,25 +261,32 @@ function render() {
     return ym >= periodoIni && ym <= periodoFim;
   };
   const inContract = (c) => !contrato || c === contrato;
+  const tagFilter = document.getElementById('f-tag').value.trim().toUpperCase();
+  const inTag = (recTag) => !tagFilter || (recTag||'').toUpperCase() === tagFilter;
 
   // Chamados: contrato em c.client, TAG em c.equip, descrição em c.desc
   const filtChamados  = chamados.filter(c  =>
     inPeriod(c.date||c.createdAt?.toString().slice(0,7)) &&
-    inContract(c.client||c.contract||c.contrato));
+    inContract(c.client||c.contract||c.contrato) &&
+    inTag(c.equip||c.tag));
   // Registros: contrato em r.client|r.contract, TAG em r.equip|r.tag
   const filtRegistros = registros.filter(r =>
     inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
-    inContract(r.client||r.contract||r.contrato));
-  // Preventiva: contrato em p.client, equipamentos em p.equipments[].tag
+    inContract(r.client||r.contract||r.contrato) &&
+    inTag(r.equip||r.tag));
+  // Preventiva: contrato em p.client, equipamentos em p.equipments[].tag —
+  // com filtro de TAG, só entra o plano se a TAG estiver entre os
+  // equipamentos dele
   const filtPreventiva= preventiva.filter(p=> {
     const execs = (p.execucoes||p.executions||[]).filter(e=>
       inPeriod((e.data||e.date||'').slice(0,7)));
-    return execs.length > 0 && inContract(p.client||p.contract||p.contrato);
+    const hasTag = !tagFilter || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilter);
+    return execs.length > 0 && inContract(p.client||p.contract||p.contrato) && hasTag;
   });
   // Movimentações de patrimônio: contrato em m.contrato, data em m.criadoEm
   const filtMovimentos = movimentos.filter(m => {
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
-    return inPeriod(dataStr) && inContract(m.contrato);
+    return inPeriod(dataStr) && inContract(m.contrato) && inTag(m.tag||m.novaTag);
   });
 
   // Contract info
@@ -254,7 +295,7 @@ function render() {
   // Header
   document.getElementById('report-empty').style.display='none';
   document.getElementById('report-header').style.display='';
-  document.getElementById('report-title').textContent = `Relatório Gerencial — ${mesLabel}`;
+  document.getElementById('report-title').textContent = `Relatório Gerencial — ${mesLabel}${tagFilter?' — TAG '+tagFilter:''}`;
   document.getElementById('report-subtitle').textContent = contrato ? `Contrato ${contrato}` : 'Todos os contratos';
   document.getElementById('report-contratante').textContent = cont ? cont.razao : '';
   document.getElementById('report-vigencia').textContent = cont ? `Vigência: ${cont.inicio||'—'} → ${cont.fim||'—'}` : '';
@@ -442,7 +483,7 @@ function tableHTML(headers, rows) {
 // ── PDF: cabeçalho (prestadora) e rodapé (contratante) ──────────────
 const PDF_M = 20, PDF_W = 210, PDF_H = 297;
 
-function drawPdfHeader(doc, { full, mesLabel, contrato }) {
+function drawPdfHeader(doc, { full, mesLabel, contrato, tag }) {
   let y = 14;
   let textX = PDF_M;
 
@@ -482,6 +523,7 @@ function drawPdfHeader(doc, { full, mesLabel, contrato }) {
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
     doc.text(`Período: ${mesLabel}`, PDF_M, contentY); contentY += 6;
     if (contrato) { doc.text(`Contrato: ${contrato}`, PDF_M, contentY); contentY += 6; }
+    if (tag) { doc.text(`TAG: ${tag} (histórico completo do equipamento)`, PDF_M, contentY); contentY += 6; }
     contentY += 2;
   }
   return contentY;
@@ -535,7 +577,8 @@ function generatePDF() {
   const contracts= JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const cont     = contrato ? contracts.find(c=>c.numero===contrato) : null;
 
-  let y = drawPdfHeader(doc, { full:true, mesLabel, contrato });
+  const tagFilterPdf = document.getElementById('f-tag').value.trim().toUpperCase();
+  let y = drawPdfHeader(doc, { full:true, mesLabel, contrato, tag: tagFilterPdf });
   if (cont && cont.inicio) { doc.setFontSize(10); doc.setTextColor(90,90,90); doc.text(`Vigência: ${cont.inicio||'—'} a ${cont.fim||'—'}`, PDF_M, y); doc.setTextColor(0,0,0); y += 8; }
 
   const inPeriodPdf = (dateStr) => {
@@ -543,19 +586,23 @@ function generatePDF() {
     const ym = dateStr.slice(0,7);
     return ym >= periodoIni && ym <= periodoFim;
   };
+  const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
   const chamados  = JSON.parse(localStorage.getItem('chamados_list')   ||'[]').filter(c=>
     inPeriodPdf(c.date) &&
-    (!contrato||(c.client||c.contract||c.contrato)===contrato));
+    (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
+    inTagPdf(c.equip||c.tag));
   const registros = JSON.parse(localStorage.getItem('registro_records')||'[]').filter(r=>
     inPeriodPdf(r.date) &&
-    (!contrato||(r.client||r.contract||r.contrato)===contrato));
+    (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
+    inTagPdf(r.equip||r.tag));
   const preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]').filter(p=>{
     const execs=(p.execucoes||p.executions||[]).filter(e=>inPeriodPdf(e.data||e.date));
-    return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato);
+    const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
+    return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
   });
   const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
-    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato);
+    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag);
   });
 
   const ensurePage = (threshold) => {

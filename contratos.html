@@ -138,7 +138,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="tab-equipamentos" style="display:none">
       <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.6">
         Faça upload do banco de equipamentos em formato <strong>CSV, XLS ou XLSX</strong>.
-        Colunas esperadas: TAG · Marca · Tipo · Capacidade · Estabelecimento · Recinto
+        Colunas esperadas: TAG · Patrimônio · Marca · Tipo · Capacidade · Estabelecimento · Recinto · Área
         <br><span style="color:var(--success);font-size:12px">
           ✅ Merge inteligente: novos equipamentos são adicionados, existentes atualizados,
           equipamentos baixados via Patrimônio são preservados automaticamente.
@@ -414,7 +414,7 @@ async function generateContractPDF(id) {
     doc.setFontSize(10);
     equip.forEach(eq=>{
       if (y > 275) { doc.addPage(); y = 28; }
-      doc.text(`${eq.tag||'—'} · ${eq.marca||'—'} ${eq.tipo||''} ${eq.capacidade||''} · ${eq.estabelecimento||''} ${eq.recinto?'/ '+eq.recinto:''}`.slice(0,110), PDF_M, y);
+      doc.text(`${eq.tag||'—'}${eq.patrimonio?' (Pat. '+eq.patrimonio+')':''} · ${eq.marca||'—'} ${eq.tipo||''} ${eq.capacidade||''} · ${eq.estabelecimento||''} ${eq.recinto?'/ '+eq.recinto:''}${eq.area?' · Área: '+eq.area:''}`.slice(0,120), PDF_M, y);
       y += 5;
     });
     y += 4;
@@ -860,15 +860,17 @@ function viewEquipamentos(id) {
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--surface);color:var(--text-3)">
-              ${['TAG','Marca','Tipo','Capacidade','Recinto'].map(h=>`<th style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
+              ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área'].map(h=>`<th style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
             </tr></thead>
             <tbody>
               ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
                 <td style="padding:5px 8px;font-weight:700;color:var(--primary)">${eq.tag||eq['tag']||'—'}</td>
+                <td style="padding:5px 8px">${eq.patrimonio||eq['patrimonio']||'—'}</td>
                 <td style="padding:5px 8px">${eq.marca||eq['marca']||'—'}</td>
                 <td style="padding:5px 8px">${eq.tipo||eq['tipo']||'—'}</td>
                 <td style="padding:5px 8px">${eq.capacidade||eq['capacidade']||'—'}</td>
                 <td style="padding:5px 8px">${eq.recinto||eq['recinto']||'—'}</td>
+                <td style="padding:5px 8px">${eq.area||eq['area']||'—'}</td>
               </tr>`).join('')}
             </tbody>
           </table>

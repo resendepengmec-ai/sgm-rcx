@@ -982,14 +982,19 @@ function _getAvailableServices() {
     unit: s.unit,
     _custom: true,
   }));
-  return [...custom, ...SERVICES];
+  // Técnico só vê os serviços cadastrados no contrato (+ a opção de marcar
+  // inviável) — o catálogo genérico descritivo é só pra quem pode ver/editar
+  // preço, senão ficava tudo misturado e duplicado com o que já é do contrato.
+  const canSeeGenericCatalog = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+  const inviavelOnly = SERVICES.filter(s => s.inviavel);
+  return canSeeGenericCatalog ? [...custom, ...SERVICES] : [...custom, ...inviavelOnly];
 }
 
 function filterServices(){
   const q = document.getElementById('svc-search').value.toLowerCase();
   const el = document.getElementById('svc-list');
   const allServices = _getAvailableServices();
-  const canPrice = ['admin','diretor','supervisor','gestor'].includes(getCurrentUser()?.role);
+  const canPrice = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
   el.innerHTML = allServices.filter(s=>s.name.toLowerCase().includes(q)||((s.desc||'').toLowerCase().includes(q))).map((s)=>{
     const i = allServices.indexOf(s);
     // Store services globally for addService
@@ -1618,7 +1623,7 @@ function renderOSChecklist(services) {
   box = document.createElement('div');
   box.id = 'os-checklist-box';
   box.style.cssText = 'background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:14px;margin:0 12px 14px;font-size:13px';
-  const canPrice = ['admin','diretor','supervisor','gestor'].includes(getCurrentUser()?.role);
+  const canPrice = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
   box.innerHTML = `
     <div style="font-weight:700;color:#166534;margin-bottom:10px;font-size:14px">
       ✅ Serviços do contrato — marque os executados
