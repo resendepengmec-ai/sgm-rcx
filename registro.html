@@ -729,7 +729,7 @@ function printFilteredPDF() {
         const col=pi%cols, row=Math.floor(pi/cols);
         const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
         if(py+imgH+capH>280){doc.addPage();y=M;}
-        try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+        addPhotoContain(doc, p.dataUrl, px, py, imgW, imgH);
         if (p.geo) {
           doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
           const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
@@ -1166,6 +1166,19 @@ function drawGeoWatermark(canvas, geo, tile) {
   ctx.fillText(line3, textX, ty2);
 }
 
+// Encaixa a foto na célula (boxX,boxY,boxW,boxH) do PDF preservando a
+// proporção original — nunca estica. Lê as dimensões reais da imagem com
+// getImageProperties e centraliza dentro da célula (efeito "contain").
+function addPhotoContain(doc, dataUrl, boxX, boxY, boxW, boxH){
+  let iw = 0, ih = 0;
+  try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
+  if (!iw || !ih) { try { doc.addImage(dataUrl,'JPEG',boxX,boxY,boxW,boxH); } catch(e){} return; }
+  const ratio = Math.min(boxW/iw, boxH/ih);
+  const dw = iw*ratio, dh = ih*ratio;
+  const dx = boxX + (boxW - dw)/2, dy = boxY + (boxH - dh)/2;
+  try { doc.addImage(dataUrl,'JPEG',dx,dy,dw,dh); } catch(e){}
+}
+
 function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
 function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area').classList.remove('drag'); addPhotos(Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/'))); }function addPhotos(files) {
   const MAX = 3, MAX_PX = 800;
@@ -1416,7 +1429,7 @@ function printPDF(id){
       const col=i%cols, row=Math.floor(i/cols);
       const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
       if(py+imgH+capH>280){doc.addPage();y=M;}
-      try{ doc.addImage(p.dataUrl,'JPEG',px,py,imgW,imgH); }catch(e){}
+      addPhotoContain(doc, p.dataUrl, px, py, imgW, imgH);
       if (p.geo) {
         doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
         const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
