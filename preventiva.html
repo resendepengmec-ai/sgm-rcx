@@ -425,16 +425,16 @@ function drawPdfHeader(doc, { title, metaLines }) {
   doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY);
   return ruleY + 8;
 }
-// Encaixa a foto na célula (boxX,boxY,boxW,boxH) do PDF preservando a
-// proporção original — nunca estica. Centraliza dentro da célula ("contain").
-function addPhotoContain(doc, dataUrl, boxX, boxY, boxW, boxH){
+// Calcula o tamanho de desenho da foto no PDF: parte da largura da coluna
+// (W), mantém a proporção ORIGINAL (sem esticar) e limita a altura a Hmax
+// pra uma foto sozinha nunca estourar a página. Retorna {w,h} em mm.
+function photoFit(doc, dataUrl, W, Hmax){
   let iw = 0, ih = 0;
   try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
-  if (!iw || !ih) { try { doc.addImage(dataUrl,'JPEG',boxX,boxY,boxW,boxH); } catch(e){} return; }
-  const ratio = Math.min(boxW/iw, boxH/ih);
-  const dw = iw*ratio, dh = ih*ratio;
-  const dx = boxX + (boxW - dw)/2, dy = boxY + (boxH - dh)/2;
-  try { doc.addImage(dataUrl,'JPEG',dx,dy,dw,dh); } catch(e){}
+  if (!iw || !ih) return { w: W, h: Math.min(W*0.75, Hmax) };
+  let w = W, h = W * ih / iw;
+  if (h > Hmax) { h = Hmax; w = Hmax * iw / ih; }
+  return { w, h };
 }
 function drawPdfFooters(doc, cont) {
   const pageCount = doc.internal.getNumberOfPages();
@@ -1417,22 +1417,27 @@ function generatePlanPDF(plan, sharedDoc) {
       if (y>240) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
       doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
-      let px = M;
-      eq.photos.forEach(p => {
-        if (px + 32 > M+CW) { px = M; y += 40; }
-        if (y > 246) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); px=M; }
-        addPhotoContain(doc, p.dataUrl, px, y, 30, 22);
-        if (p.geo) {
-          doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-          const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
-          const lines = doc.splitTextToSize(label, 30).slice(0,2);
-          doc.textWithLink(lines[0], px, y+25, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
-          if (lines[1]) doc.text(lines[1], px, y+28);
-          doc.setTextColor(0,0,0);
-        }
-        px += 34;
-      });
-      y += 34;
+      const cols=3, gap=6, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=90;
+      const sized = eq.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+      for (let i=0; i<sized.length; i+=cols) {
+        const rowItems = sized.slice(i, i+cols);
+        const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
+        if (y + rowH + capH > 272) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
+        rowItems.forEach((it, c) => {
+          const cellX = M + c*(cellW+gap);
+          const ix = cellX + (cellW - it.w)/2;
+          try { doc.addImage(it.p.dataUrl,'JPEG',ix,y,it.w,it.h); } catch(e){}
+          if (it.p.geo) {
+            doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+            const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
+            const lines = doc.splitTextToSize(label, cellW).slice(0,2);
+            doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
+            if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
+            doc.setTextColor(0,0,0);
+          }
+        });
+        y += rowH + capH + 4;
+      }
     }
   });
 

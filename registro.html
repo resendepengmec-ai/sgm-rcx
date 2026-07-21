@@ -724,22 +724,27 @@ function printFilteredPDF() {
       doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
       doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
       y += 5;
-      const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=8;
-      r.photos.forEach((p, pi) => {
-        const col=pi%cols, row=Math.floor(pi/cols);
-        const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
-        if(py+imgH+capH>280){doc.addPage();y=M;}
-        addPhotoContain(doc, p.dataUrl, px, py, imgW, imgH);
-        if (p.geo) {
-          doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-          const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
-          const lines = doc.splitTextToSize(label, imgW).slice(0,2);
-          doc.textWithLink(lines[0], px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
-          if (lines[1]) doc.text(lines[1], px, py+imgH+6);
-          doc.setTextColor(0,0,0);
-        }
-      });
-      y += Math.ceil(r.photos.length/cols)*(imgH+capH+4)+4;
+      const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
+      const sized = r.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+      for (let i=0; i<sized.length; i+=cols) {
+        const rowItems = sized.slice(i, i+cols);
+        const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
+        if (y + rowH + capH > 280) { doc.addPage(); y = M; }
+        rowItems.forEach((it, c) => {
+          const cellX = M + c*(cellW+gap);
+          const px = cellX + (cellW - it.w)/2;   // centraliza na coluna
+          try { doc.addImage(it.p.dataUrl,'JPEG',px,y,it.w,it.h); } catch(e){}
+          if (it.p.geo) {
+            doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+            const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
+            const lines = doc.splitTextToSize(label, cellW).slice(0,2);
+            doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
+            if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
+            doc.setTextColor(0,0,0);
+          }
+        });
+        y += rowH + capH + 4;
+      }
     }
   });
 
@@ -1166,17 +1171,17 @@ function drawGeoWatermark(canvas, geo, tile) {
   ctx.fillText(line3, textX, ty2);
 }
 
-// Encaixa a foto na célula (boxX,boxY,boxW,boxH) do PDF preservando a
-// proporção original — nunca estica. Lê as dimensões reais da imagem com
-// getImageProperties e centraliza dentro da célula (efeito "contain").
-function addPhotoContain(doc, dataUrl, boxX, boxY, boxW, boxH){
+// Calcula o tamanho de desenho da foto no PDF: parte da largura da coluna
+// (W), mantém a proporção ORIGINAL da imagem (sem esticar) e limita a
+// altura a Hmax pra uma foto sozinha nunca estourar a página. Retorna {w,h}
+// em mm. Se não der pra ler as dimensões, cai num 4:3 seguro.
+function photoFit(doc, dataUrl, W, Hmax){
   let iw = 0, ih = 0;
   try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
-  if (!iw || !ih) { try { doc.addImage(dataUrl,'JPEG',boxX,boxY,boxW,boxH); } catch(e){} return; }
-  const ratio = Math.min(boxW/iw, boxH/ih);
-  const dw = iw*ratio, dh = ih*ratio;
-  const dx = boxX + (boxW - dw)/2, dy = boxY + (boxH - dh)/2;
-  try { doc.addImage(dataUrl,'JPEG',dx,dy,dw,dh); } catch(e){}
+  if (!iw || !ih) return { w: W, h: Math.min(W*0.75, Hmax) };
+  let w = W, h = W * ih / iw;
+  if (h > Hmax) { h = Hmax; w = Hmax * iw / ih; }
+  return { w, h };
 }
 
 function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
@@ -1424,22 +1429,28 @@ function printPDF(id){
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
     y+=4;
-    const cols=3, imgW=(CW-8)/cols, imgH=imgW*0.75, capH=8;
-    r.photos.slice(0,6).forEach((p,i)=>{
-      const col=i%cols, row=Math.floor(i/cols);
-      const px=M+col*(imgW+4), py=y+row*(imgH+capH+4);
-      if(py+imgH+capH>280){doc.addPage();y=M;}
-      addPhotoContain(doc, p.dataUrl, px, py, imgW, imgH);
-      if (p.geo) {
-        doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-        const label = p.geo.shortAddress || `${p.geo.lat.toFixed(5)}, ${p.geo.lng.toFixed(5)}`;
-        const lines = doc.splitTextToSize(label, imgW).slice(0,2);
-        doc.textWithLink(lines[0], px, py+imgH+3, { url: `https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}` });
-        if (lines[1]) doc.text(lines[1], px, py+imgH+6);
-        doc.setTextColor(0,0,0);
-      }
-    });
-    y += Math.ceil(Math.min(r.photos.length,6)/cols)*(imgH+capH+4)+6;
+    const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
+    const sized = r.photos.slice(0,6).map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+    for (let i=0; i<sized.length; i+=cols) {
+      const rowItems = sized.slice(i, i+cols);
+      const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
+      if (y + rowH + capH > 280) { doc.addPage(); y = M; }
+      rowItems.forEach((it, c) => {
+        const cellX = M + c*(cellW+gap);
+        const px = cellX + (cellW - it.w)/2;
+        try { doc.addImage(it.p.dataUrl,'JPEG',px,y,it.w,it.h); } catch(e){}
+        if (it.p.geo) {
+          doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+          const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
+          const lines = doc.splitTextToSize(label, cellW).slice(0,2);
+          doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
+          if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
+          doc.setTextColor(0,0,0);
+        }
+      });
+      y += rowH + capH + 4;
+    }
+    y += 2;
   }
 
   drawPdfFooters(doc, cont);
