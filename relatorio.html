@@ -232,7 +232,25 @@ function onContratoChangeRel() {
 }
 
 // ── Render ────────────────────────────────────────────────────────
-function render() {
+// Busca fresca do servidor pra chamados, registros, preventiva e
+// movimentações — antes o relatório só lia o que já estivesse em cache
+// local (populado só ao visitar cada módulo individualmente), o que fazia
+// o relatório sair incompleto/vazio se essas telas não tivessem sido
+// abertas nesse mesmo navegador antes.
+let _reportDataLoaded = false;
+async function loadReportData() {
+  const tasks = [
+    DB.getAll('chamados').then(d => { if (d) localStorage.setItem('chamados_list', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getAll('registros').then(d => { if (d) localStorage.setItem('registro_records', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getAll('preventiva').then(d => { if (d) localStorage.setItem('prev_plans', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getMovimentacoes().then(d => { if (d) localStorage.setItem('smm_movimentacoes', JSON.stringify(d)); }).catch(()=>{}),
+  ];
+  await Promise.all(tasks);
+  _reportDataLoaded = true;
+}
+
+async function render() {
+  if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
   const periodoIni = document.getElementById('f-periodo-ini').value;
   const periodoFim = document.getElementById('f-periodo-fim').value;
   const contrato = document.getElementById('f-contrato').value;
@@ -728,8 +746,9 @@ function renderPreventivaPlanDetail(doc, plan) {
   });
 }
 
-function generatePDF() {
+async function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
+  if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   function fitText(doc, text, maxW) {
