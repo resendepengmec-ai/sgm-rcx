@@ -251,11 +251,19 @@ function onContratoChangeRel() {
 // abertas nesse mesmo navegador antes.
 let _reportDataLoaded = false;
 async function loadReportData() {
+  // Só sobrescreve o cache local quando o servidor devolve algo. Um array
+  // vazio é "truthy" em JS: o `if (d)` antigo apagava os planos/registros
+  // guardados no navegador sempre que a resposta vinha vazia (sync ainda
+  // não feito, filtro por contrato/papel, servidor dormindo no Render).
+  // O módulo de preventiva já usava essa mesma guarda (data.length > 0).
+  const keep = (key) => (d) => {
+    if (Array.isArray(d) ? d.length > 0 : !!d) localStorage.setItem(key, JSON.stringify(d));
+  };
   const tasks = [
-    DB.getAll('chamados').then(d => { if (d) localStorage.setItem('chamados_list', JSON.stringify(d)); }).catch(()=>{}),
-    DB.getAll('registros').then(d => { if (d) localStorage.setItem('registro_records', JSON.stringify(d)); }).catch(()=>{}),
-    DB.getAll('preventiva').then(d => { if (d) localStorage.setItem('prev_plans', JSON.stringify(d)); }).catch(()=>{}),
-    DB.getMovimentacoes().then(d => { if (d) localStorage.setItem('smm_movimentacoes', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getAll('chamados').then(keep('chamados_list')).catch(()=>{}),
+    DB.getAll('registros').then(keep('registro_records')).catch(()=>{}),
+    DB.getAll('preventiva').then(keep('prev_plans')).catch(()=>{}),
+    DB.getMovimentacoes().then(keep('smm_movimentacoes')).catch(()=>{}),
   ];
   await Promise.all(tasks);
   _reportDataLoaded = true;
@@ -304,14 +312,12 @@ async function render() {
     inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
     inContract(r.client||r.contract||r.contrato) &&
     inTag(r.equip||r.tag));
-  // Preventiva: contrato em p.client, equipamentos em p.equipments[].tag —
-  // com filtro de TAG, só entra o plano se a TAG estiver entre os
-  // equipamentos dele
+  // Preventiva: contrato em p.client, mês em p.period, equipamentos em
+  // p.equipments[].tag. A execução vem de equip.checks (ver prevProgress),
+  // não de um array de execuções — que não existe no módulo.
   const filtPreventiva= preventiva.filter(p=> {
-    const execs = (p.execucoes||p.executions||[]).filter(e=>
-      inPeriod((e.data||e.date||'').slice(0,7)));
     const hasTag = !tagFilter || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilter);
-    return execs.length > 0 && inContract(p.client||p.contract||p.contrato) && hasTag;
+    return inPeriod(prevPeriodOf(p)) && inContract(p.client||p.contract||p.contrato) && hasTag;
   });
   // Movimentações de patrimônio: contrato em m.contrato, data em m.criadoEm
   const filtMovimentos = movimentos.filter(m => {
@@ -334,16 +340,16 @@ async function render() {
   // KPIs
   const abertos   = filtChamados.filter(c=>(c.status||'aberto')==='aberto').length;
   const resolvidos= filtChamados.filter(c=>c.status==='resolvido').length;
-  const execPrev  = filtPreventiva.reduce((s,p)=>{
-    return s + (p.execucoes||p.executions||[])
-      .filter(e=>inPeriod((e.data||e.date||'').slice(0,7))).length;
-  },0);
+  // Equipamentos com preventiva concluída no período (derivado de checks)
+  const execPrev  = filtPreventiva.reduce((s,p)=> s + prevProgress(p).done, 0);
+  const totPrev   = filtPreventiva.reduce((s,p)=> s + prevProgress(p).total, 0);
 
   document.getElementById('kpis').style.display='';
   document.getElementById('kpis').innerHTML = `
     <div class="kpi"><div class="kpi-val">${filtChamados.length}</div><div class="kpi-label">Chamados</div></div>
     <div class="kpi"><div class="kpi-val">${filtRegistros.length}</div><div class="kpi-label">Registros</div></div>
-    <div class="kpi"><div class="kpi-val">${execPrev}</div><div class="kpi-label">Preventivas exec.</div></div>
+    <div class="kpi"><div class="kpi-val">${execPrev}${totPrev?`<span style="font-size:14px;color:var(--text-3)">/${totPrev}</span>`:''}</div><div class="kpi-label">Equip. preventiva exec.</div></div>
+    <div class="kpi"><div class="kpi-val">${filtPreventiva.length}</div><div class="kpi-label">Planos preventiva</div></div>
     <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${abertos}</div><div class="kpi-label">Chamados abertos</div></div>
     <div class="kpi"><div class="kpi-val" style="color:var(--success)">${resolvidos}</div><div class="kpi-label">Resolvidos</div></div>
     <div class="kpi"><div class="kpi-val">${filtRegistros.length}</div><div class="kpi-label">Manutenções exec.</div></div>`;
@@ -352,10 +358,16 @@ async function render() {
   const eventos = [
     ...filtChamados.map(c=>({ tipo:'chamado', data:c.date||'', tag:c.equip||c.tag||'—', desc:c.desc||c.descricao||c.description||'—', status:c.status||'aberto' })),
     ...filtRegistros.map(r=>({ tipo:'registro', data:r.date||'', tag:r.equip||r.tag||'—', desc:(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).slice(0,2).join(', ')||'—', status:'executado' })),
-    ...filtPreventiva.flatMap(p=>(p.execucoes||p.executions||[])
-      .filter(e=>inPeriod((e.data||e.date||'').slice(0,7)))
-      .map(e=>({ tipo:'preventiva', data:e.data||e.date||'', tag:(p.equipments||[]).map(eq=>eq.tag).join(', ').slice(0,30)||p.tag||'—', desc:`Plano ${p.level||p.nivel||''}`, status:e.completo||e.completed?'concluído':'parcial' }))
-    ),
+    ...filtPreventiva.map(p=>{
+      const pr = prevProgress(p);
+      return {
+        tipo:'preventiva',
+        data: prevExecDate(p),
+        tag:(p.equipments||[]).map(eq=>eq.tag).join(', ').slice(0,30)||p.tag||'—',
+        desc:`Plano N${p.level||p.nivel||''} — ${pr.done}/${pr.total} equip.`,
+        status: pr.total && pr.done===pr.total ? 'concluído' : (pr.done>0 ? 'parcial' : 'pendente')
+      };
+    }),
   ].sort((a,b)=>b.data.localeCompare(a.data));
 
   const statusColors = {
@@ -364,6 +376,7 @@ async function render() {
     executado:'background:#d1fae5;color:#065f46',
     concluído:'background:#ede9fe;color:#5b21b6',
     parcial:'background:#fef3c7;color:#92400e',
+    pendente:'background:#e5e7eb;color:#374151',
   };
 
   if (eventos.length) {
@@ -417,20 +430,41 @@ async function render() {
   if (filtPreventiva.length) {
     document.getElementById('section-preventiva').style.display='';
     document.getElementById('preventiva-table').innerHTML = tableHTML(
-      ['TAG','Nível','Execuções no período','Progresso'],
+      ['TAG','Nível','Período','Técnico','Progresso','Status'],
       filtPreventiva.map(p=>{
-        const execs = (p.execucoes||p.executions||[]).filter(e=>
-          inPeriod((e.data||e.date||'').slice(0,7)));
         const equips = (p.equipments||[]);
+        const pr = prevProgress(p);
+        const st = pr.total && pr.done===pr.total ? 'Concluído' : (pr.done>0 ? 'Parcial' : 'Pendente');
+        const pct = pr.total ? Math.round(pr.done/pr.total*100) : 0;
         return [
           esc(equips.length ? equips.map(e=>e.tag).join(', ').slice(0,40) : (p.tag||'—')),
           p.level||p.nivel||'—',
-          execs.length,
-          execs.filter(e=>e.completo||e.completed).length+'/'+execs.length
+          esc(prevPeriodOf(p)||'—'),
+          esc(p.techName||p.tech||'—'),
+          `${pr.done}/${pr.total} (${pct}%)`,
+          st
         ];
       })
     );
-  } else { document.getElementById('section-preventiva').style.display='none'; }
+  } else {
+    // Em vez de sumir com a seção (que faz parecer "quebrado"), mostra o
+    // porquê: quantos planos existem no cache e o que está filtrando.
+    const total = preventiva.length;
+    const doContrato = preventiva.filter(p=>inContract(p.client||p.contract||p.contrato)).length;
+    let motivo;
+    if (total === 0) {
+      motivo = 'Nenhum plano de preventiva foi carregado. Abra o módulo Preventiva para sincronizar os planos e gere o relatório novamente.';
+    } else if (doContrato === 0) {
+      motivo = `Existem ${total} plano(s) carregado(s), mas nenhum do contrato selecionado.`;
+    } else {
+      const periodos = [...new Set(preventiva.filter(p=>inContract(p.client||p.contract||p.contrato)).map(p=>prevPeriodOf(p)).filter(Boolean))].sort();
+      motivo = `Existem ${doContrato} plano(s) neste contrato, mas nenhum no período selecionado${tagFilter?' / TAG informada':''}.`
+             + (periodos.length ? ` Períodos disponíveis: ${periodos.join(', ')}.` : '');
+    }
+    document.getElementById('section-preventiva').style.display='';
+    document.getElementById('preventiva-table').innerHTML =
+      `<div style="padding:10px;font-size:13px;color:var(--text-2)">${esc(motivo)}</div>`;
+  }
 
   // Reincidências por equipamento: TAGs com 2+ chamados no período
   const porEquip = {};
@@ -627,6 +661,40 @@ function getLevelsForPrev(level) {
 function isEquipDonePrev(equip, level) {
   return getLevelsForPrev(level).every(lv => equip.checks && equip.checks[lv] === true);
 }
+
+// ── Ligação com o módulo de Preventiva ──────────────────────────────
+// IMPORTANTE: o módulo de preventiva NÃO guarda um array de "execuções".
+// A execução é registrada marcando os níveis de cada equipamento
+// (equip.checks[nivel] = true) e o mês do plano fica em plan.period
+// ("YYYY-MM", input type=month). O relatório antes procurava
+// p.execucoes/p.executions — campos que nunca existiram — então nenhum
+// plano era vinculado. As funções abaixo derivam a execução do modelo real.
+
+// Mês de referência do plano, no formato YYYY-MM.
+function prevPeriodOf(plan) {
+  if (plan.period) return String(plan.period).slice(0,7);
+  if (plan.createdAt) return new Date(plan.createdAt).toISOString().slice(0,7);
+  return '';
+}
+
+// Quantos equipamentos do plano estão concluídos e o total.
+function prevProgress(plan) {
+  const eqs = plan.equipments || [];
+  const done = eqs.filter(e => isEquipDonePrev(e, plan.level)).length;
+  return { done, total: eqs.length };
+}
+
+// Melhor data disponível pra linha do tempo: assinatura de conclusão mais
+// recente entre os equipamentos; se não houver, o 1º dia do mês do plano.
+function prevExecDate(plan) {
+  let latest = 0;
+  (plan.equipments || []).forEach(e => (e._signatures || []).forEach(s => {
+    if (s && /concluido/i.test(s.action || '') && s.at > latest) latest = s.at;
+  }));
+  if (latest) { try { return new Date(latest).toISOString().slice(0,10); } catch(e) {} }
+  const per = prevPeriodOf(plan);
+  return per ? per + '-01' : '';
+}
 function getEquipProgressPrev(equip, level) {
   const levels = getLevelsForPrev(level);
   const done = equip.checks ? levels.filter(lv => equip.checks[lv] === true).length : 0;
@@ -808,9 +876,8 @@ async function generatePDF() {
     (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
     inTagPdf(r.equip||r.tag));
   const preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]').filter(p=>{
-    const execs=(p.execucoes||p.executions||[]).filter(e=>inPeriodPdf(e.data||e.date));
     const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
-    return execs.length>0&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
+    return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
   });
   const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
@@ -832,7 +899,10 @@ async function generatePDF() {
   doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
   doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
   doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
-  doc.text(`Planos de preventiva com execução: ${preventiva.length}`,PDF_M,y);y+=6;
+  const prevDone = preventiva.reduce((s,p)=>s+prevProgress(p).done,0);
+  const prevTot  = preventiva.reduce((s,p)=>s+prevProgress(p).total,0);
+  doc.text(`Planos de preventiva no período: ${preventiva.length}`,PDF_M,y);y+=6;
+  doc.text(`  Equipamentos concluídos: ${prevDone}/${prevTot}`,PDF_M+4,y);y+=6;
   doc.text(`Movimentações de patrimônio: ${movimentos.length}`,PDF_M,y);y+=10;
 
   // Chamados
