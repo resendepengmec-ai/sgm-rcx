@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#1d4ed8">
+<title>Relatório Gerencial — Sistema de Manutenção</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<link rel="stylesheet" href="shared.css">
+<style>
+:root{--primary:#1d4ed8;--primary-dark:#1e3a8a;--primary-light:#eff6ff;
+--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);
+--success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
+body{padding-bottom:80px;background:var(--bg);color:var(--text);}
+.section-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:var(--shadow);}
+.section-card h3{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
+.kpi{background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);text-align:center;}
+.kpi-val{font-size:28px;font-weight:700;color:var(--primary);}
+.kpi-label{font-size:11px;color:var(--text-3);margin-top:3px;}
+.event-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+.event-row:last-child{border-bottom:none;}
+.event-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+.event-dot.chamado{background:#7c3aed;}
+.event-dot.registro{background:#059669;}
+.event-dot.preventiva{background:#0369a1;}
+.event-info{flex:1;min-width:0;}
+.event-tag{font-size:12px;font-weight:700;}
+.event-desc{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.event-date{font-size:11px;color:var(--text-3);white-space:nowrap;}
+.status-pill{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;}
+.legend-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;}
+.legend-item{display:flex;align-items:center;gap:5px;}
+.legend-dot{width:10px;height:10px;border-radius:50%;}
+</style>
+</head>
+<body>
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:var(--primary)">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">Relatório Gerencial</h1>
+  <button onclick="generatePDF()" style="color:#fff;background:rgba(255,255,255,.15);border-radius:8px;padding:6px 12px;border:none;cursor:pointer;font-size:13px;font-weight:600">🖨️ PDF</button>
+</header>
+
+<div style="padding:12px">
+  <!-- Filtros -->
+  <div class="section-card" style="padding:12px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="field" style="flex:1;min-width:140px;margin-bottom:0">
+        <label>Contrato</label>
+        <select id="f-contrato" onchange="onContratoChangeRel()">
+          <option value="">Todos os contratos</option>
+        </select>
+      </div>
+      <div class="field" style="min-width:140px;margin-bottom:0">
+        <label>TAG (opcional)</label>
+        <input id="f-tag" list="f-tag-list" placeholder="Todas as TAGs" onchange="render()" style="width:100%">
+        <datalist id="f-tag-list"></datalist>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Período (início)</label>
+        <input id="f-periodo-ini" type="month" onchange="render()">
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label>Período (fim)</label>
+        <input id="f-periodo-fim" type="month" onchange="render()">
+      </div>
+      <button class="btn btn-primary" style="padding:10px 16px" onclick="render()">🔍 Gerar</button>
+    </div>
+  </div>
+
+  <!-- Cabeçalho do relatório -->
+  <div id="report-header" style="display:none" class="section-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:18px;font-weight:700" id="report-title"></div>
+        <div style="font-size:13px;color:var(--text-2)" id="report-subtitle"></div>
+      </div>
+      <div style="text-align:right;font-size:12px;color:var(--text-3)">
+        <div id="report-contratante"></div>
+        <div id="report-vigencia"></div>
+        <div id="report-art"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-row" id="kpis" style="display:none"></div>
+
+  <!-- Legenda -->
+  <div class="legend-row">
+    <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div> Chamados</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#059669"></div> Registros</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0369a1"></div> Preventiva</div>
+  </div>
+
+  <!-- Timeline de eventos -->
+  <div id="section-eventos" class="section-card" style="display:none">
+    <h3>📅 Eventos do período</h3>
+    <div id="eventos-list"></div>
+  </div>
+
+  <!-- Chamados -->
+  <div id="section-chamados" class="section-card" style="display:none">
+    <h3>🔔 Chamados</h3>
+    <div id="chamados-table"></div>
+  </div>
+
+  <!-- Registros -->
+  <div id="section-registros" class="section-card" style="display:none">
+    <h3>🔧 Registros de manutenção</h3>
+    <div id="registros-table"></div>
+  </div>
+
+  <!-- Preventiva -->
+  <div id="section-preventiva" class="section-card" style="display:none">
+    <h3>📋 Manutenção preventiva</h3>
+    <div id="preventiva-table"></div>
+  </div>
+
+  <!-- Patrimônio -->
+  <div id="section-patrimonio" class="section-card" style="display:none">
+    <h3>📦 Movimentações de patrimônio</h3>
+    <div id="patrimonio-kpis" class="kpi-row" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px"></div>
+    <div id="patrimonio-table"></div>
+  </div>
+
+  <!-- Reincidências por equipamento -->
+  <div id="section-reincidencias" class="section-card" style="display:none">
+    <h3>🔁 Reincidências por equipamento</h3>
+    <p style="font-size:12px;color:var(--text-3);margin-bottom:10px">Equipamentos com 2 ou mais chamados no período selecionado</p>
+    <div id="reincidencias-table"></div>
+  </div>
+
+  <!-- Vazio -->
+  <div id="report-empty" style="text-align:center;padding:48px 16px;color:var(--text-3)">
+    <div style="font-size:48px;margin-bottom:12px">📊</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:6px">Selecione o período e clique em Gerar</div>
+    <div style="font-size:13px">O relatório consolida chamados, registros e preventiva do período</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
+<script src="api-client.js"></script>
+<script src="db.js"></script>
+<script>
+// ── Auth ──────────────────────────────────────────────────────────
+const CAN_REPORT_ROLES = ['admin','diretor','supervisor','gestor']; // gestor pra cima
+const user = getCurrentUser();
+let _authorized = false;
+if (!user) {
+  window.location.href='index.html';
+} else if (!CAN_REPORT_ROLES.includes(user.role)) {
+  // Bloqueio imediato: nada de tela usável nem de espera — troca o corpo
+  // inteiro por um aviso e redireciona sem deixar janela de interação.
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;padding:24px;text-align:center;font-family:sans-serif">
+      <div>
+        <div style="font-size:32px;margin-bottom:8px">🚫</div>
+        <div style="font-size:16px;font-weight:600;color:#0f172a">Sem permissão para acessar relatórios</div>
+        <div style="font-size:13px;color:#64748b;margin-top:4px">Apenas gestor e papéis acima podem gerar relatórios.</div>
+      </div>
+    </div>`;
+  window.location.replace('index.html');
+} else {
+  document.getElementById('auth-overlay').style.display='none';
+  _authorized = true;
+}
+
+function showToast(msg, dur=2500) {
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),dur);
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+let prestadoraConfig = {};
+function loadPrestadoraConfig() {
+  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+}
+
+// Calcula o tamanho de desenho da foto no PDF: parte da largura da coluna
+// (W), mantém a proporção ORIGINAL (sem esticar) e limita a altura a Hmax
+// pra uma foto sozinha nunca estourar a página. Retorna {w,h} em mm.
+function photoFit(doc, dataUrl, W, Hmax){
+  let iw = 0, ih = 0;
+  try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
+  if (!iw || !ih) return { w: W, h: Math.min(W*0.75, Hmax) };
+  let w = W, h = W * ih / iw;
+  if (h > Hmax) { h = Hmax; w = Hmax * iw / ih; }
+  return { w, h };
+}
+
+function init() {
+  // Default: mês atual pros dois campos
+  const now = new Date();
+  const mesAtual = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('f-periodo-ini').value = mesAtual;
+  document.getElementById('f-periodo-fim').value = mesAtual;
+
+  // Load contracts (busca fresca do servidor, com os equipamentos —
+  // necessário pro filtro de TAG poder sugerir as TAGs do contrato)
+  DB.getContratos().then(data => {
+    if (data) {
+      localStorage.setItem('smm_contracts', JSON.stringify(data));
+      const sel = document.getElementById('f-contrato');
+      sel.innerHTML = '<option value="">Todos os contratos</option>' +
+        data.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+      populateTagList();
+    }
+  }).catch(()=>{
+    const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+    const sel = document.getElementById('f-contrato');
+    sel.innerHTML = '<option value="">Todos os contratos</option>' +
+      contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
+    populateTagList();
+  });
+
+  loadPrestadoraConfig();
+}
+
+// Sugestões de TAG no campo de filtro — todas as TAGs do contrato
+// selecionado (ou de todos os contratos, se nenhum estiver selecionado)
+function populateTagList() {
+  const contrato = document.getElementById('f-contrato').value;
+  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const relevantes = contrato ? contracts.filter(c=>c.numero===contrato) : contracts;
+  const tags = [];
+  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); }));
+  document.getElementById('f-tag-list').innerHTML =
+    [...new Set(tags)].sort().map(t=>`<option value="${t}">`).join('');
+}
+function onContratoChangeRel() {
+  document.getElementById('f-tag').value = '';
+  populateTagList();
+  render();
+}
+
+// ── Render ────────────────────────────────────────────────────────
+// Busca fresca do servidor pra chamados, registros, preventiva e
+// movimentações — antes o relatório só lia o que já estivesse em cache
+// local (populado só ao visitar cada módulo individualmente), o que fazia
+// o relatório sair incompleto/vazio se essas telas não tivessem sido
+// abertas nesse mesmo navegador antes.
+let _reportDataLoaded = false;
+async function loadReportData() {
+  const tasks = [
+    DB.getAll('chamados').then(d => { if (d) localStorage.setItem('chamados_list', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getAll('registros').then(d => { if (d) localStorage.setItem('registro_records', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getAll('preventiva').then(d => { if (d) localStorage.setItem('prev_plans', JSON.stringify(d)); }).catch(()=>{}),
+    DB.getMovimentacoes().then(d => { if (d) localStorage.setItem('smm_movimentacoes', JSON.stringify(d)); }).catch(()=>{}),
+  ];
+  await Promise.all(tasks);
+  _reportDataLoaded = true;
+}
+
+async function render() {
+  if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
+  const periodoIni = document.getElementById('f-periodo-ini').value;
+  const periodoFim = document.getElementById('f-periodo-fim').value;
+  const contrato = document.getElementById('f-contrato').value;
+  if (!periodoIni || !periodoFim) { showToast('Selecione o início e o fim do período'); return; }
+  if (periodoFim < periodoIni) { showToast('O fim do período não pode ser antes do início'); return; }
+
+  const labelOf = (ymStr, fmt) => {
+    const [y, m] = ymStr.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleString('pt-BR', fmt);
+  };
+  const mesLabel = periodoIni === periodoFim
+    ? labelOf(periodoIni, {month:'long', year:'numeric'})
+    : `${labelOf(periodoIni, {month:'short', year:'numeric'})} a ${labelOf(periodoFim, {month:'short', year:'numeric'})}`;
+
+  // Load data
+  const chamados   = JSON.parse(localStorage.getItem('chamados_list')   ||'[]');
+  const registros  = JSON.parse(localStorage.getItem('registro_records')||'[]');
+  const preventiva = JSON.parse(localStorage.getItem('prev_plans')||'[]');
+  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]');
+  const contracts  = JSON.parse(localStorage.getItem('smm_contracts')   ||'[]');
+
+  // Filter by period (intervalo início–fim, inclusive) + contract
+  const inPeriod = (dateStr) => {
+    if (!dateStr) return false;
+    const ym = dateStr.slice(0,7);
+    return ym >= periodoIni && ym <= periodoFim;
+  };
+  const inContract = (c) => !contrato || c === contrato;
+  const tagFilter = document.getElementById('f-tag').value.trim().toUpperCase();
+  const inTag = (recTag) => !tagFilter || (recTag||'').toUpperCase() === tagFilter;
+
+  // Chamados: contrato em c.client, TAG em c.equip, descrição em c.desc
+  const filtChamados  = chamados.filter(c  =>
+    inPeriod(c.date||c.createdAt?.toString().slice(0,7)) &&
+    inContract(c.client||c.contract||c.contrato) &&
+    inTag(c.equip||c.tag));
+  // Registros: contrato em r.client|r.contract, TAG em r.equip|r.tag
+  const filtRegistros = registros.filter(r =>
+    inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
+    inContract(r.client||r.contract||r.contrato) &&
+    inTag(r.equip||r.tag));
+  // Preventiva: contrato em p.client, mês em p.period, equipamentos em
+  // p.equipments[].tag. A execução vem de equip.checks (ver prevProgress),
+  // não de um array de execuções — que não existe no módulo.
+  const filtPreventiva= preventiva.filter(p=> {
+    const hasTag = !tagFilter || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilter);
+    return inPeriod(prevPeriodOf(p)) && inContract(p.client||p.contract||p.contrato) && hasTag;
+  });
+  // Movimentações de patrimônio: contrato em m.contrato, data em m.criadoEm
+  const filtMovimentos = movimentos.filter(m => {
+    const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
+    return inPeriod(dataStr) && inContract(m.contrato) && inTag(m.tag||m.novaTag);
+  });
+
+  // Contract info
+  const cont = contrato ? contracts.find(c=>c.numero===contrato) : null;
+
+  // Header
+  document.getElementById('report-empty').style.display='none';
+  document.getElementById('report-header').style.display='';
+  document.getElementById('report-title').textContent = `Relatório Gerencial — ${mesLabel}${tagFilter?' — TAG '+tagFilter:''}`;
+  document.getElementById('report-subtitle').textContent = contrato ? `Contrato ${contrato}` : 'Todos os contratos';
+  document.getElementById('report-contratante').textContent = cont ? cont.razao : '';
+  document.getElementById('report-vigencia').textContent = cont ? `Vigência: ${cont.inicio||'—'} → ${cont.fim||'—'}` : '';
+  document.getElementById('report-art').textContent = cont?.art ? `ART: ${cont.art}` : '';
+
+  // KPIs
+  const abertos   = filtChamados.filter(c=>(c.status||'aberto')==='aberto').length;
+  const resolvidos= filtChamados.filter(c=>c.status==='resolvido').length;
+  // Equipamentos com preventiva concluída no período (derivado de checks)
+  const execPrev  = filtPreventiva.reduce((s,p)=> s + prevProgress(p).done, 0);
+  const totPrev   = filtPreventiva.reduce((s,p)=> s + prevProgress(p).total, 0);
+
+  document.getElementById('kpis').style.display='';
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="kpi-val">${filtChamados.length}</div><div class="kpi-label">Chamados</div></div>
+    <div class="kpi"><div class="kpi-val">${filtRegistros.length}</div><div class="kpi-label">Registros</div></div>
+    <div class="kpi"><div class="kpi-val">${execPrev}${totPrev?`<span style="font-size:14px;color:var(--text-3)">/${totPrev}</span>`:''}</div><div class="kpi-label">Equip. preventiva exec.</div></div>
+    <div class="kpi"><div class="kpi-val">${filtPreventiva.length}</div><div class="kpi-label">Planos preventiva</div></div>
+    <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${abertos}</div><div class="kpi-label">Chamados abertos</div></div>
+    <div class="kpi"><div class="kpi-val" style="color:var(--success)">${resolvidos}</div><div class="kpi-label">Resolvidos</div></div>
+    <div class="kpi"><div class="kpi-val">${filtRegistros.length}</div><div class="kpi-label">Manutenções exec.</div></div>`;
+
+  // Timeline de eventos (todos juntos, ordenados por data)
+  const eventos = [
+    ...filtChamados.map(c=>({ tipo:'chamado', data:c.date||'', tag:c.equip||c.tag||'—', desc:c.desc||c.descricao||c.description||'—', status:c.status||'aberto' })),
+    ...filtRegistros.map(r=>({ tipo:'registro', data:r.date||'', tag:r.equip||r.tag||'—', desc:(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).slice(0,2).join(', ')||'—', status:'executado' })),
+    ...filtPreventiva.map(p=>{
+      const pr = prevProgress(p);
+      return {
+        tipo:'preventiva',
+        data: prevExecDate(p),
+        tag:(p.equipments||[]).map(eq=>eq.tag).join(', ').slice(0,30)||p.tag||'—',
+        desc:`Plano N${p.level||p.nivel||''} — ${pr.done}/${pr.total} equip.`,
+        status: pr.total && pr.done===pr.total ? 'concluído' : (pr.done>0 ? 'parcial' : 'pendente')
+      };
+    }),
+  ].sort((a,b)=>b.data.localeCompare(a.data));
+
+  const statusColors = {
+    aberto:'background:#fef3c7;color:#92400e',
+    resolvido:'background:var(--success-bg);color:var(--success)',
+    executado:'background:#d1fae5;color:#065f46',
+    concluído:'background:#ede9fe;color:#5b21b6',
+    parcial:'background:#fef3c7;color:#92400e',
+    pendente:'background:#e5e7eb;color:#374151',
+  };
+
+  if (eventos.length) {
+    document.getElementById('section-eventos').style.display='';
+    document.getElementById('eventos-list').innerHTML = eventos.slice(0,50).map(e=>`
+      <div class="event-row">
+        <div class="event-dot ${e.tipo}"></div>
+        <div class="event-info">
+          <div class="event-tag">${esc(e.tag)} <span class="status-pill" style="${statusColors[e.status]||''}">${e.status}</span></div>
+          <div class="event-desc">${esc(e.desc)}</div>
+        </div>
+        <div class="event-date">${e.data||'—'}</div>
+      </div>`).join('') +
+      (eventos.length>50?`<div style="text-align:center;font-size:12px;color:var(--text-3);padding:8px">+${eventos.length-50} eventos no PDF</div>`:'');
+  } else {
+    document.getElementById('section-eventos').style.display='none';
+  }
+
+  // Chamados table
+  if (filtChamados.length) {
+    document.getElementById('section-chamados').style.display='';
+    document.getElementById('chamados-table').innerHTML = tableHTML(
+      ['Data','TAG','Descrição','Prioridade','Status','Fotos'],
+      filtChamados.map(c=>[
+        c.date||'—',
+        esc(c.equip||c.tag)||'—',
+        esc((c.desc||c.descricao||c.description||'—').slice(0,60)),
+        c.priority||c.prioridade||'—',
+        c.status||'aberto',
+        photoCell(c.photos)
+      ])
+    );
+  } else { document.getElementById('section-chamados').style.display='none'; }
+
+  // Registros table
+  if (filtRegistros.length) {
+    document.getElementById('section-registros').style.display='';
+    document.getElementById('registros-table').innerHTML = tableHTML(
+      ['Data','TAG','Serviços','Técnico','Fotos'],
+      filtRegistros.map(r=>[
+        r.date||'—',
+        esc(r.equip||r.tag)||'—',
+        esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
+        esc(r.tech||r.technician||r.tecnico)||'—',
+        photoCell(r.photos)
+      ])
+    );
+  } else { document.getElementById('section-registros').style.display='none'; }
+
+  // Preventiva table
+  if (filtPreventiva.length) {
+    document.getElementById('section-preventiva').style.display='';
+    document.getElementById('preventiva-table').innerHTML = tableHTML(
+      ['TAG','Nível','Período','Técnico','Progresso','Status'],
+      filtPreventiva.map(p=>{
+        const equips = (p.equipments||[]);
+        const pr = prevProgress(p);
+        const st = pr.total && pr.done===pr.total ? 'Concluído' : (pr.done>0 ? 'Parcial' : 'Pendente');
+        const pct = pr.total ? Math.round(pr.done/pr.total*100) : 0;
+        return [
+          esc(equips.length ? equips.map(e=>e.tag).join(', ').slice(0,40) : (p.tag||'—')),
+          p.level||p.nivel||'—',
+          esc(prevPeriodOf(p)||'—'),
+          esc(p.techName||p.tech||'—'),
+          `${pr.done}/${pr.total} (${pct}%)`,
+          st
+        ];
+      })
+    );
+  } else { document.getElementById('section-preventiva').style.display='none'; }
+
+  // Reincidências por equipamento: TAGs com 2+ chamados no período
+  const porEquip = {};
+  filtChamados.forEach(c => {
+    const tag = c.equip || c.tag || '—';
+    if (tag === '—') return;
+    if (!porEquip[tag]) porEquip[tag] = { tag, count:0, estab: c.machine?.estabelecimento||'—', datas:[] };
+    porEquip[tag].count++;
+    porEquip[tag].datas.push(c.date||'—');
+  });
+  const reincidencias = Object.values(porEquip).filter(e=>e.count>=2).sort((a,b)=>b.count-a.count);
+  if (reincidencias.length) {
+    document.getElementById('section-reincidencias').style.display='';
+    document.getElementById('reincidencias-table').innerHTML = tableHTML(
+      ['TAG','Estabelecimento','Nº de chamados','Datas'],
+      reincidencias.map(e=>[
+        esc(e.tag), esc(e.estab), e.count,
+        e.datas.sort().join(', ')
+      ])
+    );
+  } else { document.getElementById('section-reincidencias').style.display='none'; }
+
+  // Patrimônio: indicadores + tabela
+  if (filtMovimentos.length) {
+    document.getElementById('section-patrimonio').style.display='';
+    const porStatus = st => filtMovimentos.filter(m=>m.status===st).length;
+    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
+    document.getElementById('patrimonio-kpis').innerHTML = `
+      <div class="kpi"><div class="kpi-val">${filtMovimentos.length}</div><div class="kpi-label">Total</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:#d97706">${porStatus('pendente')}</div><div class="kpi-label">Pendentes</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:var(--success)">${porStatus('executada')}</div><div class="kpi-label">Executadas</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:#1e40af">${porStatus('aprovada')}</div><div class="kpi-label">Aprovadas</div></div>
+      <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${porStatus('rejeitada')+porStatus('cancelada')}</div><div class="kpi-label">Rejeit./Cancel.</div></div>`;
+    document.getElementById('patrimonio-table').innerHTML = tableHTML(
+      ['Data','Tipo','TAG','Motivo','Status'],
+      filtMovimentos
+        .sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0))
+        .map(m=>[
+          m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—',
+          tipoLabel[m.tipo]||m.tipo||'—',
+          esc(m.tag||m.novaTag)||'—',
+          esc((m.motivo||'—').slice(0,60)),
+          statusLabel[m.status]||m.status||'—'
+        ])
+    );
+  } else { document.getElementById('section-patrimonio').style.display='none'; }
+}
+
+function photoCell(photos) {
+  if (!photos || !photos.length) return '<span style="color:var(--text-3)">—</span>';
+  const first = photos[0].dataUrl || photos[0];
+  const geo = photos[0].geo;
+  return `<img src="${first}" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
+    ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}
+    ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="${geo.shortAddress||geo.address||'Ver localização'}">📍</a>`:''}`;
+}
+function showPhotoModal(src) {
+  let modal = document.getElementById('photo-zoom-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'photo-zoom-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;cursor:zoom-out';
+    modal.onclick = () => modal.remove();
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `<img src="${src}" style="max-width:100%;max-height:100%;border-radius:8px">`;
+}
+
+function tableHTML(headers, rows) {
+  if (!rows.length) return '<div style="font-size:13px;color:var(--text-3);padding:8px">Nenhum registro</div>';
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr>${headers.map(h=>`<th style="padding:7px 8px;text-align:left;font-weight:600;color:var(--text-3);border-bottom:1px solid var(--border)">${h}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
+      ${r.map(c=>`<td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c}</td>`).join('')}
+    </tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+// ── PDF: cabeçalho (prestadora) e rodapé (contratante) ──────────────
+const PDF_M = 20, PDF_W = 210, PDF_H = 297;
+
+function drawPdfHeader(doc, { full, mesLabel, contrato, tag }) {
+  let y = 14;
+  let textX = PDF_M;
+
+  if (prestadoraConfig.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = prestadoraConfig.logoRatio ? maxW * parseFloat(prestadoraConfig.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(prestadoraConfig.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch(e) {}
+  }
+  const maxTextW = PDF_W - PDF_M - textX;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadoraConfig.company || 'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y + 2);
+  let ly = y + 2 + nameLines.length * 4.5 + 2.5;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(90,90,90);
+  if (prestadoraConfig.address) {
+    const addrLines = doc.splitTextToSize(prestadoraConfig.address, maxTextW);
+    doc.text(addrLines, textX, ly);
+    ly += addrLines.length * 4.5;
+  }
+  if (prestadoraConfig.cnpj) {
+    doc.text(`CNPJ: ${prestadoraConfig.cnpj}`, textX, ly);
+    ly += 4.5;
+  }
+  doc.setTextColor(0,0,0);
+
+  const ruleY = Math.max(ly + 2, y + 18);
+  doc.setDrawColor(220,220,220);
+  doc.line(PDF_M, ruleY, PDF_W - PDF_M, ruleY);
+
+  let contentY = ruleY + 8;
+  if (full) {
+    doc.setFont('helvetica','bold'); doc.setFontSize(10);
+    doc.text('Relatório Gerencial', PDF_M, contentY); contentY += 8;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(`Período: ${mesLabel}`, PDF_M, contentY); contentY += 6;
+    if (contrato) { doc.text(`Contrato: ${contrato}`, PDF_M, contentY); contentY += 6; }
+    if (tag) { doc.text(`TAG: ${tag} (histórico completo do equipamento)`, PDF_M, contentY); contentY += 6; }
+    contentY += 2;
+  }
+  return contentY;
+}
+
+function drawPdfFooters(doc, cont) {
+  const pageCount = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M*2;
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    let fy = 270;
+    doc.setDrawColor(220,220,220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (cont) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60,60,60);
+      const contLine = `Contratante: ${cont.razao||'—'}   |   Contrato nº ${cont.numero||'—'}   |   ART: ${cont.art||'—'}`;
+      const contLines = doc.splitTextToSize(contLine, maxW).slice(0, 2); // no máximo 2 linhas no rodapé
+      doc.text(contLines, PDF_M, fy);
+      fy += contLines.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(140,140,140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${user.name}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${pageCount}`, PDF_W - PDF_M, fy, { align:'right' });
+    doc.setTextColor(0,0,0);
+  }
+}
+
+// ── Preventiva: mesmas constantes e regras de progresso usadas em
+// preventiva.html — necessárias pra gerar aqui o mesmo relatório completo
+// por plano (nível concluído/pendente, itens de referência, fotos).
+const CHECKLIST = {
+  1: [
+    "Verificação geral de funcionamento do equipamento (ligamento, refrigeração e ruídos anormais)",
+    "Limpeza superficial dos filtros de ar",
+    "Limpeza externa do gabinete da evaporadora",
+    "Inspeção visual de possíveis anomalias aparentes (vazamentos, sujeira excessiva, obstruções)",
+    "Conferência do controle remoto e ajustes básicos de operação",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  2: [
+    "Lavagem dos filtros de ar com água corrente",
+    "Limpeza detalhada do gabinete da evaporadora, cantos, frestas e entalhes",
+    "Verificação do dreno e possível desobstrução simples com água corrente",
+    "Avaliação básica da vazão de ar e temperaturas para verificar o rendimento da máquina",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+  3: [
+    "Lavagem completa dos filtros de ar",
+    "Limpeza das serpentinas da evaporadora (com uso de produto adequado e água sob pressão)",
+    "Limpeza do gabinete interno da evaporadora",
+    "Limpeza da serpentina e gabinete da condensadora",
+    "Verificação do estado de conservação dos componentes (hélice, motor ventilador, isolamentos)",
+    "Inspeção e limpeza do sistema de drenagem com produto adequado e água sob pressão",
+    "Verificação de pressão de fluido refrigerante, temperatura e corrente elétrica de refrigeração",
+    "Reaperto de conexões elétricas aparentes e isolamento de emendas quando necessário",
+    "Reaperto de sistemas de fixação da condensadora e substituição do coxim se necessário",
+    "Aplicação de solução antibactericida na serpentina da evaporadora",
+  ],
+};
+const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'Nível 3 — Pesada'};
+const LEVEL_COLOR = {1:'#2563eb', 2:'#d97706', 3:'#dc2626'};
+const fmtMonthPrev = m => { if(!m) return '—'; const [y,mo]=m.split('-'); return new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); };
+const fmtDatePrev  = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
+function getLevelsForPrev(level) {
+  const levels = [1];
+  if (level >= 2) levels.push(2);
+  if (level >= 3) levels.push(3);
+  return levels;
+}
+function isEquipDonePrev(equip, level) {
+  return getLevelsForPrev(level).every(lv => equip.checks && equip.checks[lv] === true);
+}
+
+// ── Ligação com o módulo de Preventiva ──────────────────────────────
+// IMPORTANTE: o módulo de preventiva NÃO guarda um array de "execuções".
+// A execução é registrada marcando os níveis de cada equipamento
+// (equip.checks[nivel] = true) e o mês do plano fica em plan.period
+// ("YYYY-MM", input type=month). O relatório antes procurava
+// p.execucoes/p.executions — campos que nunca existiram — então nenhum
+// plano era vinculado. As funções abaixo derivam a execução do modelo real.
+
+// Mês de referência do plano, no formato YYYY-MM.
+function prevPeriodOf(plan) {
+  if (plan.period) return String(plan.period).slice(0,7);
+  if (plan.createdAt) return new Date(plan.createdAt).toISOString().slice(0,7);
+  return '';
+}
+
+// Quantos equipamentos do plano estão concluídos e o total.
+function prevProgress(plan) {
+  const eqs = plan.equipments || [];
+  const done = eqs.filter(e => isEquipDonePrev(e, plan.level)).length;
+  return { done, total: eqs.length };
+}
+
+// Melhor data disponível pra linha do tempo: assinatura de conclusão mais
+// recente entre os equipamentos; se não houver, o 1º dia do mês do plano.
+function prevExecDate(plan) {
+  let latest = 0;
+  (plan.equipments || []).forEach(e => (e._signatures || []).forEach(s => {
+    if (s && /concluido/i.test(s.action || '') && s.at > latest) latest = s.at;
+  }));
+  if (latest) { try { return new Date(latest).toISOString().slice(0,10); } catch(e) {} }
+  const per = prevPeriodOf(plan);
+  return per ? per + '-01' : '';
+}
+function getEquipProgressPrev(equip, level) {
+  const levels = getLevelsForPrev(level);
+  const done = equip.checks ? levels.filter(lv => equip.checks[lv] === true).length : 0;
+  return {done, total: levels.length};
+}
+
+// Relatório completo de um plano de preventiva — mesmo formato e conteúdo
+// do PDF individual gerado em preventiva.html (resumo, tabela de
+// equipamentos, detalhamento por nível com itens de referência, e fotos
+// com localização), só que embutido dentro do relatório gerencial.
+function renderPreventivaPlanDetail(doc, plan) {
+  const W=210, M=20, CW=W-M*2;
+  let y = M;
+  const color = (LEVEL_COLOR[plan.level]||'#2563eb').replace('#','');
+  const r = parseInt(color.slice(0,2),16), g=parseInt(color.slice(2,4),16), b=parseInt(color.slice(4,6),16);
+
+  function header(label) {
+    y = drawPdfHeader(doc, {});
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+    doc.text('MANUTENÇÃO PREVENTIVA — ' + label, M, y); y += 6;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50,50,50);
+    doc.text(`Contrato ${plan.client} · ${fmtMonthPrev(plan.period)} · ${LEVEL_LABEL[plan.level]||''}`, M, y);
+    doc.text(`Técnico: ${plan.tech||'—'}   Data: ${fmtDatePrev(plan.finalizedAt||plan.createdAt)}`, M, y+6);
+    doc.setTextColor(0,0,0);
+    y += 12;
+  }
+
+  header('Relatório de Execução');
+  const equipamentos = plan.equipments || [];
+  const done = equipamentos.filter(e=>isEquipDonePrev(e,plan.level)).length;
+  const total = equipamentos.length;
+  const pct = total ? Math.round(done/total*100) : 0;
+
+  doc.setFillColor(240,249,255);
+  doc.rect(M,y,CW,28,'F');
+  doc.setTextColor(30,30,30);
+  doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('RESUMO DA EXECUÇÃO', M+4, y+7);
+  doc.setFontSize(10); doc.setFont('helvetica','normal');
+  doc.text(`Equipamentos concluídos: ${done} de ${total} (${pct}%)`, M+4, y+15);
+  doc.text(`Status: ${pct===100?'Concluída':'Em andamento'}`, M+4, y+22);
+  if(plan.obs) doc.text(`Obs: ${esc ? esc(plan.obs) : plan.obs}`, M+CW/2, y+22);
+  y += 36;
+
+  doc.setFillColor(r,g,b);
+  doc.rect(M,y,CW,8,'F');
+  doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
+  doc.text('TAG', M+3, y+5.5);
+  doc.text('EQUIPAMENTO', M+CW*0.18, y+5.5);
+  doc.text('ESTABELECIMENTO', M+CW*0.52, y+5.5);
+  doc.text('ITENS', M+CW*0.80, y+5.5);
+  doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
+  y+=8;
+
+  equipamentos.forEach((eq,idx) => {
+    if(y>272){doc.addPage();y=M;header('(continuação)');}
+    if(idx%2===0){doc.setFillColor(240,249,255); doc.rect(M,y,CW,7,'F');}
+    const prog = getEquipProgressPrev(eq, plan.level);
+    const eqDone = isEquipDonePrev(eq, plan.level);
+    doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(eq.tag||'—', M+3, y+4.8);
+    doc.text(`${eq.marca||''} ${eq.tipo||''}`.slice(0,24), M+CW*0.18, y+4.8);
+    doc.text((eq.estabelecimento||'').slice(0,22), M+CW*0.52, y+4.8);
+    doc.text(`${prog.done}/${prog.total}`, M+CW*0.80, y+4.8);
+    doc.setFont('helvetica','bold');
+    doc.setTextColor(eqDone?22:220, eqDone?163:38, eqDone?74:38);
+    doc.text(eqDone?'OK':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    y+=7;
+  });
+
+  equipamentos.forEach(eq => {
+    doc.addPage(); y=M; header(`TAG ${eq.tag||'—'}`);
+    doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
+    doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
+    doc.setFontSize(10); doc.setFont('helvetica','bold');
+    doc.text(`TAG ${eq.tag||'—'}  ·  Contrato ${plan.client}`, M+4, y+14);
+    doc.setFontSize(10); doc.setFont('helvetica','normal');
+    doc.text(`${eq.marca||''} ${eq.tipo||''}${eq.capacidade?' · '+eq.capacidade+' BTU':''}`, M+4, y+20);
+    doc.text(`${eq.estabelecimento||''} · ${eq.recinto||''}`, M+CW/2, y+20);
+    y+=32;
+
+    const levelGroups = [{lv:1, items:CHECKLIST[1]}];
+    if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
+    if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
+
+    levelGroups.forEach(({lv, items:lvItems}) => {
+      if(y>250){doc.addPage();y=M;header(`TAG ${eq.tag||'—'} (cont.)`);}
+      const lc = LEVEL_COLOR[lv].replace('#','');
+      const lr=parseInt(lc.slice(0,2),16), lg=parseInt(lc.slice(2,4),16), lb2=parseInt(lc.slice(4,6),16);
+      doc.setFillColor(lr,lg,lb2); doc.rect(M,y,CW,7,'F');
+      doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+      doc.text(LEVEL_LABEL[lv].toUpperCase(), M+3, y+4.8);
+      const lvDone = eq.checks && eq.checks[lv] === true;
+      doc.text(lvDone?'FEITO':'PENDENTE', M+CW-3, y+4.8, {align:'right'});
+      y+=7;
+
+      doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(10);
+      lvItems.forEach(item => {
+        if(y>270){doc.addPage();y=M;header(`TAG ${eq.tag||'—'} (cont.)`);}
+        const itemLines = doc.splitTextToSize(`• ${item}`, CW-8);
+        doc.text(itemLines, M+4, y+4);
+        y += itemLines.length*4.5 + 1;
+      });
+      y+=4;
+    });
+
+    if (eq.photos && eq.photos.length) {
+      if (y>240) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
+      doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+      doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
+      const cols=3, gap=6, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=90;
+      const sized = eq.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+      for (let i=0; i<sized.length; i+=cols) {
+        const rowItems = sized.slice(i, i+cols);
+        const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
+        if (y + rowH + capH > 272) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
+        rowItems.forEach((it, c) => {
+          const cellX = M + c*(cellW+gap);
+          const ix = cellX + (cellW - it.w)/2;
+          try { doc.addImage(it.p.dataUrl,'JPEG',ix,y,it.w,it.h); } catch(e){}
+          if (it.p.geo) {
+            doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+            const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
+            const lines = doc.splitTextToSize(label, cellW).slice(0,2);
+            doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
+            if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
+            doc.setTextColor(0,0,0);
+          }
+        });
+        y += rowH + capH + 4;
+      }
+    }
+  });
+}
+
+async function generatePDF() {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
+  if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({unit:'mm',format:'a4'});
+  function fitText(doc, text, maxW) {
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
+  const periodoIni = document.getElementById('f-periodo-ini').value;
+  const periodoFim = document.getElementById('f-periodo-fim').value;
+  const contrato = document.getElementById('f-contrato').value;
+  if (!periodoIni || !periodoFim) { showToast('Gere o relatório primeiro'); return; }
+
+  const labelOfPdf = (ymStr, fmt) => {
+    const [y, m] = ymStr.split('-').map(Number);
+    return new Date(y, m-1, 1).toLocaleString('pt-BR', fmt);
+  };
+  const mesLabel = periodoIni === periodoFim
+    ? labelOfPdf(periodoIni, {month:'long', year:'numeric'})
+    : `${labelOfPdf(periodoIni, {month:'short', year:'numeric'})} a ${labelOfPdf(periodoFim, {month:'short', year:'numeric'})}`;
+  const contracts= JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const cont     = contrato ? contracts.find(c=>c.numero===contrato) : null;
+
+  const tagFilterPdf = document.getElementById('f-tag').value.trim().toUpperCase();
+  let y = drawPdfHeader(doc, { full:true, mesLabel, contrato, tag: tagFilterPdf });
+  if (cont && cont.inicio) { doc.setFontSize(10); doc.setTextColor(90,90,90); doc.text(`Vigência: ${cont.inicio||'—'} a ${cont.fim||'—'}`, PDF_M, y); doc.setTextColor(0,0,0); y += 8; }
+
+  const inPeriodPdf = (dateStr) => {
+    if (!dateStr) return false;
+    const ym = dateStr.slice(0,7);
+    return ym >= periodoIni && ym <= periodoFim;
+  };
+  const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
+  const chamados  = JSON.parse(localStorage.getItem('chamados_list')   ||'[]').filter(c=>
+    inPeriodPdf(c.date) &&
+    (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
+    inTagPdf(c.equip||c.tag));
+  const registros = JSON.parse(localStorage.getItem('registro_records')||'[]').filter(r=>
+    inPeriodPdf(r.date) &&
+    (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
+    inTagPdf(r.equip||r.tag));
+  const preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]').filter(p=>{
+    const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
+    return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
+  });
+  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
+    const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
+    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag);
+  });
+
+  const ensurePage = (threshold) => {
+    if (y > threshold) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
+  };
+  const addSection = (title) => {
+    ensurePage(245);
+    doc.setFontSize(10);doc.setFont('helvetica','bold');
+    doc.text(title,PDF_M,y);y+=8;
+    doc.setFontSize(10);doc.setFont('helvetica','normal');
+  };
+
+  // Resumo
+  addSection('Resumo executivo');
+  doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
+  doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
+  doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
+  const prevDone = preventiva.reduce((s,p)=>s+prevProgress(p).done,0);
+  const prevTot  = preventiva.reduce((s,p)=>s+prevProgress(p).total,0);
+  doc.text(`Planos de preventiva no período: ${preventiva.length}`,PDF_M,y);y+=6;
+  doc.text(`  Equipamentos concluídos: ${prevDone}/${prevTot}`,PDF_M+4,y);y+=6;
+  doc.text(`Movimentações de patrimônio: ${movimentos.length}`,PDF_M,y);y+=10;
+
+  // Chamados
+  if (chamados.length) {
+    addSection(`Chamados (${chamados.length})`);
+    chamados.forEach(c=>{
+      ensurePage(255);
+      doc.text(`${c.date||'—'} | TAG: ${c.equip||c.tag||'—'} | ${c.status||'aberto'}`,PDF_M+2,y);y+=5;
+      doc.setFontSize(12);
+      doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,PDF_M+2,y);y+=5;
+      doc.setFontSize(10);
+      if (c.photos && c.photos.length) {
+        ensurePage(240);
+        try {
+          const src = c.photos[0].dataUrl || c.photos[0];
+          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
+          if (c.photos.length > 1) doc.text(`+${c.photos.length-1} foto(s)`, PDF_M+27, y+9);
+          const geo0 = c.photos[0].geo;
+          if (geo0) {
+            doc.setFontSize(7); doc.setTextColor(37,99,235);
+            const label0 = geo0.shortAddress || `${geo0.lat.toFixed(4)}, ${geo0.lng.toFixed(4)}`;
+            doc.textWithLink(fitText(doc, label0, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo0.lat},${geo0.lng}` });
+            doc.setTextColor(0,0,0); doc.setFontSize(10);
+          }
+        } catch(e) {}
+        y += 19;
+      }
+    });
+    y+=4;
+  }
+
+  // Registros
+  if (registros.length) {
+    addSection(`Registros de manutenção (${registros.length})`);
+    registros.forEach(r=>{
+      ensurePage(255);
+      const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
+      doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
+      if (r.photos && r.photos.length) {
+        ensurePage(240);
+        try {
+          const src = r.photos[0].dataUrl || r.photos[0];
+          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
+          if (r.photos.length > 1) doc.text(`+${r.photos.length-1} foto(s)`, PDF_M+27, y+9);
+          const geo1 = r.photos[0].geo;
+          if (geo1) {
+            doc.setFontSize(7); doc.setTextColor(37,99,235);
+            const label1 = geo1.shortAddress || `${geo1.lat.toFixed(4)}, ${geo1.lng.toFixed(4)}`;
+            doc.textWithLink(fitText(doc, label1, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo1.lat},${geo1.lng}` });
+            doc.setTextColor(0,0,0); doc.setFontSize(10);
+          }
+        } catch(e) {}
+        y += 19;
+      }
+    });
+    y+=4;
+  }
+
+  // Preventiva — mesmo relatório completo por plano usado em preventiva.html
+  // (resumo, tabela de equipamentos, detalhamento por nível e fotos)
+  if (preventiva.length) {
+    preventiva.forEach(p=>{
+      doc.addPage();
+      renderPreventivaPlanDetail(doc, p);
+    });
+  }
+
+  // Reincidências por equipamento
+  const porEquipPdf = {};
+  chamados.forEach(c => {
+    const tag = c.equip || c.tag || '—';
+    if (tag === '—') return;
+    if (!porEquipPdf[tag]) porEquipPdf[tag] = { tag, count:0, estab: c.machine?.estabelecimento||'—', datas:[] };
+    porEquipPdf[tag].count++;
+    porEquipPdf[tag].datas.push(c.date||'—');
+  });
+  const reincidenciasPdf = Object.values(porEquipPdf).filter(e=>e.count>=2).sort((a,b)=>b.count-a.count);
+  if (reincidenciasPdf.length) {
+    addSection(`Reincidências por equipamento (${reincidenciasPdf.length})`);
+    reincidenciasPdf.forEach(e=>{
+      ensurePage(255);
+      doc.text(`TAG: ${e.tag} | ${e.estab} | ${e.count} chamados | ${e.datas.sort().join(', ')}`,PDF_M+2,y);y+=5;
+    });
+    y+=4;
+  }
+
+  // Patrimônio
+  if (movimentos.length) {
+    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
+    const porStatus = st => movimentos.filter(m=>m.status===st).length;
+    addSection(`Movimentações de patrimônio (${movimentos.length})`);
+    doc.text(`Pendentes: ${porStatus('pendente')} | Aprovadas: ${porStatus('aprovada')} | Executadas: ${porStatus('executada')} | Rejeitadas/Canceladas: ${porStatus('rejeitada')+porStatus('cancelada')}`,PDF_M+2,y);y+=7;
+    movimentos.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0)).forEach(m=>{
+      ensurePage(255);
+      const dataStr = m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—';
+      doc.text(`${dataStr} | ${tipoLabel[m.tipo]||m.tipo||'—'} | TAG: ${m.tag||m.novaTag||'—'} | ${statusLabel[m.status]||m.status||'—'}`,PDF_M+2,y);y+=5;
+    });
+  }
+
+  drawPdfFooters(doc, cont);
+  try { doc.save(`relatorio-${periodoIni}${periodoFim!==periodoIni?'_a_'+periodoFim:''}-${contrato||'geral'}.pdf`); }
+  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
+  showToast('PDF gerado!');
+}
+
+if (_authorized) init();
+</script>
+</body>
+</html>
