@@ -936,7 +936,26 @@ function persist(record) {
   try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
   renderRecordList();
   const last = record || records[0];
-  if (last) DB.save('registros', last).catch(e => console.warn('Sync registro:', e.message));
+  if (last) DB.save('registros', last)
+    .then(resp => {
+      // O servidor pode ter fundido fotos de outro dispositivo neste mesmo
+      // registro. Adota a versão canônica que ele devolveu, pra não ficarmos
+      // mostrando só as nossas fotos até um refresh.
+      const srv = resp && resp.record;
+      if (srv && srv.id) {
+        const i = records.findIndex(x => x.id === srv.id);
+        if (i >= 0) {
+          const before = (records[i].photos||[]).length;
+          records[i] = srv;
+          try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+          if ((srv.photos||[]).length > before) {
+            renderRecordList();
+            showToast(`📷 Fotos de outro dispositivo mescladas (${srv.photos.length} no total)`);
+          }
+        }
+      }
+    })
+    .catch(e => console.warn('Sync registro:', e.message));
 }
 
 // ── Items ──

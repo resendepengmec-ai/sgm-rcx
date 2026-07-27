@@ -197,6 +197,24 @@ async function loadClientIdFromBackend() {
 // Executa ao carregar o script
 loadClientIdFromBackend();
 
+// Contato do admin (WhatsApp/e-mail) para quem não tem acesso pedir cadastro.
+// Vem da rota PÚBLICA de config — não exige login. Cacheado em memória para
+// não repetir a chamada. Retorna { whatsapp, email, nome } (campos podem vir
+// vazios se o admin ainda não cadastrou).
+let _adminContactCache = null;
+async function getAdminContact() {
+  if (_adminContactCache) return _adminContactCache;
+  try {
+    const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
+    const json = await res.json();
+    if (json.ok && json.data && json.data.contact) {
+      _adminContactCache = json.data.contact;
+      return _adminContactCache;
+    }
+  } catch(e) {}
+  return { whatsapp:'', email:'', nome:'' };
+}
+
 // ── Data API ──────────────────────────────────────────────────────
 const DB = {
   // Coleções
@@ -242,6 +260,8 @@ const DB = {
   // Config e stats
   getConfig:          ()    => API.get('/config'),
   saveConfig:         cfg   => API.post('/config', { config:cfg }),
+  getAdminContact:    ()    => API.get('/auth/admin-contact'),
+  saveAdminContact:   c     => API.post('/auth/admin-contact', c),
   getPrestadoraConfig:()    => API.get('/config/prestadora'),
   getStats:           ()    => API.get('/stats'),
   ping:               ()    => API.get('/../ping').then(()=>true).catch(()=>false),
