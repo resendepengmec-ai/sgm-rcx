@@ -742,6 +742,7 @@ function printFilteredPDF() {
         });
         y += rowH + capH + 4;
       }
+      y = _pdfPhotoSigs(doc, r.photos, M, y);
     }
   });
 
@@ -1324,7 +1325,9 @@ function openDetail(id){
       </div>`
   ).join('');
   const photos = r.photos && r.photos.length
-    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`).join('')}</div></div>` : '';
+    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
+  const addPhotoBtn = (canAddPhoto(r) && (r.photos||[]).length<3)
+    ? `<button onclick="triggerAddPhoto('${r.id}')" style="margin-top:12px;width:100%;padding:11px;border:1px dashed var(--border);border-radius:10px;background:var(--bg);color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer">📷 Adicionar foto (com data, hora e localização)</button>` : '';
   document.getElementById('detail-content').innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:19px;font-weight:700">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
@@ -1333,12 +1336,104 @@ function openDetail(id){
     </div>
     <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${svcList}</div>
     ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${esc(r.notes)}</div>`:''}
-    ${photos}`;
+    ${photos}
+    ${addPhotoBtn}`;
   document.getElementById('detail-modal').classList.remove('hidden');
 }
 function closeDetailModal(){ document.getElementById('detail-modal').classList.add('hidden'); }
 
+// Legenda de assinatura embaixo de uma foto: quem enviou, perfil, quando e
+// os primeiros dígitos do HMAC (identidade + evidência de não-adulteração).
+function _photoSigLine(i, sig){
+  if (!sig) return '';
+  const roles = {admin:'Admin',diretor:'Diretor',supervisor:'Supervisor',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const dt = new Date(sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  return `<div style="font-size:11px;color:#94a3b8;line-height:1.6">📷 Foto ${i+1} — Assinada por <strong>${esc(sig.by||'?')}</strong> · ${roles[sig.role]||esc(sig.role||'')} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(sig.hash||'').slice(0,6)}]</code></div>`;
+}
+
+// Só o técnico DONO/ATRIBUÍDO àquele registro (ou gestor pra cima) pode
+// anexar foto depois de criado. Espelha a regra do backend.
+function canAddPhoto(r){
+  const u = getCurrentUser(); if (!u || !r) return false;
+  if (['admin','diretor','supervisor','gestor'].includes(u.role)) return true;
+  if (u.role !== 'tecnico') return false;
+  const owner = r._ownerEmail || r.ownerEmail;
+  const assigned = [r.tech, r.technician].filter(Boolean);
+  return owner === u.email || assigned.includes(u.name) || assigned.includes(u.email);
+}
+
+function triggerAddPhoto(id){
+  const r = records.find(x=>x.id===id); if (!r) return;
+  if ((r.photos||[]).length >= 3){ showToast('Máximo de 3 fotos por registro'); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = e => { const f = e.target.files && e.target.files[0]; if (f) addExistingPhoto(id, f); };
+  inp.click();
+}
+
+// Captura a foto com data/hora + localização do dispositivo (mesmo carimbo da
+// criação) e envia ao endpoint que a assina. Adota a versão do servidor.
+async function addExistingPhoto(id, file){
+  const r = records.find(x=>x.id===id); if (!r) return;
+  if (!file.type.startsWith('image/')){ showToast('Arquivo não é uma imagem'); return; }
+  showToast('📍 Capturando localização…');
+  const geo  = await getGeoTag();
+  const tile = geo ? await loadMapTile(geo.lat, geo.lng) : null;
+  const MAX_PX = 800;
+  const dataUrl = await new Promise((resolve, reject) => {
+    const rd = new FileReader();
+    rd.onerror = () => reject(new Error('Falha ao ler a imagem'));
+    rd.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let w = img.width, h = img.height;
+        if (w>MAX_PX||h>MAX_PX){ if(w>h){h=Math.round(h*MAX_PX/w);w=MAX_PX;} else {w=Math.round(w*MAX_PX/h);h=MAX_PX;} }
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        if (geo){ try { drawGeoWatermark(canvas, geo, tile); } catch(e){} }
+        resolve(canvas.toDataURL('image/jpeg',0.75));
+      };
+      img.onerror = () => reject(new Error('Imagem inválida'));
+      img.src = ev.target.result;
+    };
+    rd.readAsDataURL(file);
+  });
+  const photo = { dataUrl, name:file.name, geo, capturedAt: Date.now() };
+  try {
+    const resp = await DB.addRegistroFoto(id, photo);
+    const srv = resp && resp.record;
+    if (srv && srv.id){
+      const i = records.findIndex(x=>x.id===srv.id);
+      if (i>=0) records[i] = srv;
+      try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e){}
+    }
+    showToast('📷 Foto anexada e assinada');
+    renderRecordList();
+    openDetail(id);
+  } catch(e){
+    showToast('Erro ao anexar foto: ' + (e.message||e));
+  }
+}
+
 // ── PDF ──
+// Bloco de assinaturas das fotos no PDF: uma linha por foto assinada, com
+// autor, perfil, data/hora e o HMAC (+ keyId). Devolve o novo y.
+function _pdfPhotoSigs(doc, photos, M, y){
+  const ps = (photos||[]).filter(p=>p&&p.sig);
+  if (!ps.length) return y;
+  if (y > 272) { doc.addPage(); y = M; }
+  doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+  (photos||[]).forEach((p, idx) => {
+    if (!p || !p.sig) return;
+    const dt = new Date(p.sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, M, y);
+    y += 4;
+  });
+  doc.setTextColor(0,0,0);
+  return y + 2;
+}
+
 function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const r = records.find(x=>x.id===id);
@@ -1466,6 +1561,7 @@ function printPDF(id){
       });
       y += rowH + capH + 4;
     }
+    y = _pdfPhotoSigs(doc, r.photos, M, y);
     y += 2;
   }
 

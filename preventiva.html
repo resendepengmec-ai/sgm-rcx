@@ -433,6 +433,13 @@ function photoFit(doc, dataUrl, W, Hmax){
   if (h > Hmax) { h = Hmax; w = Hmax * iw / ih; }
   return { w, h };
 }
+// Legenda de assinatura embaixo de uma foto (tela): autor, perfil, quando, HMAC.
+function _photoSigLine(i, sig){
+  if (!sig) return '';
+  const roles = {admin:'Admin',diretor:'Diretor',supervisor:'Supervisor',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
+  const dt = new Date(sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  return `<div style="font-size:10px;color:#94a3b8;line-height:1.5">📷 Foto ${i+1} — por <strong>${esc(sig.by||'?')}</strong> · ${roles[sig.role]||esc(sig.role||'')} · ${dt} <code style="font-family:monospace;font-size:9px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(sig.hash||'').slice(0,6)}]</code></div>`;
+}
 function drawPdfFooters(doc, cont) {
   const pageCount = doc.internal.getNumberOfPages();
   const maxW = PDF_W - PDF_M*2;
@@ -979,7 +986,7 @@ function renderExecList(plan) {
           <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
           ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
         </div>`).join('')}
-      </div>` : '';
+      </div>${photos.some(p=>p&&p.sig)?`<div style="margin:-2px 0 10px;display:flex;flex-direction:column;gap:2px">${photos.map((p,pi)=>p&&p.sig?_photoSigLine(pi,p.sig):'').join('')}</div>`:''}` : '';
 
     return `<div class="exec-card">
       <div class="exec-header" onclick="toggleExecBody(${ei})">
@@ -1434,6 +1441,18 @@ function generatePlanPDF(plan, sharedDoc) {
           }
         });
         y += rowH + capH + 4;
+      }
+      // Assinaturas das fotos (autor, perfil, data/hora, HMAC + keyId)
+      if (eq.photos.some(p=>p&&p.sig)) {
+        if (y > 272) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
+        doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+        eq.photos.forEach((p,idx)=>{
+          if(!p||!p.sig) return;
+          const dt=new Date(p.sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+          doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, M, y);
+          y+=3.6;
+        });
+        doc.setTextColor(0,0,0); y+=2;
       }
     }
   });

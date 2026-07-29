@@ -276,6 +276,10 @@ const DB = {
   // Assinaturas digitais
   sign:         (recordId, action, module) => API.post('/sign', { recordId, action, module }),
   getSignatures:(recordId)                 => API.get(`/sign/${recordId}`),
+  verifySignatures:(recordId)              => API.get(`/sign/${recordId}/verify`),
+
+  // Técnico dono/atribuído anexa foto (assinada) a um registro já criado
+  addRegistroFoto: (id, photo) => API.post(`/registros/${id}/foto`, { photo }),
 
 };
 
