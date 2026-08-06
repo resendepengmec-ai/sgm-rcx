@@ -501,10 +501,86 @@ async function populateContractDropdowns() {
   } catch(e) { /* backend offline: mantém dropdown vazio */ }
 }
 
-function persist(record) {
-  localStorage.setItem('prev_plans', JSON.stringify(plans));
+// Indicador PERSISTENTE de status de upload (diferente do toast, que some).
+// Estados: saving (enviando), saved (some sozinho), error (fica até resolver,
+// clicável para tentar de novo).
+function setSync(state, msg, onRetry){
+  let el = document.getElementById('sync-status');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'sync-status';
+    el.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:80px;z-index:9998;padding:9px 15px;border-radius:999px;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.20);display:none;align-items:center;gap:8px;max-width:92vw;text-align:center';
+    document.body.appendChild(el);
+  }
+  const map = { saving:['#0f172a','#e2e8f0','⏳'], saved:['#065f46','#d1fae5','✅'], error:['#7f1d1d','#fee2e2','⚠️'] };
+  const [bg,fg,icon] = map[state] || map.saving;
+  clearTimeout(el._t);
+  el.style.background = bg; el.style.color = fg; el.style.display = 'flex';
+  el.style.cursor = (state==='error' && onRetry) ? 'pointer' : 'default';
+  el.onclick = (state==='error' && onRetry) ? onRetry : null;
+  el.innerHTML = `<span>${icon}</span><span>${msg}</span>` +
+    (state==='error' && onRetry ? `<span style="text-decoration:underline;margin-left:2px">tentar de novo</span>` : '');
+  if(state==='saved') el._t = setTimeout(()=>{ el.style.display='none'; }, 2200);
+}
+
+// Persiste no cache local (imediato) e ENVIA ao servidor com await + status.
+// Marca o plano como "sujo" (não sincronizado) até o servidor confirmar, e
+// manda as fotos JÁ sincronizadas sem os bytes (o servidor as preserva) —
+// assim um check não reenvia megabytes de foto.
+async function persist(record) {
   const last = record || plans[0];
-  if (last) DB.save('preventiva', last).catch(e => console.warn('Sync preventiva:', e.message));
+  if (last) { last.updatedAt = Date.now(); last._dirty = true; }
+  localStorage.setItem('prev_plans', JSON.stringify(plans)); // cache local nunca falha
+  if (!last) return true;
+  setSync('saving', 'Enviando ao servidor…');
+  try {
+    await DB.save('preventiva', stripSyncedPhotos(last));
+    last._dirty = false;
+    localStorage.setItem('prev_plans', JSON.stringify(plans)); // grava flag limpa
+    setSync('saved', 'Enviado');
+    return true;
+  } catch(e) {
+    setSync('error', 'Não enviado: ' + (e.message || 'falha de rede'), () => persist(last));
+    return false;
+  }
+}
+
+// Clona o plano trocando as fotos JÁ enviadas (com sig) por metadados leves
+// (sem dataUrl). Fotos ainda não confirmadas mantêm os bytes, como fallback:
+// se o upload incremental tiver falhado, elas ainda sobem por aqui.
+function stripSyncedPhotos(plan) {
+  const lighten = arr => (arr||[]).map(p =>
+    p && p.sig
+      ? { id:p.id, name:p.name, addedAt:p.addedAt, capturedAt:p.capturedAt, geo:p.geo, sig:p.sig } // sem dataUrl
+      : p);
+  const clone = Object.assign({}, plan);
+  delete clone._dirty;
+  if (Array.isArray(plan.equipments))
+    clone.equipments = plan.equipments.map(eq =>
+      eq && Array.isArray(eq.photos) ? Object.assign({}, eq, { photos: lighten(eq.photos) }) : eq);
+  if (Array.isArray(plan.photos)) clone.photos = lighten(plan.photos);
+  return clone;
+}
+
+// Une planos locais e do servidor SEM perder trabalho local não sincronizado:
+// se o local está sujo ou é mais novo, ele vence; senão, adota o do servidor.
+function mergePlans(local, server) {
+  const byId = new Map();
+  (server||[]).forEach(p => byId.set(p.id, p));
+  (local||[]).forEach(lp => {
+    const sp = byId.get(lp.id);
+    if (!sp) { byId.set(lp.id, lp); return; }               // só local: mantém
+    const lu = lp.updatedAt || 0;
+    const su = sp.updatedAt || sp.finalizedAt || sp.createdAt || 0;
+    if (lp._dirty || lu > su) byId.set(lp.id, lp);           // local vence
+  });
+  return Array.from(byId.values());
+}
+
+// Reenvia em silêncio os planos que ficaram sujos (capturados offline).
+async function resyncDirty() {
+  const dirty = plans.filter(p => p && p._dirty);
+  for (const p of dirty) { const ok = await persist(p); if (!ok) break; }
 }
 
 function showToast(msg) {
@@ -521,12 +597,14 @@ function showToast(msg) {
   if (!role || !role.modules.includes('registro')) { window.location.href = 'index.html'; return; }
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
-  DB.getAll('preventiva').then(data => {
-    if (data && data.length > 0) {
-      plans = data;
-      localStorage.setItem('prev_plans', JSON.stringify(data));
-      persist();
-    }
+  // Carrega do backend e FUNDE com o local (não sobrescreve): trabalho de
+  // campo ainda não sincronizado é preservado; depois reenvia o que ficou.
+  DB.getAll('preventiva').then(server => {
+    plans = mergePlans(plans, server || []);
+    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    if (currentPlanId) { const p = plans.find(x=>x.id===currentPlanId); if (p) renderExecList(p); }
+    renderPlansList();
+    resyncDirty();
   }).catch(() => {});
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
@@ -1030,12 +1108,14 @@ function setLevelCheck(ei, level, value) {
   if (!plan) return;
   const equip = plan.equipments[ei];
   equip.checks[level] = value;
-  signRecord(plan.id, `nivel_${level}_${value?'concluido':'reaberto'}`, 'preventiva').then(sig => {
-    equip._signatures = equip._signatures||[]; equip._signatures.push(sig);
-    persist();
-  });
   renderExecList(plan);
   updatePlanSummary(plan);
+  // Salva o check AGORA (local + servidor), independente da assinatura.
+  persist();
+  // Assinatura é secundária: se a rede falhar, o check NÃO se perde.
+  signRecord(plan.id, `nivel_${level}_${value?'concluido':'reaberto'}`, 'preventiva')
+    .then(sig => { equip._signatures = equip._signatures||[]; equip._signatures.push(sig); persist(); })
+    .catch(e => console.warn('Assinatura do check adiada:', e.message));
 }
 
 // Modal somente-leitura com a relação de itens do checklist (referência
@@ -1197,27 +1277,62 @@ function addEquipPhoto(ei, file) {
   getGeoTag().then(async geo => {
     const tile = geo ? await loadMapTile(geo.lat, geo.lng) : null;
     const reader = new FileReader();
+    reader.onerror = () => showToast('⚠️ Não consegui ler o arquivo da foto. Tente novamente.');
     reader.onload = ev => {
       const img = new Image();
+      // iOS costuma entregar HEIC/foto pesada que NÃO dispara onload — sem
+      // isto a miniatura sumia em silêncio. Agora avisa o técnico.
+      img.onerror = () => showToast('⚠️ Formato de imagem não suportado neste aparelho. Tente novamente ou use JPG/PNG.');
       img.onload = () => {
-        const MAX = 900;
-        let w = img.width, h = img.height;
-        if (w > MAX || h > MAX) { if (w>h){h=Math.round(h*MAX/w);w=MAX;} else {w=Math.round(w*MAX/h);h=MAX;} }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        if (geo) { try { drawGeoWatermark(canvas, geo, tile); } catch(e) {} }
-        const equip = plan.equipments[ei];
-        equip.photos = equip.photos || [];
-        equip.photos.push({ dataUrl: canvas.toDataURL('image/jpeg', 0.75), name: file.name, addedAt: Date.now(), geo });
-        persist();
-        renderExecList(plan);
-        showToast(`📷 Foto adicionada${geo?' (com localização)':''}`);
+        try {
+          const MAX = 900;
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) { if (w>h){h=Math.round(h*MAX/w);w=MAX;} else {w=Math.round(w*MAX/h);h=MAX;} }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          if (geo) { try { drawGeoWatermark(canvas, geo, tile); } catch(e) {} }
+          const equip = plan.equipments[ei];
+          equip.photos = equip.photos || [];
+          const photo = {
+            id: 'ph-' + Date.now() + '-' + Math.random().toString(36).slice(2,8),
+            dataUrl: canvas.toDataURL('image/jpeg', 0.75),
+            name: file.name, addedAt: Date.now(), capturedAt: Date.now(), geo
+          };
+          equip.photos.push(photo);                              // local imediato: miniatura aparece
+          localStorage.setItem('prev_plans', JSON.stringify(plans));
+          renderExecList(plan);
+          showToast(`📷 Foto adicionada${geo?' (com localização)':''}`);
+          uploadEquipPhoto(plan, ei, photo);                     // sobe só a foto (incremental)
+        } catch(err) {
+          showToast('⚠️ Falha ao processar a foto: ' + (err.message || err));
+        }
       };
       img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
   });
+}
+
+// Envia UMA foto ao servidor (endpoint incremental). Não reenvia o plano.
+// Se falhar, a foto fica local com os bytes (sem sig) e sobe depois no
+// próximo persist() do plano, que a carrega como fallback.
+async function uploadEquipPhoto(plan, ei, photo) {
+  setSync('saving', 'Enviando foto…');
+  try {
+    const resp = await DB.addPreventivaFoto(plan.id, ei, photo);
+    if (resp && resp.photo) {                                   // adota a versão assinada
+      const eq = plan.equipments[ei];
+      const idx = (eq.photos||[]).findIndex(p => p && p.id === photo.id);
+      if (idx >= 0) eq.photos[idx] = resp.photo;
+      localStorage.setItem('prev_plans', JSON.stringify(plans));
+      renderExecList(plan);
+    }
+    setSync('saved', 'Foto enviada');
+  } catch(e) {
+    setSync('error', 'Foto não enviada: ' + (e.message || 'falha') + ' — sobe ao salvar',
+            () => uploadEquipPhoto(plan, ei, photo));
+  }
 }
 function removeEquipPhoto(ei, pi) {
   const plan = plans.find(p=>p.id===currentPlanId);
@@ -1255,7 +1370,7 @@ function updatePlanSummary(plan) {
   document.getElementById('exec-pct').textContent = pct+'%';
 }
 
-function finalizePlan() {
+async function finalizePlan() {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
   const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
@@ -1263,13 +1378,33 @@ function finalizePlan() {
   if (done < total) {
     if (!confirm(`${total-done} equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?`)) return;
   }
+  const btn = document.querySelector('button[onclick="finalizePlan()"]');
+  const prev = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando…'; }
   plan.finalizedAt = Date.now();
-  signRecord(plan.id, 'finalizado', 'preventiva').then(sig => {
-    plan._signatures = plan._signatures||[]; plan._signatures.push(sig);
-    persist(plan);
+  plan.updatedAt = Date.now();
+  plan._dirty = true;
+  setSync('saving', 'Finalizando e enviando ao servidor…');
+  try {
+    // 1) Sobe o plano (fotos já sincronizadas vão sem bytes) e CONFIRMA
+    await DB.save('preventiva', stripSyncedPhotos(plan));
+    // 2) Registra a assinatura de finalização
+    const sig = await signRecord(plan.id, 'finalizado', 'preventiva');
+    plan._signatures = plan._signatures || []; plan._signatures.push(sig);
+    plan._dirty = false;
+    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    setSync('saved', 'Preventiva finalizada e enviada');
     showToast('Preventiva finalizada!');
     switchTab('list');
-  });
+  } catch(e) {
+    // Não subiu: NÃO marca como finalizada; nada é perdido, dá pra repetir.
+    plan.finalizedAt = null;
+    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), () => finalizePlan());
+    showToast('⚠️ Falha ao finalizar — nada foi perdido, tente novamente');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = prev; }
+  }
 }
 
 function deletePlan(id) {

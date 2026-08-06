@@ -64,10 +64,25 @@ async function _call(method, path, body) {
   const token   = sessionStorage.getItem(SESSION_KEY);
   const headers = { 'Content-Type':'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${SMM_API_URL}/api${path}`, {
-    method, headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Timeout: em rede de campo instável, o fetch pode travar sem resolver
+  // nem rejeitar. O AbortController garante que a chamada sempre termina.
+  const ctrl = new AbortController();
+  const TIMEOUT_MS = 60000;
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(`${SMM_API_URL}/api${path}`, {
+      method, headers,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+  } catch(e) {
+    if (e.name === 'AbortError')
+      throw new Error('Tempo esgotado ao falar com o servidor. Verifique a conexão e tente de novo.');
+    throw new Error('Sem conexão com o servidor. Verifique a internet e tente de novo.');
+  } finally {
+    clearTimeout(timer);
+  }
   let json;
   try {
     json = await res.json();
@@ -280,6 +295,10 @@ const DB = {
 
   // Técnico dono/atribuído anexa foto (assinada) a um registro já criado
   addRegistroFoto: (id, photo) => API.post(`/registros/${id}/foto`, { photo }),
+
+  // Upload incremental de UMA foto de preventiva (por equipamento), sem
+  // reenviar o plano inteiro
+  addPreventivaFoto: (id, ei, photo) => API.post(`/preventiva/${id}/equip/${ei}/foto`, { photo }),
 
 };
 
