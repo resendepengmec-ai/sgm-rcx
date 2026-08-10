@@ -530,13 +530,13 @@ function setSync(state, msg, onRetry){
 async function persist(record) {
   const last = record || plans[0];
   if (last) { last.updatedAt = Date.now(); last._dirty = true; }
-  localStorage.setItem('prev_plans', JSON.stringify(plans)); // cache local nunca falha
+  saveLocal(); // cache local nunca falha
   if (!last) return true;
   setSync('saving', 'Enviando ao servidor…');
   try {
     await DB.save('preventiva', stripSyncedPhotos(last));
     last._dirty = false;
-    localStorage.setItem('prev_plans', JSON.stringify(plans)); // grava flag limpa
+    saveLocal(); // grava flag limpa
     setSync('saved', 'Enviado');
     return true;
   } catch(e) {
@@ -560,6 +560,38 @@ function stripSyncedPhotos(plan) {
       eq && Array.isArray(eq.photos) ? Object.assign({}, eq, { photos: lighten(eq.photos) }) : eq);
   if (Array.isArray(plan.photos)) clone.photos = lighten(plan.photos);
   return clone;
+}
+
+// Grava os planos no cache local SEM estourar a cota do navegador (iOS Safari
+// ~5 MB). O que enche o cache são as fotos em base64; como o servidor já é a
+// fonte das fotos sincronizadas, aqui guardamos só metadados delas (sem os
+// bytes) — mantendo os bytes apenas das fotos AINDA não enviadas, para
+// sobreviverem a um refresh offline. Mantém _dirty/updatedAt (necessários ao
+// merge). Nunca lança: se ainda assim encher, tira todas as fotos; se mesmo
+// assim falhar, segue sem cache (os dados estão/estarão no servidor).
+function _cacheClone(plan, dropAllPhotos) {
+  const lighten = arr => (arr||[]).map(p => {
+    if (!p) return p;
+    if (dropAllPhotos || p.sig) { const { dataUrl, ...rest } = p; return rest; } // sem bytes
+    return p; // não sincronizada: mantém bytes
+  });
+  const clone = Object.assign({}, plan);
+  if (Array.isArray(plan.equipments))
+    clone.equipments = plan.equipments.map(eq =>
+      eq && Array.isArray(eq.photos) ? Object.assign({}, eq, { photos: lighten(eq.photos) }) : eq);
+  if (Array.isArray(plan.photos)) clone.photos = lighten(plan.photos);
+  return clone;
+}
+function saveLocal() {
+  try {
+    localStorage.setItem('prev_plans', JSON.stringify(plans.map(p => _cacheClone(p, false))));
+  } catch(e) {
+    try { // cache cheio: tira TODAS as fotos do cache (thumbnails voltam do servidor)
+      localStorage.setItem('prev_plans', JSON.stringify(plans.map(p => _cacheClone(p, true))));
+    } catch(e2) {
+      console.warn('cache local cheio — seguindo sem cache:', e2.message);
+    }
+  }
 }
 
 // Une planos locais e do servidor SEM perder trabalho local não sincronizado:
@@ -601,7 +633,7 @@ function showToast(msg) {
   // campo ainda não sincronizado é preservado; depois reenvia o que ficou.
   DB.getAll('preventiva').then(server => {
     plans = mergePlans(plans, server || []);
-    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    saveLocal();
     if (currentPlanId) { const p = plans.find(x=>x.id===currentPlanId); if (p) renderExecList(p); }
     renderPlansList();
     resyncDirty();
@@ -894,7 +926,7 @@ function saveBatchPlans() {
       return DB.save('preventiva', p).catch(e => console.warn('Sync preventiva:', e.message));
     })
   )).then(() => {
-    try { localStorage.setItem('prev_plans', JSON.stringify(plans)); } catch(e) {}
+    try { saveLocal(); } catch(e) {}
     renderPlansList();
     showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
     batchAssignments = {};
@@ -1060,7 +1092,9 @@ function renderExecList(plan) {
     const photosHtml = photos.length ? `
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
         ${photos.map((p,pi)=>`<div style="position:relative">
-          <img src="${p.dataUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="showPhotoZoom('${p.dataUrl}')">
+          ${p && p.dataUrl
+            ? `<img src="${p.dataUrl}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="showPhotoZoom('${p.dataUrl}')">`
+            : `<div title="Foto salva no servidor" style="width:56px;height:56px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:16px;color:#94a3b8">🗂️</div>`}
           <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
           ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
         </div>`).join('')}
@@ -1300,7 +1334,7 @@ function addEquipPhoto(ei, file) {
             name: file.name, addedAt: Date.now(), capturedAt: Date.now(), geo
           };
           equip.photos.push(photo);                              // local imediato: miniatura aparece
-          localStorage.setItem('prev_plans', JSON.stringify(plans));
+          saveLocal();
           renderExecList(plan);
           showToast(`📷 Foto adicionada${geo?' (com localização)':''}`);
           uploadEquipPhoto(plan, ei, photo);                     // sobe só a foto (incremental)
@@ -1325,7 +1359,7 @@ async function uploadEquipPhoto(plan, ei, photo) {
       const eq = plan.equipments[ei];
       const idx = (eq.photos||[]).findIndex(p => p && p.id === photo.id);
       if (idx >= 0) eq.photos[idx] = resp.photo;
-      localStorage.setItem('prev_plans', JSON.stringify(plans));
+      saveLocal();
       renderExecList(plan);
     }
     setSync('saved', 'Foto enviada');
@@ -1341,7 +1375,7 @@ function removeEquipPhoto(ei, pi) {
   const photo = eq.photos[pi];
   if (!photo) return;
   eq.photos.splice(pi, 1);                                  // feedback local imediato
-  localStorage.setItem('prev_plans', JSON.stringify(plans));
+  saveLocal();
   renderExecList(plan);
   if (!photo.id) { persist(); return; }                     // foto legada (sem id): reconcilia pelo plano
   // Remove no servidor AGORA, liberando a vaga das 3 de forma determinística
@@ -1403,14 +1437,14 @@ async function finalizePlan() {
     const sig = await signRecord(plan.id, 'finalizado', 'preventiva');
     plan._signatures = plan._signatures || []; plan._signatures.push(sig);
     plan._dirty = false;
-    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    saveLocal();
     setSync('saved', 'Preventiva finalizada e enviada');
     showToast('Preventiva finalizada!');
     switchTab('list');
   } catch(e) {
     // Não subiu: NÃO marca como finalizada; nada é perdido, dá pra repetir.
     plan.finalizedAt = null;
-    localStorage.setItem('prev_plans', JSON.stringify(plans));
+    saveLocal();
     setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), () => finalizePlan());
     showToast('⚠️ Falha ao finalizar — nada foi perdido, tente novamente');
   } finally {
@@ -1421,7 +1455,7 @@ async function finalizePlan() {
 function deletePlan(id) {
   if (!confirm('Excluir este plano de preventiva?')) return;
   plans = plans.filter(p=>p.id!==id);
-  localStorage.setItem('prev_plans', JSON.stringify(plans));
+  saveLocal();
   showToast('Plano excluído');
   switchTab('list');
   DB.delete('preventiva', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));

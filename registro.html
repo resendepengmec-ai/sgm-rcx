@@ -244,7 +244,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   DB.getAll('registros').then(data => {
     if (data && data.length > 0) {
       records = data;
-      localStorage.setItem('registro_records', JSON.stringify(data));
+      saveRegistrosLocal();
       renderRecordList();
     }
   }).catch(() => {});
@@ -348,6 +348,28 @@ const SERVICES = [
 
 // ── State ──
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
+
+// Cache local do registro sem estourar a cota do navegador (o localStorage é
+// compartilhado com preventiva e demais módulos). Fotos já sincronizadas
+// (com sig) são gravadas sem os bytes — o servidor as tem; as ainda não
+// enviadas mantêm os bytes para sobreviver a um refresh offline. Nunca lança.
+function _recCacheClone(r, dropAll){
+  const lighten = arr => (arr||[]).map(p=>{
+    if(!p) return p;
+    if(dropAll || p.sig){ const {dataUrl, ...rest}=p; return rest; }
+    return p;
+  });
+  const c = Object.assign({}, r);
+  if (Array.isArray(r.photos)) c.photos = lighten(r.photos);
+  return c;
+}
+function saveRegistrosLocal(){
+  try { localStorage.setItem('registro_records', JSON.stringify(records.map(r=>_recCacheClone(r,false)))); }
+  catch(e){
+    try { localStorage.setItem('registro_records', JSON.stringify(records.map(r=>_recCacheClone(r,true)))); }
+    catch(e2){ console.warn('cache local cheio — seguindo sem cache:', e2.message); }
+  }
+}
 let settings = JSON.parse(localStorage.getItem('registro_settings') || '{}');
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
@@ -876,7 +898,7 @@ function saveRecord() {
       };
       DB.saveMovimentacao(mov).then(() => {
         r._baixaSolicitada = true;
-        try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+        try { saveRegistrosLocal(); } catch(e) {}
         DB.save('registros', r).catch(()=>{});
         showToast('📋 Baixa do equipamento solicitada — aguardando aprovação no Patrimônio');
       }).catch(e => showToast('Erro ao solicitar baixa do equipamento: ' + e.message));
@@ -926,7 +948,7 @@ function editRecord(id) {
 function deleteRecord(id) {
   if (!confirm('Excluir este registro?')) return;
   records = records.filter(r=>r.id!==id);
-  try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+  try { saveRegistrosLocal(); } catch(e) {}
   renderRecordList();
   closeDetailModal();
   showToast('Registro excluído');
@@ -934,7 +956,7 @@ function deleteRecord(id) {
 }
 
 function persist(record) {
-  try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+  try { saveRegistrosLocal(); } catch(e) {}
   renderRecordList();
   const last = record || records[0];
   if (last) DB.save('registros', last)
@@ -948,7 +970,7 @@ function persist(record) {
         if (i >= 0) {
           const before = (records[i].photos||[]).length;
           records[i] = srv;
-          try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e) {}
+          try { saveRegistrosLocal(); } catch(e) {}
           if ((srv.photos||[]).length > before) {
             renderRecordList();
             showToast(`📷 Fotos de outro dispositivo mescladas (${srv.photos.length} no total)`);
@@ -1346,7 +1368,7 @@ function openDetail(id){
       </div>`
   ).join('');
   const photos = r.photos && r.photos.length
-    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
+    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>p&&p.dataUrl?`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`:`<div title="Foto salva no servidor" style="width:100%;min-height:70px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:20px;color:#94a3b8">🗂️</div>`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
   const addPhotoBtn = (canAddPhoto(r) && (r.photos||[]).length<3)
     ? `<button onclick="triggerAddPhoto('${r.id}')" style="margin-top:12px;width:100%;padding:11px;border:1px dashed var(--border);border-radius:10px;background:var(--bg);color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer">📷 Adicionar foto (com data, hora e localização)</button>` : '';
   document.getElementById('detail-content').innerHTML = `
@@ -1427,7 +1449,7 @@ async function addExistingPhoto(id, file){
     if (srv && srv.id){
       const i = records.findIndex(x=>x.id===srv.id);
       if (i>=0) records[i] = srv;
-      try { localStorage.setItem('registro_records', JSON.stringify(records)); } catch(e){}
+      try { saveRegistrosLocal(); } catch(e){}
     }
     showToast('📷 Foto anexada e assinada');
     renderRecordList();
