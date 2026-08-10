@@ -300,6 +300,9 @@ const DB = {
   // reenviar o plano inteiro
   addPreventivaFoto: (id, ei, photo) => API.post(`/preventiva/${id}/equip/${ei}/foto`, { photo }),
 
+  // Remoção incremental e determinística de UMA foto de preventiva
+  delPreventivaFoto: (id, ei, photoId) => API.delete(`/preventiva/${id}/equip/${ei}/foto/${encodeURIComponent(photoId)}`),
+
 };
 
 // ── Machine DB local fallback ──────────────────────────────────────

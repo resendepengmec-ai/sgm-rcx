@@ -1337,9 +1337,20 @@ async function uploadEquipPhoto(plan, ei, photo) {
 function removeEquipPhoto(ei, pi) {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
-  plan.equipments[ei].photos.splice(pi, 1);
-  persist();
+  const eq = plan.equipments[ei];
+  const photo = eq.photos[pi];
+  if (!photo) return;
+  eq.photos.splice(pi, 1);                                  // feedback local imediato
+  localStorage.setItem('prev_plans', JSON.stringify(plans));
   renderExecList(plan);
+  if (!photo.id) { persist(); return; }                     // foto legada (sem id): reconcilia pelo plano
+  // Remove no servidor AGORA, liberando a vaga das 3 de forma determinística
+  const doDelete = async () => {
+    setSync('saving', 'Removendo foto…');
+    try { await DB.delPreventivaFoto(plan.id, ei, photo.id); setSync('saved', 'Foto removida'); }
+    catch(e) { setSync('error', 'Não removeu no servidor: ' + (e.message||'falha'), doDelete); }
+  };
+  doDelete();
 }
 function showPhotoZoom(src) {
   let modal = document.getElementById('photo-zoom-modal');
