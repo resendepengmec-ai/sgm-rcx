@@ -114,7 +114,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field" id="field-equip">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
+      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" placeholder="Ex: 12, 325, 1450" oninput="this.value=this.value.replace(/[^0-9]/g,'');onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -355,7 +355,7 @@ const SERVICES = [
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-08-12.2';
+const APP_BUILD = '2026-08-12.3';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
