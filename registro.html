@@ -134,7 +134,12 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Data do serviço</label>
+      <label>Data de solicitação</label>
+      <input type="date" id="f-date-sol">
+    </div>
+
+    <div class="field">
+      <label>Data de execução</label>
       <input type="date" id="f-date">
     </div>
 
@@ -350,7 +355,7 @@ const SERVICES = [
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-08-10.2';
+const APP_BUILD = '2026-08-12.2';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
@@ -457,6 +462,42 @@ let newPhotos = []; // [{dataUrl, name}]
 let editingId = null;
 let currentDetailId = null;
 let selectedMachine = null;
+
+// Resolve o estabelecimento de um registro: usa o que foi capturado; senão
+// busca pela TAG no banco de equipamentos do contrato (mesma fonte da preventiva).
+function resolveEstab(r){
+  if (r && r.machine && r.machine.estabelecimento) return r.machine.estabelecimento;
+  try {
+    const db = (typeof getEffDB === 'function' ? getEffDB() : {})[r.contract || r.client] || [];
+    const m = db.find(x => (x.tag||'') === (r.tag || r.equip));
+    if (m && m.estabelecimento) return m.estabelecimento;
+  } catch(e){}
+  return '';
+}
+
+// Prazo de atendimento em dias (execução − solicitação). null se faltar data.
+function prazoDias(r){
+  if (!r || !r.dateSolic || !r.date) return null;
+  const s = new Date(r.dateSolic + 'T00:00:00');
+  const e = new Date(r.date + 'T00:00:00');
+  if (isNaN(s) || isNaN(e)) return null;
+  const d = Math.round((e - s) / 86400000);
+  return d < 0 ? null : d;   // ignora datas invertidas
+}
+
+// Estatística de prazo sobre uma lista: média, mínimo, máximo e n válidos.
+function prazoStats(list){
+  const dias = (list||[]).map(prazoDias).filter(d => d !== null);
+  if (!dias.length) return { n:0, media:null, min:null, max:null };
+  const soma = dias.reduce((a,b)=>a+b,0);
+  return { n:dias.length, media: Math.round((soma/dias.length)*10)/10,
+           min: Math.min(...dias), max: Math.max(...dias) };
+}
+function fmtDias(n){ return n===1 ? '1 dia' : `${n} dias`; }
+function fmtPrazo(st){
+  if (!st || !st.n) return 'Prazo de atendimento: sem dados suficientes';
+  return `Prazo de atendimento — média ${fmtDias(st.media)} · mín ${fmtDias(st.min)} · máx ${fmtDias(st.max)}  (${st.n} reg.)`;
+}
 let tagTimeout = null;
 
 const fmt = d => new Date(d).toLocaleDateString('pt-BR');
@@ -612,7 +653,7 @@ function printFilteredPDF() {
 
   // Filter description
   doc.setFillColor(236,253,245);
-  doc.rect(M, y, CW, 38, 'F');
+  doc.rect(M, y, CW, 45, 'F');
   doc.setTextColor(30,30,30);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('PARÂMETROS DO RELATÓRIO', M+4, y+7);
@@ -626,7 +667,17 @@ function printFilteredPDF() {
   doc.text(`Contrato: ${contractLabel}`, M+4, y+20);
   doc.text(`Estabelecimento: ${estabLabel}`, M+4, y+26);
   doc.text(`Total de registros: ${filtered.length}   |   Emitido em: ${new Date().toLocaleDateString('pt-BR')}`, M+4, y+32);
-  y += 42;
+  doc.setFont('helvetica','bold');
+  doc.text(fitTextBox(doc, fmtPrazo(prazoStats(filtered)), CW-8), M+4, y+39);
+  doc.setFont('helvetica','normal');
+  y += 49;
+
+  function fitTextBox(doc, text, maxW){
+    text = String(text);
+    if (doc.getTextWidth(text) <= maxW) return text;
+    while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
+    return text + '…';
+  }
 
   function fitText(doc, text, maxW) {
     text = String(text);
@@ -653,7 +704,7 @@ function printFilteredPDF() {
     doc.rect(M, y, CW, 7, 'F');
     doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
     const svcShort = r.items.map(i=>i.inviavel?'Inviável':i.name.split(' ').slice(0,2).join(' ')).join(', ');
-    doc.text(fitText(doc, r.machine?.estabelecimento||'—', wEstabR), colEstabR, y+4.5);
+    doc.text(fitText(doc, resolveEstab(r)||'—', wEstabR), colEstabR, y+4.5);
     doc.text(r.date||'—', colDataR, y+4.5);
     doc.text(fitText(doc, r.equip||'—', wTagR), colTagR, y+4.5);
     doc.text(fitText(doc, svcShort, wSvcR), colSvcR, y+4.5);
@@ -671,7 +722,9 @@ function printFilteredPDF() {
 
     // Equipment box
     const m = r.machine;
-    const boxH = m ? 44 : 22;
+    const estab = resolveEstab(r);
+    const pz = prazoDias(r);
+    const boxH = m ? 58 : 36;
     doc.setFillColor(236,253,245);
     doc.rect(M, y, CW, boxH, 'F');
     doc.setTextColor(30,30,30);
@@ -679,11 +732,15 @@ function printFilteredPDF() {
     doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
     doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text(`Contrato: ${r.client}   |   TAG: ${r.equip||'—'}`, M+4, y+14);
+    doc.setFont('helvetica','normal');
     if (m) {
-      doc.setFontSize(10); doc.setFont('helvetica','normal');
       doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`, M+4, y+21);
-      doc.text(`Estabelecimento: ${m.estabelecimento}`, M+4, y+28);
-      doc.text(`Recinto: ${m.recinto}`, M+4, y+35);
+      doc.text(`Estabelecimento: ${estab||'—'}`, M+4, y+28);
+      doc.text(`Recinto: ${m.recinto||'—'}`, M+4, y+35);
+      doc.text(`Solicitação: ${r.dateSolic||'—'}   |   Execução: ${r.date||'—'}   |   Prazo: ${pz===null?'—':fmtDias(pz)}`, M+4, y+44);
+    } else {
+      doc.text(`Estabelecimento: ${estab||'—'}`, M+4, y+21);
+      doc.text(`Solicitação: ${r.dateSolic||'—'}   |   Execução: ${r.date||'—'}   |   Prazo: ${pz===null?'—':fmtDias(pz)}`, M+4, y+28);
     }
     if (r.tech) { doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.text(`Técnico: ${r.tech}`, M+CW-4, y+14, {align:'right'}); }
     y += boxH + 6;
@@ -806,6 +863,7 @@ function startNew() {
   if (!clientSelR.disabled) clientSelR.value = ''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value = '';
   document.getElementById('f-date').value = today();
+  document.getElementById('f-date-sol').value = today();
   document.getElementById('f-tech').value = settings.defaultTech || '';
   document.getElementById('f-notes').value = '';
   // Reset avulso
@@ -891,6 +949,7 @@ function saveRecord() {
     machine,
     _avulso: isAvulso || false,
     date: document.getElementById('f-date').value,
+    dateSolic: document.getElementById('f-date-sol').value || '',
     tech: document.getElementById('f-tech').value,
     notes: document.getElementById('f-notes').value,
     items: newItems,
@@ -969,6 +1028,7 @@ function editRecord(id) {
   document.getElementById('f-client').value = r.client || '';
   document.getElementById('f-equip').value = r.equip || '';
   document.getElementById('f-date').value = r.date || today();
+  document.getElementById('f-date-sol').value = r.dateSolic || '';
   document.getElementById('f-tech').value = r.tech || '';
   document.getElementById('f-notes').value = r.notes || '';
   if (r.machine) showMachineInfo(r.machine); else hideMachineInfo();
@@ -1407,8 +1467,8 @@ function openDetail(id){
   document.getElementById('detail-content').innerHTML = `
     <div style="margin-bottom:14px">
       <div style="font-size:19px;font-weight:700">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
-      ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${esc(r.machine.marca)} ${esc(r.machine.tipo)}${r.machine.capacidade?' · '+esc(r.machine.capacidade)+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${esc(r.machine.estabelecimento)} · ${esc(r.machine.recinto)}</div>`:''}
-      <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${r.date||'—'}${r.tech?' · 👷 '+esc(r.tech):''}</div>
+      ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${esc(r.machine.marca)} ${esc(r.machine.tipo)}${r.machine.capacidade?' · '+esc(r.machine.capacidade)+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${esc(r.machine.estabelecimento)} · ${esc(r.machine.recinto)}</div>`:(resolveEstab(r)?`<div style="font-size:13px;color:var(--text-2);margin-top:3px">${esc(resolveEstab(r))}</div>`:'')}
+      <div style="font-size:13px;color:var(--text-3);margin-top:4px">🗓️ Solicitação: ${r.dateSolic||'—'} · ✅ Execução: ${r.date||'—'}${(()=>{const p=prazoDias(r);return p===null?'':' · ⏱️ '+fmtDias(p);})()}${r.tech?' · 👷 '+esc(r.tech):''}</div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${svcList}</div>
     ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${esc(r.notes)}</div>`:''}
@@ -1865,9 +1925,26 @@ function iniciarRegistroOS(osId) {
       showMachineInfo(os.machine);
     }
 
-    // Preenche data com hoje
+    // Data de execução: hoje (dispositivo/servidor)
     const dateInput = document.getElementById('f-date');
     if (dateInput) dateInput.value = today();
+
+    // Data de solicitação: herda a data lançada no CHAMADO que originou a O.S.
+    // (fallback: data de criação da O.S.; por fim, hoje).
+    const solInput = document.getElementById('f-date-sol');
+    if (solInput) {
+      let solDate = '';
+      try {
+        const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+        const ch = chamados.find(x=>x.id===os.chamadoId);
+        if (ch && ch.date) solDate = ch.date;
+      } catch(e){}
+      if (!solDate && os.criadoEm) {
+        const d = new Date(os.criadoEm);
+        solDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      }
+      solInput.value = solDate || today();
+    }
 
     // Técnico responsável pré-preenchido com nome do usuário logado
     const techInput = document.getElementById('f-tech');

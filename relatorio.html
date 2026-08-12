@@ -151,6 +151,33 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const CAN_REPORT_ROLES = ['admin','diretor','supervisor','gestor']; // gestor pra cima
+
+// Estabelecimento de um registro: usa o capturado; senão busca pela TAG no
+// banco de equipamentos do contrato (mesma fonte da preventiva).
+function relResolveEstab(r){
+  if (r && r.machine && r.machine.estabelecimento) return r.machine.estabelecimento;
+  try {
+    const db = (typeof getEffDB === 'function' ? getEffDB() : {})[r.contract || r.client] || [];
+    const m = db.find(x => (x.tag||'') === (r.tag || r.equip));
+    if (m && m.estabelecimento) return m.estabelecimento;
+  } catch(e){}
+  return '';
+}
+// Prazo de atendimento (execução − solicitação) em dias; null se faltar data.
+function relPrazoDias(r){
+  if (!r || !r.dateSolic || !r.date) return null;
+  const s = new Date(r.dateSolic+'T00:00:00'), e = new Date(r.date+'T00:00:00');
+  if (isNaN(s)||isNaN(e)) return null;
+  const d = Math.round((e-s)/86400000);
+  return d < 0 ? null : d;
+}
+function relPrazoStats(list){
+  const dias = (list||[]).map(relPrazoDias).filter(d=>d!==null);
+  if (!dias.length) return { n:0, media:null, min:null, max:null };
+  const soma = dias.reduce((a,b)=>a+b,0);
+  return { n:dias.length, media: Math.round((soma/dias.length)*10)/10, min: Math.min(...dias), max: Math.max(...dias) };
+}
+function relFmtDias(n){ return n===1?'1 dia':`${n} dias`; }
 const user = getCurrentUser();
 let _authorized = false;
 if (!user) {
@@ -412,15 +439,30 @@ async function render() {
   // Registros table
   if (filtRegistros.length) {
     document.getElementById('section-registros').style.display='';
-    document.getElementById('registros-table').innerHTML = tableHTML(
-      ['Data','TAG','Serviços','Técnico','Fotos'],
-      filtRegistros.map(r=>[
-        r.date||'—',
-        esc(r.equip||r.tag)||'—',
-        esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
-        esc(r.tech||r.technician||r.tecnico)||'—',
-        photoCell(r.photos)
-      ])
+    const pz = relPrazoStats(filtRegistros);
+    const pzHtml = pz.n
+      ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+           <div class="kpi"><div class="kpi-val">${relFmtDias(pz.media)}</div><div class="kpi-label">Prazo médio</div></div>
+           <div class="kpi"><div class="kpi-val" style="color:var(--success)">${relFmtDias(pz.min)}</div><div class="kpi-label">Prazo mínimo</div></div>
+           <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${relFmtDias(pz.max)}</div><div class="kpi-label">Prazo máximo</div></div>
+           <div class="kpi"><div class="kpi-val">${pz.n}</div><div class="kpi-label">com datas</div></div>
+         </div>`
+      : `<div style="font-size:12px;color:var(--text-3);margin-bottom:10px">Prazo de atendimento: sem datas de solicitação/execução suficientes.</div>`;
+    document.getElementById('registros-table').innerHTML = pzHtml + tableHTML(
+      ['Estabelecimento','Solicitação','Execução','Prazo','TAG','Serviços','Técnico','Fotos'],
+      filtRegistros.map(r=>{
+        const d = relPrazoDias(r);
+        return [
+          esc(relResolveEstab(r))||'—',
+          r.dateSolic||'—',
+          r.date||'—',
+          d===null?'—':relFmtDias(d),
+          esc(r.equip||r.tag)||'—',
+          esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
+          esc(r.tech||r.technician||r.tecnico)||'—',
+          photoCell(r.photos)
+        ];
+      })
     );
   } else { document.getElementById('section-registros').style.display='none'; }
 
@@ -909,6 +951,10 @@ async function generatePDF() {
   doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
   doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
   doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
+  const pzResumo = relPrazoStats(registros);
+  doc.text(pzResumo.n
+    ? `  Prazo de atendimento — média ${relFmtDias(pzResumo.media)} | mín ${relFmtDias(pzResumo.min)} | máx ${relFmtDias(pzResumo.max)} (${pzResumo.n} c/ datas)`
+    : `  Prazo de atendimento: sem datas de solicitação/execução suficientes`, PDF_M+4, y); y+=6;
   const prevDone = preventiva.reduce((s,p)=>s+prevProgress(p).done,0);
   const prevTot  = preventiva.reduce((s,p)=>s+prevProgress(p).total,0);
   doc.text(`Planos de preventiva no período: ${preventiva.length}`,PDF_M,y);y+=6;
@@ -951,6 +997,10 @@ async function generatePDF() {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
       doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
+      const estabR = relResolveEstab(r), pzLinha = relPrazoDias(r);
+      doc.setFontSize(9); doc.setTextColor(90,90,90);
+      doc.text(`   ${estabR||'—'} | Solic.: ${r.dateSolic||'—'} | Exec.: ${r.date||'—'} | Prazo: ${pzLinha===null?'—':relFmtDias(pzLinha)}`, PDF_M+2, y); y+=5;
+      doc.setFontSize(10); doc.setTextColor(0,0,0);
       if (r.photos && r.photos.length) {
         ensurePage(240);
         try {
