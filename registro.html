@@ -355,7 +355,7 @@ const SERVICES = [
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-08-13.1';
+const APP_BUILD = '2026-08-13.2';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
@@ -1861,8 +1861,8 @@ function renderOSList() {
             <span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída',cancelada:'Cancelada'}[o.status]||o.status}</span>
           </div>
           <div style="background:var(--bg);border-radius:8px;padding:10px;font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.6">
-            <div><strong>TAG:</strong> ${o.tag||'—'} · Contrato ${o.contrato||'—'}</div>
-            ${o.machine?`<div>${o.machine.estabelecimento||''} · ${o.machine.recinto||''}</div>`:''}
+            <div><strong>TAG:</strong> ${o.tag||'—'} · <strong>Contrato:</strong> ${o.contrato||'—'}</div>
+            <div>🏢 ${resolveEstab({machine:o.machine, contract:o.contrato||o.client, tag:o.tag||o.equip})||'—'}${o.machine&&o.machine.recinto?' · '+o.machine.recinto:''}</div>
             <div style="margin-top:4px;color:var(--text)"><strong>Problema:</strong> ${(o.chamadoDesc||'—').slice(0,120)}</div>
           </div>
           ${o.status==='aberta'||o.status==='em_execucao' ? `
