@@ -355,7 +355,7 @@ const SERVICES = [
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-08-12.3';
+const APP_BUILD = '2026-08-13.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
@@ -853,10 +853,20 @@ function printFilteredPDF() {
 }
 
 // ── New/Edit ──
+// Trava/destrava Contrato e TAG. Quando o registro vem de uma O.S. esses
+// dados são HERDADOS (travados); no "+novo" ficam livres para digitação.
+function lockOSFields(lock){
+  const c = document.getElementById('f-client');
+  const e = document.getElementById('f-equip');
+  if (c){ c.disabled = !!lock; c.style.opacity = lock ? '0.65' : ''; }
+  if (e){ e.readOnly = !!lock; e.style.opacity = lock ? '0.65' : ''; e.title = lock ? 'Herdado da O.S.' : ''; }
+}
+
 function startNew() {
   editingId = null; newItems = []; newPhotos = []; selectedMachine = null;
   // Limpa vínculo com O.S. anterior
   window._currentOSId = null;
+  lockOSFields(false); // "+novo" é avulso: contrato e TAG livres
   document.getElementById('os-link-banner')?.remove();
   document.getElementById('os-checklist-box')?.remove();
   const clientSelR = document.getElementById('f-client');
@@ -1023,6 +1033,7 @@ function editRecord(id) {
   closeDetailModal();
   const r = records.find(x=>x.id===id);
   if (!r) return;
+  lockOSFields(false); // edição livre
   editingId = id; newItems = r.items.map(i=>({...i})); newPhotos = r.photos ? [...r.photos] : [];
   selectedMachine = r.machine || null;
   document.getElementById('f-client').value = r.client || '';
@@ -1904,26 +1915,35 @@ function iniciarRegistroOS(osId) {
 
   // Aguardar o DOM do form estar pronto
   setTimeout(() => {
-    // Preenche Contrato (dropdown)
+    // Contrato e TAG são HERDADOS da O.S. (que já nasceu de um contrato+TAG).
+    const contractNum = String(os.contrato || os.client || '');
+    const tagVal = String(os.tag || os.equip || '');
+
+    // Preenche Contrato — garante a opção no dropdown e NÃO dispara 'change'
+    // (o listener de change limparia a TAG).
     const contractSel = document.getElementById('f-client');
     if (contractSel) {
-      contractSel.value = os.contrato || os.client || '';
-      // Dispara change para atualizar dependências
-      contractSel.dispatchEvent(new Event('change'));
+      if (contractNum && !Array.from(contractSel.options).some(o => o.value === contractNum)) {
+        const opt = document.createElement('option');
+        opt.value = contractNum; opt.textContent = contractNum;
+        contractSel.appendChild(opt);
+      }
+      contractSel.value = contractNum;
     }
 
-    // Preenche TAG
+    // Preenche TAG (sem disparar input/limpeza)
     const tagInput = document.getElementById('f-equip');
-    if (tagInput) {
-      tagInput.value = os.tag || os.equip || '';
-      tagInput.dispatchEvent(new Event('input'));
-    }
+    if (tagInput) tagInput.value = tagVal;
 
-    // Se tinha info do equipamento na O.S., preserva selectedMachine
-    if (os.machine) {
-      selectedMachine = os.machine;
-      showMachineInfo(os.machine);
+    // Resolve a máquina: da O.S. ou pela TAG no banco de equipamentos
+    let mach = os.machine || null;
+    if (!mach && contractNum && tagVal) {
+      try { mach = (getEffDB()[contractNum]||[]).find(x => String(x.tag) === tagVal) || null; } catch(e){}
     }
+    if (mach) { selectedMachine = mach; showMachineInfo(mach); }
+
+    // Contrato e TAG vêm da O.S. → travados (herdados)
+    lockOSFields(true);
 
     // Data de execução: hoje (dispositivo/servidor)
     const dateInput = document.getElementById('f-date');
