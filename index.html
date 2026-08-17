@@ -358,10 +358,13 @@ function renderLogin() {
     '</div>' +
     '<div class="login-card">' +
     '<h2>Entrar no sistema</h2>' +
-    '<p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:20px">Use sua conta Google autorizada pelo administrador</p>' +
+    '<p style="font-size:var(--fs-sm);color:var(--text-2);margin-bottom:20px">Use sua conta Google ou Microsoft autorizada pelo administrador</p>' +
     '<button class="btn-google" onclick="startGoogleLogin()">' +
     '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>' +
     'Entrar com Google</button>' +
+    '<button class="btn-google" onclick="startMicrosoftLogin()" style="margin-top:10px">' +
+    '<svg width="20" height="20" viewBox="0 0 23 23"><path fill="#f25022" d="M1 1h10v10H1z"/><path fill="#7fba00" d="M12 1h10v10H12z"/><path fill="#00a4ef" d="M1 12h10v10H1z"/><path fill="#ffb900" d="M12 12h10v10H12z"/></svg>' +
+    'Entrar com Microsoft</button>' +
     '</div>' +
     '<button class="admin-hidden-trigger" onclick="handleAdminTrigger()" aria-hidden="true"></button>' +
     '</div>';
@@ -549,6 +552,7 @@ function showAdminPanel() {
       <div class="admin-tabs">
         <button class="admin-tab ${adminTab==='usuarios'?'active':''}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
         <button class="admin-tab ${adminTab==='whitelist'?'active':''}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
+        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" onclick="setAdminTab('responsaveis')">🏢 Responsáveis</button>
         <button class="admin-tab ${adminTab==='config'?'active':''}" onclick="setAdminTab('config')">⚙️ Config</button>
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
@@ -565,7 +569,8 @@ function setAdminTab(tab) {
     b.classList.toggle('active',
       (tab==='usuarios' && t.includes('usu')) ||
       (tab==='whitelist' && t.includes('pr')) ||
-      (tab==='config' && t.includes('con'))
+      (tab==='responsaveis' && t.includes('respons')) ||
+      (tab==='config' && t.includes('config'))
     );
   });
   renderAdminTab();
@@ -576,7 +581,118 @@ function renderAdminTab() {
   if (!content) return;
   if (adminTab === 'usuarios') renderUsersTab(content);
   else if (adminTab === 'whitelist') renderWhitelistTab(content);
+  else if (adminTab === 'responsaveis') renderResponsaveisTab(content);
   else renderConfigTab(content);
+}
+
+// ── Tab: Responsáveis de estabelecimento (whitelist p/ assinatura) ──
+let _responsaveis = [];
+let _editingResp = null;
+function _fmtCpf(c){ c=String(c||'').replace(/\D/g,''); return c.length===11?`${c.slice(0,3)}.${c.slice(3,6)}.${c.slice(6,9)}-${c.slice(9)}`:c; }
+function _fmtCel(c){ c=String(c||'').replace(/\D/g,''); if(c.length===11)return `(${c.slice(0,2)}) ${c.slice(2,7)}-${c.slice(7)}`; if(c.length===10)return `(${c.slice(0,2)}) ${c.slice(2,6)}-${c.slice(6)}`; return c; }
+
+async function renderResponsaveisTab(el) {
+  el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
+  try { _responsaveis = await DB.getResponsaveis(); } catch(e){ _responsaveis = []; }
+  const contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const habilitados = contratos.filter(c => c.assinaturaClientePorEstab);
+  const opts = habilitados.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
+  el.innerHTML = `
+    <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.5">
+      Cadastre quem recebe/assina por estabelecimento (nome, CPF, cargo, celular). Não dá acesso ao sistema — serve só para a coleta de assinatura do cliente. Aparece apenas para contratos com a opção "tomar assinatura do cliente" ligada.
+    </p>
+    ${habilitados.length ? `
+      <div class="field"><label>Contrato</label>
+        <select id="resp-contract" onchange="renderRespEstabs()"><option value="">Selecione um contrato…</option>${opts}</select>
+      </div>
+      <div id="resp-estabs" style="margin-top:12px"></div>
+    ` : `<div style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">Nenhum contrato com a opção "tomar assinatura do cliente por estabelecimento" ligada. Ative no cadastro do contrato para gerenciar responsáveis aqui.</div>`}
+  `;
+}
+
+function renderRespEstabs() {
+  const box = document.getElementById('resp-estabs');
+  const contract = document.getElementById('resp-contract').value;
+  if (!box) return;
+  if (!contract) { box.innerHTML = ''; return; }
+  const estabs = [...new Set((getEffDB()[contract]||[]).map(e=>e.estabelecimento).filter(Boolean))].sort();
+  if (!estabs.length) { box.innerHTML = '<div style="font-size:13px;color:var(--text-3)">Este contrato não tem estabelecimentos no banco de equipamentos.</div>'; return; }
+  window._respCtx = { contract, estabs };
+  box.innerHTML = estabs.map((est, ei) => {
+    const resps = _responsaveis.filter(r => r.contract===contract && r.establishment===est);
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px">🏢 ${esc(est)}</div>
+      ${resps.length ? resps.map(r=>`
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--bg);border-radius:8px;padding:8px;margin-bottom:6px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:13px">${esc(r.nome)} · <span style="color:var(--text-2)">${esc(r.cargo)}</span></div>
+            <div style="font-size:12px;color:var(--text-3)">CPF ${_fmtCpf(r.cpf)} · 📱 ${_fmtCel(r.celular)}${r.ativo===false?' · <span style="color:var(--danger)">inativo</span>':''}</div>
+          </div>
+          <button onclick="editResponsavel('${r.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Editar">✏️</button>
+          <button onclick="removeResponsavel('${r.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>
+        </div>`).join('') : '<div style="font-size:12px;color:var(--text-3);margin-bottom:6px">Nenhum responsável cadastrado.</div>'}
+      <button onclick="addResponsavel(${ei})" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:8px;background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">+ Adicionar responsável</button>
+    </div>`;
+  }).join('');
+}
+
+function addResponsavel(ei){
+  const ctx = window._respCtx; if(!ctx) return;
+  _editingResp = { contract: ctx.contract, establishment: ctx.estabs[ei] };
+  openRespModal();
+}
+
+function addResponsavel(contract, est){ _editingResp = {contract, establishment:est}; openRespModal(); }
+function editResponsavel(id){ _editingResp = _responsaveis.find(r=>r.id===id); if(_editingResp) openRespModal(); }
+function closeRespModal(){ const m=document.getElementById('resp-modal'); if(m) m.remove(); }
+
+function openRespModal(){
+  const r = _editingResp || {};
+  let m = document.getElementById('resp-modal');
+  if(!m){ m=document.createElement('div'); m.id='resp-modal'; document.body.appendChild(m); }
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
+    <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} responsável</div>
+    <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
+    <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
+    <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" value="${esc(r.cpf||'')}" placeholder="Só números" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <div class="field"><label>Cargo *</label><input id="rf-cargo" value="${esc(r.cargo||'')}"></div>
+    <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" value="${esc(r.celular||'')}" placeholder="DDD + número" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:13px;cursor:pointer"><input id="rf-ativo" type="checkbox" ${r.ativo===false?'':'checked'} style="width:18px;height:18px"> Ativo</label>
+    <div style="display:flex;gap:8px">
+      <button onclick="closeRespModal()" style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;cursor:pointer">Cancelar</button>
+      <button onclick="saveRespForm()" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer">Salvar</button>
+    </div>
+  </div>`;
+}
+
+async function saveRespForm(){
+  const base = _editingResp || {};
+  const payload = {
+    id: base.id, contract: base.contract, establishment: base.establishment,
+    nome: document.getElementById('rf-nome').value.trim(),
+    cpf: document.getElementById('rf-cpf').value.replace(/\D/g,''),
+    cargo: document.getElementById('rf-cargo').value.trim(),
+    celular: document.getElementById('rf-celular').value.replace(/\D/g,''),
+    ativo: document.getElementById('rf-ativo').checked,
+    createdAt: base.createdAt,
+  };
+  if(!payload.nome || !payload.cargo){ showToast('Preencha nome e cargo'); return; }
+  if(payload.cpf.length!==11){ showToast('CPF deve ter 11 dígitos'); return; }
+  if(payload.celular.length<10 || payload.celular.length>11){ showToast('Celular inválido (DDD + número)'); return; }
+  try{
+    const saved = await DB.saveResponsavel(payload);
+    const i = _responsaveis.findIndex(x=>x.id===saved.id);
+    if(i>=0) _responsaveis[i]=saved; else _responsaveis.push(saved);
+    closeRespModal(); renderRespEstabs(); showToast('Responsável salvo');
+  }catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
+}
+
+async function removeResponsavel(id){
+  const r = _responsaveis.find(x=>x.id===id);
+  if(!confirm('Excluir o responsável '+(r?r.nome:'')+'?')) return;
+  try{ await DB.deleteResponsavel(id); _responsaveis = _responsaveis.filter(x=>x.id!==id); renderRespEstabs(); showToast('Responsável excluído'); }
+  catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
 }
 
 // ── Tab: Usuários cadastrados ──

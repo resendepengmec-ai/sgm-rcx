@@ -131,6 +131,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           <label>Observações</label>
           <textarea id="f-obs" rows="3" placeholder="Informações adicionais…"></textarea>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+            <input id="f-assinatura-cliente" type="checkbox" style="width:18px;height:18px;cursor:pointer">
+            Tomar assinatura do cliente por estabelecimento
+          </label>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Habilita, neste contrato, a coleta de assinatura do responsável do estabelecimento (recebimento do serviço).</div>
+        </div>
       </div>
     </div>
 
@@ -579,6 +586,7 @@ function openNewContract() {
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
+  document.getElementById('f-assinatura-cliente').checked = false;
   document.getElementById('equip-preview').style.display = 'none';
   document.getElementById('docs-list').innerHTML = '';
   const box = document.getElementById('cliente-existente-box');
@@ -606,6 +614,7 @@ function openEdit(id) {
   document.getElementById('f-fim').value    = c.fim||'';
   document.getElementById('f-art').value    = c.art||'';
   document.getElementById('f-obs').value    = c.obs||'';
+  document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
   if (pendingEquip.length) {
     document.getElementById('equip-count').textContent = pendingEquip.length;
     document.getElementById('equip-preview').style.display = '';
@@ -635,6 +644,7 @@ async function saveContract() {
     inicio, fim,
     art:         document.getElementById('f-art').value.trim(),
     obs:         document.getElementById('f-obs').value.trim(),
+    assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
     equipamentos: pendingEquip || [],
     documentos:   pendingDocs  || [],
     servicos:     pendingServicos || [],

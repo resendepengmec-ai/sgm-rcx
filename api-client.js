@@ -198,14 +198,56 @@ async function startGoogleLogin() {
 }
 
 
-// Carrega Client ID do backend silenciosamente ao iniciar
+const MS_CLIENT_ID_KEY = 'smm_ms_client_id';
+
+async function loginWithMicrosoftToken(microsoftToken) {
+  const data = await API.post('/auth/microsoft', { microsoftToken });
+  saveSession(data.token, data.user);
+  return data.user;
+}
+
+async function startMicrosoftLogin() {
+  let msClientId = localStorage.getItem(MS_CLIENT_ID_KEY);
+  if (!msClientId) {
+    try {
+      const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
+      const json = await res.json();
+      if (json.ok && json.data.microsoftClientId) {
+        msClientId = json.data.microsoftClientId;
+        localStorage.setItem(MS_CLIENT_ID_KEY, msClientId);
+      }
+    } catch(e) {}
+  }
+  if (!msClientId) {
+    if (typeof showToast === 'function') showToast('Login Microsoft nao configurado. Contate o administrador.');
+    return;
+  }
+  const base  = location.origin + location.pathname.replace(/\/[^/]*$/, '/');
+  const redir = base + 'auth-callback.html';
+  // /common cobre contas pessoais (Hotmail/Outlook) e workspace (M365).
+  // Fluxo implicito (token no fragmento), igual ao do Google. O state=ms
+  // avisa o auth-callback qual provedor validar.
+  const params = new URLSearchParams({
+    client_id:     msClientId,
+    response_type: 'token',
+    redirect_uri:  redir,
+    scope:         'User.Read',
+    response_mode: 'fragment',
+    prompt:        'select_account',
+    state:         'ms',
+  });
+  window.location.href = 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize?' + params;
+}
+
+// Carrega Client IDs (Google e Microsoft) do backend silenciosamente ao iniciar
 async function loadClientIdFromBackend() {
-  if (localStorage.getItem(CLIENT_ID_KEY)) return; // já tem em cache
+  if (localStorage.getItem(CLIENT_ID_KEY) && localStorage.getItem(MS_CLIENT_ID_KEY)) return; // já em cache
   try {
     const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
     const json = await res.json();
-    if (json.ok && json.data.clientId) {
-      localStorage.setItem(CLIENT_ID_KEY, json.data.clientId);
+    if (json.ok && json.data) {
+      if (json.data.clientId)          localStorage.setItem(CLIENT_ID_KEY, json.data.clientId);
+      if (json.data.microsoftClientId) localStorage.setItem(MS_CLIENT_ID_KEY, json.data.microsoftClientId);
     }
   } catch(e) {}
 }
@@ -253,6 +295,11 @@ const DB = {
   getContratos:       ()    => API.get('/contratos'),
   saveContrato:       c     => API.post('/contratos', { contrato:c }),
   deleteContrato:     id    => API.delete(`/contratos/${id}`),
+
+  // Responsáveis de estabelecimento (whitelist p/ assinatura do cliente)
+  getResponsaveis:    ()    => API.get('/responsaveis'),
+  saveResponsavel:    r     => API.post('/responsaveis', r),
+  deleteResponsavel:  id    => API.delete(`/responsaveis/${id}`),
 
   // Movimentações
   getMovimentacoes:   ()    => API.get('/movimentacoes'),
