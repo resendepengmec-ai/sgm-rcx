@@ -60,6 +60,10 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <input id="f-tag" list="f-tag-list" placeholder="Todas as TAGs" onchange="render()" style="width:100%">
         <datalist id="f-tag-list"></datalist>
       </div>
+      <div class="field" style="min-width:150px;margin-bottom:0">
+        <label>Estabelecimento</label>
+        <select id="f-estab" onchange="render()" style="width:100%"><option value="">Todos</option></select>
+      </div>
       <div class="field" style="margin-bottom:0">
         <label>Período (início)</label>
         <input id="f-periodo-ini" type="month" onchange="render()">
@@ -113,6 +117,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div id="section-registros" class="section-card" style="display:none">
     <h3>🔧 Registros de manutenção</h3>
     <div id="registros-table"></div>
+  </div>
+
+  <div id="section-custos" class="section-card" style="display:none">
+    <h3>💰 Custos por contrato executado</h3>
+    <div id="custos-body"></div>
   </div>
 
   <!-- Preventiva -->
@@ -257,15 +266,64 @@ function populateTagList() {
   const contrato = document.getElementById('f-contrato').value;
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const relevantes = contrato ? contracts.filter(c=>c.numero===contrato) : contracts;
-  const tags = [];
-  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); }));
+  const tags = [], estabs = [];
+  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); if (e.estabelecimento) estabs.push(e.estabelecimento); }));
   document.getElementById('f-tag-list').innerHTML =
     [...new Set(tags)].sort().map(t=>`<option value="${t}">`).join('');
+  const sel = document.getElementById('f-estab');
+  if (sel) { const cur = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>' + [...new Set(estabs)].sort().map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
+  }
 }
 function onContratoChangeRel() {
   document.getElementById('f-tag').value = '';
   populateTagList();
   render();
+}
+
+// ── Custos por contrato (relatório financeiro, supervisor pra cima) ──
+// Acumula quantidade × preço dos serviços dos registros filtrados. O filtro
+// de estabelecimento age aqui (via TAG no banco de equipamentos).
+function renderCustos(regs) {
+  const sec = document.getElementById('section-custos');
+  if (!sec) return;
+  const isSup = ['admin','diretor','supervisor'].includes(user.role);
+  if (!isSup) { sec.style.display='none'; return; }
+  const estabSel = (document.getElementById('f-estab')||{}).value || '';
+  const finRegs = regs.filter(r => !estabSel || relResolveEstab(r) === estabSel);
+
+  const porContrato = {}, porServico = {}; let total = 0;
+  finRegs.forEach(r => {
+    const c = r.client||r.contract||r.contrato||'—';
+    (r.items||[]).forEach(it => {
+      if (it.inviavel) return;
+      const qt = Number(it.qty||1), val = Number(it.price||0) * qt;
+      porContrato[c] = (porContrato[c]||0) + val;
+      const k = it.name||'—';
+      porServico[k] = porServico[k] || { qtd:0, valor:0, unit:it.unit||'un' };
+      porServico[k].qtd += qt; porServico[k].valor += val;
+      total += val;
+    });
+  });
+
+  sec.style.display='';
+  const body = document.getElementById('custos-body');
+  const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const contratosArr = Object.keys(porContrato).sort();
+  if (!contratosArr.length) {
+    body.innerHTML = '<div style="color:var(--text-3);font-size:13px">Sem serviços com valor no filtro selecionado. Os valores vêm da quantidade × preço do serviço cadastrado no contrato — registros antigos sem quantidade contam como 1.</div>';
+    return;
+  }
+  const tblContratos = tableHTML(['Contrato','Total'], contratosArr.map(c=>[esc(c), fmt(porContrato[c])]));
+  const servArr = Object.keys(porServico).sort((a,b)=>porServico[b].valor-porServico[a].valor);
+  const tblServ = tableHTML(['Serviço','Qtd','Valor'], servArr.map(s=>[esc(s), porServico[s].qtd+' '+esc(porServico[s].unit), fmt(porServico[s].valor)]));
+  body.innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
+       <span style="font-weight:700;color:#166534">Total acumulado${estabSel?' · '+esc(estabSel):''}</span>
+       <span style="font-weight:800;font-size:20px;color:#166534">${fmt(total)}</span></div>
+     <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin:2px 0 6px">Por contrato</div>${tblContratos}
+     <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin:16px 0 6px">Por serviço</div>${tblServ}`;
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -337,6 +395,7 @@ async function render() {
     inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
     inContract(r.client||r.contract||r.contrato) &&
     inTag(r.equip||r.tag));
+  renderCustos(filtRegistros);
   // Preventiva: contrato em p.client, mês em p.period, equipamentos em
   // p.equipments[].tag. A execução vem de equip.checks (ver prevProgress),
   // não de um array de execuções — que não existe no módulo.

@@ -242,14 +242,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <input id="f-period" type="month">
     </div>
     <div class="field">
-      <label>Nível de manutenção *</label>
-      <div class="level-selector">
-        <button class="level-btn" id="lb1" onclick="selectLevel(1)">🟢 Nível 1<br><small>Leve</small></button>
-        <button class="level-btn" id="lb2" onclick="selectLevel(2)">🟡 Nível 2<br><small>Intermediária</small></button>
-        <button class="level-btn" id="lb3" onclick="selectLevel(3)">🔴 Nível 3<br><small>Pesada</small></button>
-      </div>
-    </div>
-    <div class="field">
       <label>Técnico responsável *</label>
       <select id="f-tech">
         <option value="">Selecione um técnico…</option>
@@ -262,37 +254,18 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     </div>
   </div>
 
-  <!-- Modo lote por estabelecimento -->
+  <!-- Criação por estabelecimento (único fluxo) -->
   <div class="card" style="padding:14px;margin:14px 0">
-    <button type="button" id="batch-toggle-btn" onclick="toggleBatchMode()"
-      style="width:100%;padding:10px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-size:13px;font-weight:600;cursor:pointer">
-      📋 Criar planos separados por estabelecimento (N1/N2/N3 diferentes)
-    </button>
-    <div id="batch-panel" style="display:none;margin-top:10px;padding:12px;background:#f1f5f9;border-radius:10px"></div>
-    <button type="button" id="save-batch-btn" onclick="saveBatchPlans()"
-      style="display:none;width:100%;margin-top:8px;padding:10px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:13px;font-weight:600;cursor:pointer">
-      💾 Salvar planos em lote
-    </button>
-  </div>
-
-  <div class="card" id="equip-selector" style="display:none">
-    <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
-      <span>Equipamentos incluídos</span>
-      <span id="equip-count-badge" style="font-size:12px;color:var(--primary);font-weight:700"></span>
+    <div class="card-title">Planos por estabelecimento</div>
+    <div style="font-size:12px;color:var(--text-2);margin:2px 0 10px;line-height:1.5">
+      Defina o nível N1/N2/N3 de cada estabelecimento do contrato. Ao criar, um plano é gerado para cada estabelecimento com o nível escolhido (marque "—" para não gerar aquele estabelecimento).
     </div>
-    <div style="margin-bottom:10px;display:flex;gap:8px">
-      <input type="search" id="equip-search" placeholder="🔍 Filtrar por TAG, marca ou local…" oninput="filterEquipList()" style="font-size:13px;padding:8px 12px">
-    </div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="btn-sm btn-outline" onclick="selectAllEquip()">✅ Todos</button>
-      <button class="btn-sm btn-secondary" onclick="deselectAllEquip()">☐ Nenhum</button>
-    </div>
-    <div id="equip-list" style="max-height:280px;overflow-y:auto"></div>
+    <div id="batch-panel" style="padding:12px;background:#f1f5f9;border-radius:10px"></div>
   </div>
 
   <div class="action-bar">
     <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
-    <button class="btn btn-primary" onclick="savePlan()">📋 Criar plano</button>
+    <button class="btn btn-primary" onclick="saveBatchPlans()">📋 Criar planos</button>
   </div>
 </div>
 
@@ -384,7 +357,7 @@ let plans = JSON.parse(localStorage.getItem('prev_plans') || '[]');
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-08-13.2';
+const APP_BUILD = '2026-08-18.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -814,15 +787,13 @@ function renderPlansList() {
 
 // ── New plan ──
 function startNew() {
-  selectedLevel = null; selectedEquip = new Set(); allEquipForContract = [];
+  batchMode = true; batchAssignments = {};
   const clientSelP = document.getElementById('f-client');
   if (!clientSelP.disabled) clientSelP.value=''; // não zera se travado num único contrato permitido
   document.getElementById('f-period').value=today();
   document.getElementById('f-tech').value = '';
   document.getElementById('f-obs').value='';
-  document.getElementById('equip-selector').style.display='none';
-  document.getElementById('equip-list').innerHTML='';
-  [1,2,3].forEach(n => { const b=document.getElementById('lb'+n); b.className='level-btn'; });
+  renderBatchPanel();
   switchTab('new');
 }
 function cancelNew() { switchTab('list'); }
@@ -836,7 +807,7 @@ function selectLevel(n) {
 }
 
 // ── Modo lote: cria planos por estabelecimento com níveis diferentes ─
-let batchMode = false;
+let batchMode = true;
 let batchAssignments = {}; // { estabelecimento: level }
 
 function toggleBatchMode() {
@@ -949,7 +920,7 @@ function saveBatchPlans() {
     renderPlansList();
     showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
     batchAssignments = {};
-    batchMode = false;
+    batchMode = true;
     switchTab('list');
   });
 }
