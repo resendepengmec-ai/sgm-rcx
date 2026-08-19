@@ -64,6 +64,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <label>Estabelecimento</label>
         <select id="f-estab" onchange="render()" style="width:100%"><option value="">Todos</option></select>
       </div>
+      <label id="f-extrato-wrap" style="display:none;align-items:center;gap:6px;font-size:13px;margin-bottom:0;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="f-extrato" style="width:16px;height:16px"> 💰 Extrato financeiro no PDF
+      </label>
       <div class="field" style="margin-bottom:0">
         <label>Período (início)</label>
         <input id="f-periodo-ini" type="month" onchange="render()">
@@ -238,6 +241,11 @@ function init() {
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('f-periodo-ini').value = mesAtual;
   document.getElementById('f-periodo-fim').value = mesAtual;
+
+  // Extrato financeiro no PDF: opção só para supervisor pra cima
+  if (typeof user !== 'undefined' && ['admin','diretor','supervisor'].includes(user.role)) {
+    const w = document.getElementById('f-extrato-wrap'); if (w) w.style.display='flex';
+  }
 
   // Load contracts (busca fresca do servidor, com os equipamentos —
   // necessário pro filtro de TAG poder sugerir as TAGs do contrato)
@@ -1060,21 +1068,38 @@ async function generatePDF() {
       doc.setFontSize(9); doc.setTextColor(90,90,90);
       doc.text(`   ${estabR||'—'} | Solic.: ${r.dateSolic||'—'} | Exec.: ${r.date||'—'} | Prazo: ${pzLinha===null?'—':relFmtDias(pzLinha)}`, PDF_M+2, y); y+=5;
       doc.setFontSize(10); doc.setTextColor(0,0,0);
-      if (r.photos && r.photos.length) {
-        ensurePage(240);
-        try {
-          const src = r.photos[0].dataUrl || r.photos[0];
-          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
-          if (r.photos.length > 1) doc.text(`+${r.photos.length-1} foto(s)`, PDF_M+27, y+9);
-          const geo1 = r.photos[0].geo;
-          if (geo1) {
-            doc.setFontSize(7); doc.setTextColor(37,99,235);
-            const label1 = geo1.shortAddress || `${geo1.lat.toFixed(4)}, ${geo1.lng.toFixed(4)}`;
-            doc.textWithLink(fitText(doc, label1, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo1.lat},${geo1.lng}` });
-            doc.setTextColor(0,0,0); doc.setFontSize(10);
-          }
-        } catch(e) {}
-        y += 19;
+      const _valid = (r.photos||[]).filter(p => { const s = p && (p.dataUrl || (typeof p==='string'?p:null)); return typeof s==='string' && s.startsWith('data:'); });
+      if (_valid.length) {
+        const cols=3, gap=6, capH=8, PWp=doc.internal.pageSize.getWidth(), CWp=PWp-2*PDF_M, cellW=(CWp-gap*(cols-1))/cols, maxH=70;
+        ensurePage(250);
+        doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+        doc.text(`Registro fotográfico (${_valid.length})`, PDF_M+2, y); y+=5;
+        doc.setFont('helvetica','normal'); doc.setTextColor(0,0,0);
+        const sized = _valid.map(p => { const src=p.dataUrl||p; return { src, geo:p.geo, sig:p.sig, ...photoFit(doc, src, cellW, maxH) }; });
+        for (let i=0;i<sized.length;i+=cols){
+          const rowItems=sized.slice(i,i+cols);
+          const rowH=Math.max.apply(null,rowItems.map(it=>it.h||0));
+          if (y+rowH+capH>272){ doc.addPage(); y=drawPdfHeader(doc,{full:false}); }
+          rowItems.forEach((it,c)=>{
+            const cellX=PDF_M+c*(cellW+gap), ix=cellX+(cellW-it.w)/2;
+            try{ doc.addImage(it.src,'JPEG',ix,y,it.w,it.h); }catch(e){}
+            if (it.geo){ doc.setFontSize(6); doc.setTextColor(37,99,235);
+              const label=it.geo.shortAddress||`${it.geo.lat.toFixed(5)}, ${it.geo.lng.toFixed(5)}`;
+              doc.textWithLink(fitText(doc,label,cellW), cellX, y+rowH+3, {url:`https://maps.google.com/?q=${it.geo.lat},${it.geo.lng}`});
+              doc.setTextColor(0,0,0); doc.setFontSize(10); }
+          });
+          y += rowH+capH+4;
+        }
+        // Assinaturas das fotos (autor, perfil, data/hora, HMAC + keyId)
+        if (_valid.some(p=>p&&p.sig)) {
+          if (y>272){ doc.addPage(); y=drawPdfHeader(doc,{full:false}); }
+          doc.setFontSize(6.5); doc.setTextColor(120,120,120);
+          _valid.forEach((p,idx)=>{ if(!p||!p.sig) return;
+            const dt=new Date(p.sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, PDF_M+2, y); y+=3.6;
+          });
+          doc.setTextColor(0,0,0); doc.setFontSize(10); y+=2;
+        }
       }
     });
     y+=4;
@@ -1120,6 +1145,38 @@ async function generatePDF() {
       const dataStr = m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—';
       doc.text(`${dataStr} | ${tipoLabel[m.tipo]||m.tipo||'—'} | TAG: ${m.tag||m.novaTag||'—'} | ${statusLabel[m.status]||m.status||'—'}`,PDF_M+2,y);y+=5;
     });
+  }
+
+  // ── Extrato financeiro (opcional; supervisor pra cima) ──
+  const incExtrato = (document.getElementById('f-extrato')||{}).checked;
+  if (incExtrato && ['admin','diretor','supervisor'].includes(user.role)) {
+    const estabSel = (document.getElementById('f-estab')||{}).value || '';
+    const finRegs = registros.filter(r => !estabSel || relResolveEstab(r) === estabSel);
+    const porContrato={}, porServico={}; let total=0;
+    finRegs.forEach(r => (r.items||[]).forEach(it => {
+      if (it.inviavel) return;
+      const qt=Number(it.qty||1), val=Number(it.price||0)*qt;
+      const c=r.client||r.contract||r.contrato||'—';
+      porContrato[c]=(porContrato[c]||0)+val;
+      const k=it.name||'—';
+      porServico[k]=porServico[k]||{qtd:0,valor:0,unit:it.unit||'un'};
+      porServico[k].qtd+=qt; porServico[k].valor+=val; total+=val;
+    }));
+    const fmtBRL = v => 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const colV = doc.internal.pageSize.getWidth() - PDF_M;
+    addSection('Extrato financeiro');
+    doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text('Total acumulado'+(estabSel?' · '+estabSel:''), PDF_M, y);
+    doc.text(fmtBRL(total), colV, y, {align:'right'}); y+=8;
+    doc.setFontSize(10); doc.text('Por contrato', PDF_M, y); y+=6; doc.setFont('helvetica','normal');
+    Object.keys(porContrato).sort().forEach(c=>{ ensurePage(272);
+      doc.text(fitText(doc, c, 120), PDF_M+2, y); doc.text(fmtBRL(porContrato[c]), colV, y, {align:'right'}); y+=5; });
+    y+=3; doc.setFont('helvetica','bold'); doc.text('Por serviço', PDF_M, y); y+=6; doc.setFont('helvetica','normal');
+    Object.keys(porServico).sort((a,b)=>porServico[b].valor-porServico[a].valor).forEach(s=>{ ensurePage(272);
+      doc.text(fitText(doc, `${s} (${porServico[s].qtd} ${porServico[s].unit})`, 120), PDF_M+2, y);
+      doc.text(fmtBRL(porServico[s].valor), colV, y, {align:'right'}); y+=5; });
+    y+=4;
+    if (!Object.keys(porContrato).length) { doc.setTextColor(120,120,120); doc.text('Sem serviços com valor no filtro selecionado.', PDF_M+2, y); doc.setTextColor(0,0,0); y+=6; }
   }
 
   drawPdfFooters(doc, cont);
