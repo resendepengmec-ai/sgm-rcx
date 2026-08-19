@@ -301,6 +301,12 @@ const DB = {
   saveResponsavel:    r     => API.post('/responsaveis', r),
   deleteResponsavel:  id    => API.delete(`/responsaveis/${id}`),
 
+  // Assinatura do cliente por estabelecimento
+  solicitarAssinaturaCliente: p  => API.post('/assinatura-cliente/solicitar', p),
+  assinaturasPendentes:       () => API.get('/assinatura-cliente/pendentes'),
+  aprovarAssinatura:          id => API.post(`/assinatura-cliente/${id}/aprovar`, {}),
+  rejeitarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/rejeitar`, { motivo }),
+
   // Movimentações
   getMovimentacoes:   ()    => API.get('/movimentacoes'),
   saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),

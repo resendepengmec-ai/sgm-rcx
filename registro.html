@@ -355,7 +355,7 @@ const SERVICES = [
 let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-08-13.2';
+const APP_BUILD = '2026-08-17.3';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
@@ -1880,11 +1880,198 @@ function renderOSList() {
       }).join('')}`;
   };
 
-  list.innerHTML =
+  const _assinaveis = ordensCache.filter(o => o.status==='concluida' && _contratoAssinaturaOn(o.contrato||o.client));
+  const _btnAssin = _assinaveis.length
+    ? `<button onclick="abrirEnvioAssinatura()" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente (${_assinaveis.length})</button>`
+    : '';
+  const _btnVal = ['admin','diretor','supervisor'].includes(userRole)
+    ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
+    : '';
+  list.innerHTML = _btnAssin + _btnVal +
     renderGroup('⏳ Abertas', abertas) +
     renderGroup('🔧 Em execução', emExecucao) +
     renderGroup('✅ Concluídas', concluidas) +
     renderGroup('🚫 Canceladas', canceladas);
+}
+
+// ── Envio para assinatura do cliente (fatia 4b) ───────────────────
+let _respCache = null;
+function _contratoAssinaturaOn(numero){
+  try{ const cs=JSON.parse(localStorage.getItem('smm_contracts')||'[]'); const c=cs.find(x=>String(x.numero)===String(numero)); return !!(c&&c.assinaturaClientePorEstab); }catch(e){ return false; }
+}
+function _contratoRazao(numero){
+  try{ const cs=JSON.parse(localStorage.getItem('smm_contracts')||'[]'); const c=cs.find(x=>String(x.numero)===String(numero)); return c?(c.razao||''):''; }catch(e){ return ''; }
+}
+function _openAssinModal(inner){
+  let m=document.getElementById('asn-modal');
+  if(!m){ m=document.createElement('div'); m.id='asn-modal'; document.body.appendChild(m); }
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div id="asn-card" style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="font-weight:700;font-size:16px">📱 Assinatura do cliente</div>
+      <button onclick="_closeAssinModal()" style="border:none;background:none;font-size:22px;cursor:pointer;color:var(--text-3)">×</button>
+    </div>${inner}</div>`;
+}
+function _closeAssinModal(){ const m=document.getElementById('asn-modal'); if(m) m.remove(); }
+
+// ── Validação do supervisor (fatia 4c) ────────────────────────────
+function _valHeader(){
+  return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="font-weight:700;font-size:16px">🔎 Validar assinaturas do cliente</div>
+    <button onclick="_closeValModal()" style="border:none;background:none;font-size:22px;cursor:pointer;color:var(--text-3)">×</button></div>`;
+}
+function _openValModal(inner){
+  let m=document.getElementById('val-modal');
+  if(!m){ m=document.createElement('div'); m.id='val-modal'; document.body.appendChild(m); }
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
+  m.innerHTML=`<div id="val-card" style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:600px;max-height:92vh;overflow-y:auto">${_valHeader()}${inner}</div>`;
+}
+function _closeValModal(){ const m=document.getElementById('val-modal'); if(m) m.remove(); }
+
+async function abrirValidacaoAssinaturas(){
+  _openValModal('<div style="text-align:center;color:var(--text-3);padding:20px">Carregando…</div>');
+  try{ window._valList=await DB.assinaturasPendentes(); }
+  catch(e){ _openValModal('<div style="color:var(--danger);padding:12px">Erro ao carregar: '+esc(e.message||e)+'</div>'); return; }
+  _renderValList();
+}
+function _renderValList(){
+  const list=window._valList||[]; const card=document.getElementById('val-card'); if(!card) return;
+  const body = list.length ? list.map(a=>{
+    const s=a.snapshot||{}; const ordens=Array.isArray(s.ordens)?s.ordens:[];
+    const quando=a.aceiteEm?new Date(a.aceiteEm).toLocaleString('pt-BR'):'—';
+    return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
+      <div style="font-weight:700;font-size:14px">🏢 ${esc(a.establishment)}</div>
+      <div style="font-size:12px;color:var(--text-3);margin:2px 0 6px">Contrato ${esc(a.contract)} · assinado por <strong>${esc(a.responsavel&&a.responsavel.nome||'—')}</strong> em ${esc(quando)}${a.solicitadoPor?' · solicitado por '+esc(a.solicitadoPor.nome||''):''}</div>
+      <div style="font-size:12px;color:var(--text-2)">${ordens.length?ordens.map(o=>'• O.S. '+esc(o.numero)+(o.servicos&&o.servicos.length?' — '+esc(o.servicos.join(', ')):'')).join('<br>'):'—'}</div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button onclick="_valAprovar('${a.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer">✓ Aprovar (travar)</button>
+        <button onclick="_valRejeitar('${a.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;cursor:pointer">✗ Rejeitar (reabrir)</button>
+      </div></div>`;
+  }).join('') : '<div style="text-align:center;color:var(--text-3);padding:20px">Nenhuma assinatura aguardando validação.</div>';
+  card.innerHTML = _valHeader()+body;
+}
+async function _valAprovar(id){
+  if(!confirm('Aprovar e TRAVAR definitivamente as O.S. deste aceite?')) return;
+  try{ await DB.aprovarAssinatura(id); window._valList=(window._valList||[]).filter(a=>a.id!==id); _renderValList(); showToast('✅ Aprovado e travado'); }
+  catch(e){ showToast('Erro: '+(e.message||e)); }
+}
+async function _valRejeitar(id){
+  const motivo=prompt('Motivo da rejeição (reabre as O.S. e anula a assinatura do cliente):');
+  if(motivo===null) return;
+  try{ await DB.rejeitarAssinatura(id, motivo||''); window._valList=(window._valList||[]).filter(a=>a.id!==id); _renderValList(); showToast('Rejeitado — O.S. reabertas'); }
+  catch(e){ showToast('Erro: '+(e.message||e)); }
+}
+
+async function abrirEnvioAssinatura(){
+  if(_respCache===null){ try{ _respCache = await DB.getResponsaveis(); }catch(e){ _respCache=[]; } }
+  const oss = ordensCache.filter(o => o.status==='concluida' && _contratoAssinaturaOn(o.contrato||o.client));
+  if(!oss.length){ showToast('Nenhuma O.S. concluída disponível para assinatura'); return; }
+  const grupos={};
+  oss.forEach(o=>{
+    const contract=o.contrato||o.client;
+    const estab=resolveEstab({machine:o.machine, contract, tag:o.tag||o.equip})||'(sem estabelecimento)';
+    const key=contract+'||'+estab;
+    (grupos[key]=grupos[key]||{contract,estab,oss:[]}).oss.push(o);
+  });
+  window._assinGrupos=grupos;
+  const opts=Object.keys(grupos).map(k=>{ const g=grupos[k]; return `<option value="${esc(k)}">${esc(g.estab)} — Contrato ${esc(g.contract)} (${g.oss.length})</option>`; }).join('');
+  _openAssinModal(`
+    <div class="field"><label>Estabelecimento</label>
+      <select id="asn-grupo" onchange="_asnRenderOSS()"><option value="">Selecione…</option>${opts}</select>
+    </div>
+    <div id="asn-oss" style="margin-top:10px"></div>
+    <div id="asn-resp" style="margin-top:10px;display:none"></div>
+    <div id="asn-actions" style="margin-top:14px"></div>
+  `);
+}
+
+function _asnRenderOSS(){
+  const key=document.getElementById('asn-grupo').value;
+  const box=document.getElementById('asn-oss'), respBox=document.getElementById('asn-resp'), act=document.getElementById('asn-actions');
+  window._asnResp=null;
+  if(!key){ box.innerHTML=''; respBox.style.display='none'; act.innerHTML=''; return; }
+  const g=window._assinGrupos[key];
+  box.innerHTML='<div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">O.S. a incluir</div>'+
+    g.oss.map((o,i)=>{
+      const reg=(records||[]).find(r=>r.id===o.registroId);
+      const svcs=(reg&&reg.items?reg.items.map(it=>it.name):[]).filter(Boolean);
+      return `<label style="display:flex;gap:8px;align-items:flex-start;background:var(--bg);border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer">
+        <input type="checkbox" class="asn-os" value="${i}" checked style="width:18px;height:18px;margin-top:2px">
+        <div style="flex:1;min-width:0;font-size:13px">
+          <div style="font-weight:600">O.S. ${esc(o.numero)}${o.tag?' · TAG '+esc(o.tag):''}</div>
+          <div style="font-size:12px;color:var(--text-3)">${svcs.length?esc(svcs.join(', ')):'—'}</div>
+        </div></label>`;
+    }).join('');
+  respBox.style.display='';
+  respBox.innerHTML=`<div class="field"><label>Celular do responsável (WhatsApp)</label>
+    <input id="asn-cel" inputmode="numeric" placeholder="Ex: 62999998888" oninput="this.value=this.value.replace(/[^0-9]/g,'');_asnBuscarResp()"></div>
+    <div id="asn-resp-info" style="font-size:13px;margin-top:2px"></div>`;
+  act.innerHTML=`<button id="asn-gerar" onclick="_asnGerar()" disabled style="width:100%;padding:13px;border:none;border-radius:10px;background:#0369a1;color:#fff;font-weight:700;font-size:15px;cursor:pointer;opacity:.5">Gerar link de assinatura</button>`;
+}
+
+function _asnBuscarResp(){
+  const key=document.getElementById('asn-grupo').value; const g=window._assinGrupos[key];
+  const cel=document.getElementById('asn-cel').value;
+  const info=document.getElementById('asn-resp-info'); const btn=document.getElementById('asn-gerar');
+  window._asnResp=null;
+  if(cel.length<10){ info.innerHTML=''; btn.disabled=true; btn.style.opacity=.5; return; }
+  const match=(_respCache||[]).find(r=> String(r.celular).replace(/\D/g,'')===cel && r.contract===g.contract && r.establishment===g.estab && r.ativo!==false);
+  if(match){
+    window._asnResp={responsavelId:match.id};
+    info.innerHTML=`<span style="color:var(--success)">✓ ${esc(match.nome)}${match.cargo?' · '+esc(match.cargo):''}</span>`;
+    btn.disabled=false; btn.style.opacity=1;
+  } else {
+    info.innerHTML=`<div style="color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px;margin-top:4px">
+      Número não cadastrado. <strong>Incluir em campo:</strong>
+      <input id="asn-novo-nome" placeholder="Nome do responsável" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:6px;box-sizing:border-box" oninput="_asnNovoCheck()">
+      <input id="asn-novo-cargo" placeholder="Cargo (opcional)" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:6px;box-sizing:border-box">
+    </div>`;
+    btn.disabled=true; btn.style.opacity=.5;
+  }
+}
+function _asnNovoCheck(){
+  const nome=(document.getElementById('asn-novo-nome')||{}).value||'';
+  const btn=document.getElementById('asn-gerar');
+  if(nome.trim().length>=2){ window._asnResp={novo:true}; btn.disabled=false; btn.style.opacity=1; }
+  else { window._asnResp=null; btn.disabled=true; btn.style.opacity=.5; }
+}
+
+async function _asnGerar(){
+  const key=document.getElementById('asn-grupo').value; const g=window._assinGrupos[key];
+  const cel=document.getElementById('asn-cel').value;
+  const checked=[...document.querySelectorAll('.asn-os:checked')].map(c=>g.oss[+c.value]);
+  if(!checked.length){ showToast('Selecione ao menos uma O.S.'); return; }
+  const ordens=checked.map(o=>{
+    const reg=(records||[]).find(r=>r.id===o.registroId)||{};
+    return { numero:o.numero, tag:o.tag||reg.equip||'', data:reg.date||'',
+             servicos:(reg.items||[]).map(it=>it.name).filter(Boolean), observacoes:reg.notes||'' };
+  });
+  const snapshot={ contract:g.contract, contratante:_contratoRazao(g.contract), establishment:g.estab,
+                   emitidoEm:Date.now(), tecnico:getCurrentUser()?.name||'', ordens };
+  const payload={ contract:g.contract, establishment:g.estab, osIds:checked.map(o=>o.id), snapshot };
+  if(window._asnResp && window._asnResp.responsavelId){ payload.responsavelId=window._asnResp.responsavelId; }
+  else { payload.novoResponsavel={ nome:(document.getElementById('asn-novo-nome')||{}).value.trim(),
+           cargo:(document.getElementById('asn-novo-cargo')||{}).value.trim(), celular:cel }; }
+  const btn=document.getElementById('asn-gerar'); btn.disabled=true; btn.textContent='Gerando…';
+  try{
+    const res=await DB.solicitarAssinaturaCliente(payload);
+    const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'assinar.html?t='+res.token;
+    window._asnLink=link;
+    if(payload.novoResponsavel){ _respCache=null; }
+    const card=document.getElementById('asn-card');
+    if(card) card.innerHTML=`
+      <div style="text-align:center;padding:6px 0 4px"><div style="font-size:40px">✅</div>
+        <div style="font-weight:700;font-size:16px;margin-top:6px">Link gerado</div>
+        <div style="font-size:13px;color:var(--text-2);margin-top:4px">Enquanto o WhatsApp não está ativo, copie e envie o link ao responsável. Expira em 48h e é de uso único.</div></div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;word-break:break-all;margin-top:12px">${esc(link)}</div>
+      <button onclick="_asnCopiar()" style="width:100%;padding:12px;border:none;border-radius:10px;background:#0369a1;color:#fff;font-weight:700;margin-top:10px;cursor:pointer">📋 Copiar link</button>
+      <button onclick="_closeAssinModal()" style="width:100%;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;margin-top:8px;cursor:pointer">Fechar</button>`;
+  }catch(e){ btn.disabled=false; btn.textContent='Gerar link de assinatura'; showToast('Erro: '+(e.message||e)); }
+}
+function _asnCopiar(){
+  const link=window._asnLink||'';
+  if(navigator.clipboard){ navigator.clipboard.writeText(link).then(()=>showToast('Link copiado')).catch(()=>showToast('Copie manualmente')); }
+  else showToast('Copie manualmente');
 }
 
 function iniciarRegistroOS(osId) {
