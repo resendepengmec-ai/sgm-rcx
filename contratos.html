@@ -127,6 +127,14 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           <label>Número da ART</label>
           <input id="f-art" type="text" placeholder="Ex: 2024-000123">
         </div>
+        <div class="field">
+          <label>Responsável técnico (laudos)</label>
+          <input id="f-resp-tec" type="text" placeholder="Ex: Fulano de Tal">
+        </div>
+        <div class="field">
+          <label>CREA / registro profissional</label>
+          <input id="f-crea" type="text" placeholder="Ex: Eng. Mecânico - CREA 0000000/D-GO">
+        </div>
         <div class="field" style="grid-column:1/-1">
           <label>Observações</label>
           <textarea id="f-obs" rows="3" placeholder="Informações adicionais…"></textarea>
@@ -584,7 +592,7 @@ function openNewContract() {
   if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode criar contratos'); return; }
   editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
-  ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs']
+  ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs','resp-tec','crea']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
   document.getElementById('f-assinatura-cliente').checked = false;
   document.getElementById('equip-preview').style.display = 'none';
@@ -613,6 +621,8 @@ function openEdit(id) {
   document.getElementById('f-inicio').value = c.inicio||'';
   document.getElementById('f-fim').value    = c.fim||'';
   document.getElementById('f-art').value    = c.art||'';
+  document.getElementById('f-resp-tec').value = c.respTec||'';
+  document.getElementById('f-crea').value   = c.crea||'';
   document.getElementById('f-obs').value    = c.obs||'';
   document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
   if (pendingEquip.length) {
@@ -643,6 +653,8 @@ async function saveContract() {
     email:       document.getElementById('f-email').value.trim(),
     inicio, fim,
     art:         document.getElementById('f-art').value.trim(),
+    respTec:     document.getElementById('f-resp-tec').value.trim(),
+    crea:        document.getElementById('f-crea').value.trim(),
     obs:         document.getElementById('f-obs').value.trim(),
     assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
     equipamentos: pendingEquip || [],

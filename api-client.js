@@ -29,22 +29,22 @@ function esc(str) {
 
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
-                 modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
-                 modules:['chamados','registro','orcamento','relatorios','admin','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
-                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
-                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio'],
                  canCreate:false, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
@@ -306,6 +306,13 @@ const DB = {
   assinaturasPendentes:       () => API.get('/assinatura-cliente/pendentes'),
   aprovarAssinatura:          id => API.post(`/assinatura-cliente/${id}/aprovar`, {}),
   rejeitarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/rejeitar`, { motivo }),
+
+  // Laudos / relatórios de vistoria
+  gerarLaudoTexto:    p     => API.post('/laudo/gerar-texto', p),
+  getLaudos:          ()    => API.get('/laudos'),
+  getLaudo:           id    => API.get(`/laudos/${id}`),
+  saveLaudo:          l     => API.post('/laudos', { laudo:l }),
+  deleteLaudo:        id    => API.delete(`/laudos/${id}`),
 
   // Movimentações
   getMovimentacoes:   ()    => API.get('/movimentacoes'),

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Laudo / Vistoria — SGM</title>
+<script src="config.js"></script>
+<link rel="stylesheet" href="shared.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="api-client.js"></script>
+<style>
+  .laudo-wrap{ max-width:820px; margin:0 auto; padding:0 14px 40px; }
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-top:14px; }
+  .card-title{ font-weight:700; font-size:15px; margin-bottom:10px; }
+  .scope-tabs{ display:flex; gap:8px; }
+  .scope-tab{ flex:1; padding:12px; border:1.5px solid var(--border); border-radius:10px; background:var(--surface); cursor:pointer; text-align:center; font-weight:600; font-size:14px; }
+  .scope-tab.active{ border-color:var(--primary); background:#eff6ff; color:var(--primary); }
+  .equip-row{ display:flex; gap:8px; align-items:flex-start; background:var(--bg); border-radius:8px; padding:8px; margin-bottom:6px; }
+  .foto-grid{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+  .foto-thumb{ position:relative; width:96px; height:96px; border-radius:8px; overflow:hidden; border:1px solid var(--border); }
+  .foto-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .foto-del{ position:absolute; top:2px; right:2px; background:rgba(220,38,38,.9); color:#fff; border:none; border-radius:50%; width:20px; height:20px; cursor:pointer; font-size:12px; line-height:1; }
+  .foto-geo{ position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,.6); color:#fff; font-size:8px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .btn-lg{ width:100%; padding:13px; border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
+</style>
+</head>
+<body>
+  <div class="app-header">
+    <button onclick="location.href='index.html'" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">←</button>
+    <div style="font-weight:700;font-size:17px">📋 Laudo de Vistoria</div>
+  </div>
+
+  <div class="laudo-wrap" id="root">
+    <div style="text-align:center;color:var(--text-3);padding:40px">Carregando…</div>
+  </div>
+
+<script>
+'use strict';
+let prestadora = {};
+let fotos = [];           // { dataUrl, geo, capturedAt }
+let laudosCache = [];
+let scope = 'equipamento';
+
+function showToast(msg){
+  let t=document.getElementById('_toast');
+  if(!t){ t=document.createElement('div'); t.id='_toast'; t.style.cssText='position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 18px;border-radius:8px;font-size:14px;z-index:99999;opacity:0;transition:opacity .2s;max-width:90%;text-align:center'; document.body.appendChild(t); }
+  t.textContent=msg; t.style.opacity='1';
+  clearTimeout(window._toastT); window._toastT=setTimeout(()=>{ t.style.opacity='0'; }, 2600);
+}
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function contratos(){ try{ return JSON.parse(localStorage.getItem('smm_contracts')||'[]'); }catch(e){ return []; } }
+function contratoSel(){ const el=document.getElementById('l-contract'); const n=el?el.value:''; return contratos().find(c=>String(c.numero)===String(n)) || null; }
+function cidadeDoEndereco(end){
+  if(!end) return '';
+  let m = String(end).match(/([A-Za-zÀ-ÿ.\s]{3,}?)\s*[-\/]\s*[A-Z]{2}\b/);
+  if(m) return m[1].trim();
+  const parts = String(end).split(',').map(s=>s.trim()).filter(Boolean);
+  return parts.length>=2 ? parts[parts.length-2] : (parts[0]||'');
+}
+
+(async function init(){
+  const user = (typeof getCurrentUser==='function') ? getCurrentUser() : null;
+  if(!user){ location.href='index.html'; return; }
+  if(!['admin','diretor','supervisor','gestor'].includes(user.role)){
+    document.getElementById('root').innerHTML='<div class="card">Este módulo é restrito a gestor ou acima.</div>'; return;
+  }
+  try{ prestadora = await DB.getPrestadoraConfig() || {}; }catch(e){ prestadora = {}; }
+  try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) localStorage.setItem('smm_contracts', JSON.stringify(cs)); }catch(e){}
+  renderForm();
+  loadLaudos();
+})();
+
+function renderForm(){
+  const opts = contratos().map(c=>`<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
+  document.getElementById('root').innerHTML = `
+    <div class="card">
+      <div class="card-title">Escopo do laudo</div>
+      <div class="field"><label>Contrato *</label>
+        <select id="l-contract" onchange="onContractChange()"><option value="">Selecione…</option>${opts}</select>
+      </div>
+      <div class="scope-tabs" style="margin:10px 0">
+        <div class="scope-tab active" id="tab-equip" onclick="setScope('equipamento')">🔧 Equipamento(s)</div>
+        <div class="scope-tab" id="tab-unidade" onclick="setScope('unidade')">🏢 Unidade inteira</div>
+      </div>
+      <div class="field"><label>Estabelecimento *</label>
+        <select id="l-estab" onchange="onEstabChange()"><option value="">Selecione o contrato primeiro</option></select>
+      </div>
+      <div id="l-equip-box" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Problema</div>
+      <div class="field"><label>Assunto *</label>
+        <input id="l-assunto" placeholder="Ex: Solicitação de baixa de equipamento inviável">
+      </div>
+      <div class="field"><label>Palavras-chave do problema *</label>
+        <textarea id="l-kw" rows="3" placeholder="Ex: deteriorado; fim de vida útil; sem peças de reposição; ruído excessivo"></textarea>
+      </div>
+      <button class="btn-lg" style="background:#0369a1;color:#fff" onclick="gerarTexto(this)">✨ Gerar texto técnico</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Texto do laudo (editável)</div>
+      <textarea id="l-texto" rows="10" placeholder="O texto técnico gerado aparece aqui e pode ser editado antes de concluir…"></textarea>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Registro fotográfico</div>
+      <input type="file" id="l-foto-input" accept="image/*" capture="environment" style="display:none" onchange="addFoto(event)">
+      <button class="btn btn-secondary" onclick="document.getElementById('l-foto-input').click()" style="width:100%">📷 Adicionar foto</button>
+      <div class="foto-grid" id="l-fotos"></div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;gap:8px">
+        <button class="btn-lg" style="background:var(--surface);border:1px solid var(--border);color:var(--text);flex:1" onclick="gerarPDF()">🖨️ Gerar PDF</button>
+        <button class="btn-lg" style="background:#16a34a;color:#fff;flex:1" onclick="salvarLaudo()">💾 Salvar laudo</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Laudos recentes</div>
+      <div id="l-lista"><div style="color:var(--text-3);font-size:13px">Carregando…</div></div>
+    </div>
+  `;
+}
+
+function setScope(s){
+  scope = s;
+  document.getElementById('tab-equip').classList.toggle('active', s==='equipamento');
+  document.getElementById('tab-unidade').classList.toggle('active', s==='unidade');
+  onEstabChange();
+}
+function equipsDoContrato(){
+  const el = document.getElementById('l-contract'); const c = el?el.value:'';
+  try{ return (getEffDB()[c]||[]).filter(e=>!e._inativo); }catch(e){ return []; }
+}
+function onContractChange(){
+  const estabs = [...new Set(equipsDoContrato().map(e=>e.estabelecimento).filter(Boolean))].sort();
+  document.getElementById('l-estab').innerHTML = '<option value="">Selecione…</option>' +
+    estabs.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+  document.getElementById('l-equip-box').innerHTML='';
+}
+function onEstabChange(){
+  const box = document.getElementById('l-equip-box');
+  const estab = document.getElementById('l-estab').value;
+  if(scope==='unidade' || !estab){ box.innerHTML=''; return; }
+  const eqs = equipsDoContrato().filter(e=>e.estabelecimento===estab);
+  if(!eqs.length){ box.innerHTML='<div style="font-size:12px;color:var(--text-3)">Nenhum equipamento nesse estabelecimento.</div>'; return; }
+  window._laudoEqs = eqs;
+  box.innerHTML = '<div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Equipamento(s)</div>' +
+    eqs.map((e,i)=>`<label class="equip-row" style="cursor:pointer">
+      <input type="checkbox" class="l-eq" value="${i}" style="width:18px;height:18px;margin-top:2px">
+      <div style="font-size:13px"><strong>TAG ${esc(e.tag||'—')}</strong>${e.patrimonio?' · Patr. '+esc(e.patrimonio):''}<br>
+      <span style="color:var(--text-2)">${esc([e.marca,e.tipo,e.capacidade].filter(Boolean).join(' · '))||'—'}${e.recinto?' · '+esc(e.recinto):''}</span></div>
+    </label>`).join('');
+}
+function itensSelecionados(){
+  if(scope==='unidade'){
+    const estab = document.getElementById('l-estab').value;
+    return equipsDoContrato().filter(e=>e.estabelecimento===estab).map(mapEq);
+  }
+  const eqs = window._laudoEqs||[];
+  return [...document.querySelectorAll('.l-eq:checked')].map(c=>mapEq(eqs[+c.value]));
+}
+function mapEq(e){ return e ? { patrimonio:e.patrimonio||'', tag:e.tag||'', marca:e.marca||'', tipo:e.tipo||'', capacidade:e.capacidade||'', recinto:e.recinto||'', estabelecimento:e.estabelecimento||'' } : null; }
+
+async function gerarTexto(btn){
+  const kw = document.getElementById('l-kw').value.trim();
+  if(!kw){ showToast('Informe as palavras-chave'); return; }
+  const estab = document.getElementById('l-estab').value;
+  const payload = {
+    assunto: document.getElementById('l-assunto').value.trim(),
+    escopo: scope, unidade: estab,
+    itens: itensSelecionados().filter(Boolean),
+    palavrasChave: kw,
+  };
+  const txt0 = btn.textContent; btn.disabled=true; btn.textContent='Gerando…';
+  try{
+    const res = await DB.gerarLaudoTexto(payload);
+    document.getElementById('l-texto').value = res.texto || '';
+    showToast(res.fonte==='ia' ? 'Texto gerado por IA' : 'Texto gerado (modelo)');
+  }catch(e){ showToast('Erro ao gerar: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent=txt0; }
+}
+
+function addFoto(ev){
+  const file = ev.target.files && ev.target.files[0]; ev.target.value='';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const foto = { dataUrl: reader.result, geo: null, capturedAt: Date.now() };
+    fotos.push(foto); renderFotos();
+    if(navigator.geolocation){
+      navigator.geolocation.getCurrentPosition(async pos=>{
+        foto.geo = { lat:pos.coords.latitude, lng:pos.coords.longitude, precisao:pos.coords.accuracy };
+        try{
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${foto.geo.lat}&lon=${foto.geo.lng}&zoom=18&addressdetails=1`, {headers:{'Accept':'application/json'}});
+          const j = await r.json(); const a=j.address||{};
+          const rua=a.road||'', bairro=a.suburb||a.neighbourhood||'', cidade=a.city||a.town||a.municipality||'', uf=a.state_code||a.state||'';
+          foto.geo.shortAddress = [rua, bairro, [cidade,uf].filter(Boolean).join('-')].filter(Boolean).join(', ');
+          foto.geo.address = j.display_name||foto.geo.shortAddress;
+        }catch(e){}
+        renderFotos();
+      }, ()=>{}, {enableHighAccuracy:false, timeout:8000, maximumAge:0});
+    }
+  };
+  reader.readAsDataURL(file);
+}
+function renderFotos(){
+  document.getElementById('l-fotos').innerHTML = fotos.map((f,i)=>`
+    <div class="foto-thumb">
+      <img src="${f.dataUrl}">
+      <button class="foto-del" onclick="fotos.splice(${i},1);renderFotos()">×</button>
+      ${f.geo?`<div class="foto-geo">📍 ${esc((f.geo.shortAddress||'').split(',')[0]||'localizando…')}</div>`:'<div class="foto-geo">📍 …</div>'}
+    </div>`).join('');
+}
+
+function coletar(){
+  const c = contratoSel();
+  return {
+    contract: c ? c.numero : (document.getElementById('l-contract').value||''),
+    contratante: c ? (c.razao||'') : '',
+    art: c ? (c.art||'') : '',
+    cidade: c ? cidadeDoEndereco(c.end) : '',
+    respTec: c ? (c.respTec||'') : '',
+    crea: c ? (c.crea||'') : '',
+    unidade: document.getElementById('l-estab').value || '',
+    escopo: scope,
+    assunto: document.getElementById('l-assunto').value.trim(),
+    palavrasChave: document.getElementById('l-kw').value.trim(),
+    texto: document.getElementById('l-texto').value.trim(),
+    itens: itensSelecionados().filter(Boolean),
+    photos: fotos,
+  };
+}
+
+const PDF_M = 20, PDF_W = 210, PDF_H = 297;
+function pdfHeader(doc){
+  let y = 14, textX = PDF_M;
+  if(prestadora.logo){
+    const maxW=24, maxH=20; let w=maxW, h=prestadora.logoRatio?maxW*parseFloat(prestadora.logoRatio):maxW*0.6;
+    if(h>maxH){ w=w*(maxH/h); h=maxH; }
+    try{ doc.addImage(prestadora.logo,'PNG',PDF_M,y-2,w,h); textX=PDF_M+w+6; }catch(e){}
+  }
+  const d = coletar();
+  const rightW=52, maxTextW=PDF_W-PDF_M-textX-rightW;
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
+  const nameLines = doc.splitTextToSize(prestadora.company||'Empresa prestadora', maxTextW);
+  doc.text(nameLines, textX, y+2);
+  let ly = y+2 + nameLines.length*4.5 + 2.5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,90,90);
+  if(prestadora.address){ const a=doc.splitTextToSize(prestadora.address,maxTextW); doc.text(a,textX,ly); ly+=a.length*4; }
+  if(prestadora.cnpj){ doc.text(`CNPJ: ${prestadora.cnpj}`, textX, ly); ly+=4; }
+  doc.setTextColor(20,20,20); doc.setFontSize(9);
+  doc.text('Contrato:', PDF_W-PDF_M, 14, {align:'right'});
+  doc.text(String(d.contract||'—'), PDF_W-PDF_M, 19, {align:'right'});
+  doc.setTextColor(0,0,0);
+  const ruleY = Math.max(ly, 24)+3;
+  doc.setDrawColor(180,180,180); doc.setLineWidth(0.5); doc.line(PDF_M, ruleY, PDF_W-PDF_M, ruleY); doc.setLineWidth(0.2);
+  return ruleY+8;
+}
+function pdfFooters(doc){
+  const n = doc.internal.getNumberOfPages();
+  for(let i=1;i<=n;i++){ doc.setPage(i);
+    doc.setDrawColor(200,200,200); doc.line(PDF_M, PDF_H-16, PDF_W-PDF_M, PDF_H-16);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(130,130,130);
+    doc.text(`Página ${i} de ${n}`, PDF_W-PDF_M, PDF_H-11, {align:'right'});
+    doc.setTextColor(0,0,0);
+  }
+}
+function ensure(doc, yObj, need){
+  if(yObj.y + need > PDF_H-22){ doc.addPage(); yObj.y = pdfHeader(doc); }
+}
+function gerarPDF(){
+  if(!window.jspdf){ showToast('Biblioteca de PDF não carregou.'); return; }
+  const d = coletar();
+  if(!d.contract){ showToast('Selecione o contrato'); return; }
+  if(!d.unidade){ showToast('Selecione o estabelecimento'); return; }
+  if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
+  const {jsPDF} = window.jspdf; const doc = new jsPDF({unit:'mm',format:'a4'});
+  const yO = { y: pdfHeader(doc) };
+  const CW = PDF_W-2*PDF_M;
+
+  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(0,0,0);
+  doc.text('RELATÓRIO DE VISTORIA', PDF_W/2, yO.y, {align:'center'}); yO.y+=9;
+
+  const campo = (rot, val) => { doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    const lab = rot+': '; const lw = doc.getTextWidth(lab);
+    doc.text(lab, PDF_M, yO.y); doc.setFont('helvetica','normal');
+    const vl = doc.splitTextToSize(String(val||'—'), CW-lw); doc.text(vl, PDF_M+lw, yO.y);
+    yO.y += Math.max(1,vl.length)*5 + 1.5; };
+  campo('Unidade', d.unidade);
+  campo('Contrato', d.contratante ? `${d.contratante} — nº ${d.contract}` : d.contract);
+  campo('A/C', 'Gestor do contrato');
+  campo('Assunto', d.assunto || '—');
+  yO.y += 3;
+
+  doc.setFont('helvetica','normal'); doc.setFontSize(11);
+  d.texto.split(/\n+/).forEach(par=>{
+    const lines = doc.splitTextToSize(par.trim(), CW);
+    ensure(doc, yO, lines.length*5+4);
+    doc.text(lines, PDF_M, yO.y, {align:'justify', maxWidth:CW}); yO.y += lines.length*5 + 3;
+  });
+  yO.y += 2;
+
+  if(d.itens && d.itens.length){
+    ensure(doc, yO, 20);
+    if(d.itens.length===1 && d.escopo==='equipamento'){
+      const e=d.itens[0];
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipamento vistoriado', PDF_M, yO.y); yO.y+=6;
+      doc.setFont('helvetica','normal');
+      [['Marca',e.marca],['Tipo',e.tipo],['Capacidade',e.capacidade],['TAG',e.tag],['Patrimônio',e.patrimonio],['Recinto',e.recinto]]
+        .filter(x=>x[1]).forEach(x=>{ ensure(doc,yO,6); doc.text(`${x[0]}: ${x[1]}`, PDF_M, yO.y); yO.y+=5; });
+      yO.y+=3;
+    } else {
+      doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('Equipamentos', PDF_M, yO.y); yO.y+=6;
+      const cols=[['Patrimônio',24],['TAG',20],['Marca',34],['Capacidade',34],['Local',CW-24-20-34-34]];
+      let x=PDF_M; doc.setFontSize(9); doc.setFillColor(240,240,240); doc.rect(PDF_M,yO.y-4,CW,7,'F');
+      doc.setFont('helvetica','bold'); cols.forEach(c=>{ doc.text(c[0], x+1, yO.y); x+=c[1]; }); yO.y+=5;
+      doc.setFont('helvetica','normal');
+      d.itens.forEach(e=>{ ensure(doc,yO,7); x=PDF_M;
+        const cells=[e.patrimonio||'—', e.tag||'—', e.marca||'—', e.capacidade||'—', e.recinto||e.estabelecimento||'—'];
+        cells.forEach((cell,ci)=>{ const t=doc.splitTextToSize(String(cell), cols[ci][1]-2); doc.text(t[0]||'—', x+1, yO.y); x+=cols[ci][1]; });
+        doc.setDrawColor(230,230,230); doc.line(PDF_M, yO.y+1.5, PDF_W-PDF_M, yO.y+1.5); yO.y+=6;
+      });
+      yO.y+=3;
+    }
+  }
+
+  const validas = fotos.filter(f=>f.dataUrl);
+  if(validas.length){
+    ensure(doc, yO, 20);
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text(`Registro fotográfico (${validas.length})`, PDF_M, yO.y); yO.y+=6;
+    const cols=3, gap=6, cellW=(CW-gap*(cols-1))/cols;
+    for(let i=0;i<validas.length;i+=cols){
+      const row=validas.slice(i,i+cols); let hMax=0;
+      const sized=row.map(f=>{ let w=cellW,h=cellW*0.75; try{ const p=doc.getImageProperties(f.dataUrl); h=cellW*(p.height/p.width); if(h>70){h=70;w=70*(p.width/p.height);} }catch(e){} hMax=Math.max(hMax,h); return {f,w,h}; });
+      ensure(doc, yO, hMax+10);
+      sized.forEach((it,c)=>{ const cx=PDF_M+c*(cellW+gap)+(cellW-it.w)/2;
+        try{ doc.addImage(it.f.dataUrl,'JPEG',cx,yO.y,it.w,it.h); }catch(e){}
+        if(it.f.geo){ doc.setFontSize(6); doc.setTextColor(37,99,235);
+          const lb=it.f.geo.shortAddress||`${it.f.geo.lat.toFixed(5)}, ${it.f.geo.lng.toFixed(5)}`;
+          doc.textWithLink(doc.splitTextToSize(lb, cellW)[0], PDF_M+c*(cellW+gap), yO.y+hMax+3, {url:`https://maps.google.com/?q=${it.f.geo.lat},${it.f.geo.lng}`});
+          doc.setTextColor(0,0,0); doc.setFontSize(11); }
+      });
+      yO.y += hMax + 8;
+    }
+  }
+
+  ensure(doc, yO, 46);
+  yO.y += 4;
+  doc.setFont('helvetica','normal'); doc.setFontSize(11);
+  doc.text('Estamos à disposição para eventuais dúvidas e questionamentos.', PDF_M, yO.y); yO.y+=10;
+  const dataStr = new Date().toLocaleDateString('pt-BR', {day:'2-digit', month:'long', year:'numeric'});
+  doc.setFontSize(10);
+  doc.text(`${d.cidade||''}${d.cidade?', ':''}${dataStr}.`, PDF_M, yO.y); yO.y+=22;
+  doc.setDrawColor(60,60,60); doc.line(PDF_M, yO.y, PDF_M+80, yO.y); yO.y+=5;
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  if(d.respTec){ doc.text(`Resp. Técnico: ${d.respTec}`, PDF_M, yO.y); yO.y+=5; }
+  if(d.crea){ doc.text(String(d.crea), PDF_M, yO.y); }
+
+  pdfFooters(doc);
+  const nome = `laudo-${(d.unidade||'vistoria').replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30)}-${new Date().toISOString().slice(0,10)}.pdf`;
+  try{ doc.save(nome); }catch(e){ showToast('Erro ao gerar PDF'); }
+}
+
+async function salvarLaudo(){
+  const d = coletar();
+  if(!d.contract || !d.unidade){ showToast('Selecione contrato e estabelecimento'); return; }
+  if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
+  try{ await DB.saveLaudo(d); showToast('Laudo salvo'); loadLaudos(); }
+  catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
+}
+async function loadLaudos(){
+  try{ laudosCache = await DB.getLaudos(); }catch(e){ laudosCache=[]; }
+  const el = document.getElementById('l-lista'); if(!el) return;
+  if(!laudosCache.length){ el.innerHTML='<div style="color:var(--text-3);font-size:13px">Nenhum laudo salvo ainda.</div>'; return; }
+  el.innerHTML = laudosCache.slice(0,15).map(l=>`
+    <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:8px 0">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:13px">${esc(l.unidade||'—')}</div>
+        <div style="font-size:12px;color:var(--text-3)">Contrato ${esc(l.contract||'—')} · ${esc(l.assunto||'')} · ${new Date(l.createdAt).toLocaleDateString('pt-BR')}</div>
+      </div>
+      <button onclick="reabrirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Reabrir">↩️</button>
+    </div>`).join('');
+}
+function reabrirLaudo(id){
+  const l = laudosCache.find(x=>x.id===id); if(!l) return;
+  document.getElementById('l-contract').value = l.contract||''; onContractChange();
+  document.getElementById('l-estab').value = l.unidade||'';
+  setScope(l.escopo||'equipamento');
+  document.getElementById('l-assunto').value = l.assunto||'';
+  document.getElementById('l-kw').value = l.palavrasChave||'';
+  document.getElementById('l-texto').value = l.texto||'';
+  fotos = Array.isArray(l.photos)?l.photos:[]; renderFotos();
+  window.scrollTo({top:0, behavior:'smooth'});
+  showToast('Laudo carregado — edite e gere o PDF');
+}
+</script>
+</body>
+</html>
