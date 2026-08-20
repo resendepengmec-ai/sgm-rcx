@@ -40,6 +40,7 @@ let prestadora = {};
 let fotos = [];           // { dataUrl, geo, capturedAt }
 let laudosCache = [];
 let scope = 'equipamento';
+let itensLaudo = [];   // equipamentos adicionados por TAG (escopo equipamento)
 
 function showToast(msg){
   let t=document.getElementById('_toast');
@@ -68,6 +69,7 @@ function cidadeDoEndereco(end){
   try{ prestadora = await DB.getPrestadoraConfig() || {}; }catch(e){ prestadora = {}; }
   try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) localStorage.setItem('smm_contracts', JSON.stringify(cs)); }catch(e){}
   renderForm();
+  renderItens();
   loadLaudos();
 })();
 
@@ -83,10 +85,21 @@ function renderForm(){
         <div class="scope-tab active" id="tab-equip" onclick="setScope('equipamento')">🔧 Equipamento(s)</div>
         <div class="scope-tab" id="tab-unidade" onclick="setScope('unidade')">🏢 Unidade inteira</div>
       </div>
-      <div class="field"><label>Estabelecimento *</label>
-        <select id="l-estab" onchange="onEstabChange()"><option value="">Selecione o contrato primeiro</option></select>
+      <div class="field" id="l-unidade-box" style="display:none"><label>Estabelecimento *</label>
+        <select id="l-estab"><option value="">Selecione o contrato primeiro</option></select>
       </div>
-      <div id="l-equip-box" style="margin-top:8px"></div>
+      <div id="l-equip-scope">
+        <div class="field"><label>TAG do equipamento</label>
+          <div style="display:flex;gap:8px">
+            <input id="l-tag" inputmode="numeric" placeholder="Ex: 892" style="flex:1"
+              oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();addTag();}">
+            <button class="btn btn-secondary" onclick="addTag()" style="white-space:nowrap">+ Adicionar</button>
+          </div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Digite só os números da TAG e Enter. Os dados do equipamento vêm do contrato.</div>
+        </div>
+        <div id="l-itens"></div>
+      </div>
     </div>
 
     <div class="card">
@@ -130,7 +143,8 @@ function setScope(s){
   scope = s;
   document.getElementById('tab-equip').classList.toggle('active', s==='equipamento');
   document.getElementById('tab-unidade').classList.toggle('active', s==='unidade');
-  onEstabChange();
+  document.getElementById('l-unidade-box').style.display = (s==='unidade') ? '' : 'none';
+  document.getElementById('l-equip-scope').style.display = (s==='equipamento') ? '' : 'none';
 }
 function equipsDoContrato(){
   const el = document.getElementById('l-contract'); const c = el?el.value:'';
@@ -140,29 +154,43 @@ function onContractChange(){
   const estabs = [...new Set(equipsDoContrato().map(e=>e.estabelecimento).filter(Boolean))].sort();
   document.getElementById('l-estab').innerHTML = '<option value="">Selecione…</option>' +
     estabs.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
-  document.getElementById('l-equip-box').innerHTML='';
+  itensLaudo = []; renderItens();
 }
-function onEstabChange(){
-  const box = document.getElementById('l-equip-box');
-  const estab = document.getElementById('l-estab').value;
-  if(scope==='unidade' || !estab){ box.innerHTML=''; return; }
-  const eqs = equipsDoContrato().filter(e=>e.estabelecimento===estab);
-  if(!eqs.length){ box.innerHTML='<div style="font-size:12px;color:var(--text-3)">Nenhum equipamento nesse estabelecimento.</div>'; return; }
-  window._laudoEqs = eqs;
-  box.innerHTML = '<div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Equipamento(s)</div>' +
-    eqs.map((e,i)=>`<label class="equip-row" style="cursor:pointer">
-      <input type="checkbox" class="l-eq" value="${i}" style="width:18px;height:18px;margin-top:2px">
-      <div style="font-size:13px"><strong>TAG ${esc(e.tag||'—')}</strong>${e.patrimonio?' · Patr. '+esc(e.patrimonio):''}<br>
-      <span style="color:var(--text-2)">${esc([e.marca,e.tipo,e.capacidade].filter(Boolean).join(' · '))||'—'}${e.recinto?' · '+esc(e.recinto):''}</span></div>
-    </label>`).join('');
+
+// Escopo equipamento: adiciona por TAG (busca tudo no banco do contrato)
+function addTag(){
+  const inp = document.getElementById('l-tag');
+  const tag = String(inp.value||'').replace(/\D/g,'');
+  if(!document.getElementById('l-contract').value){ showToast('Selecione o contrato primeiro'); return; }
+  if(!tag){ showToast('Digite a TAG'); return; }
+  const norm = t => String(t||'').replace(/\D/g,'');
+  const numEq = (a,b) => { const na=parseInt(norm(a),10), nb=parseInt(norm(b),10); return !isNaN(na)&&na===nb; };
+  const eqs = equipsDoContrato();
+  let found = eqs.find(e => norm(e.tag) === tag) || eqs.find(e => numEq(e.tag, tag));
+  if(!found){ showToast(`TAG ${tag} não encontrada neste contrato`); return; }
+  if(itensLaudo.some(x => numEq(x.tag, tag))){ showToast('TAG já adicionada'); inp.value=''; return; }
+  itensLaudo.push(mapEq(found));
+  inp.value=''; renderItens();
+}
+function removeItemLaudo(i){ itensLaudo.splice(i,1); renderItens(); }
+function renderItens(){
+  const box = document.getElementById('l-itens'); if(!box) return;
+  if(!itensLaudo.length){ box.innerHTML = '<div style="font-size:12px;color:var(--text-3)">Nenhum equipamento adicionado.</div>'; return; }
+  box.innerHTML = itensLaudo.map((e,i)=>`
+    <div class="equip-row">
+      <div style="flex:1;min-width:0;font-size:13px">
+        <strong>TAG ${esc(e.tag||'—')}</strong>${e.patrimonio?' · Patr. '+esc(e.patrimonio):''}
+        <br><span style="color:var(--text-2)">${esc([e.marca,e.tipo,e.capacidade].filter(Boolean).join(' · '))||'—'}${e.estabelecimento?' · '+esc(e.estabelecimento):''}${e.recinto?' · '+esc(e.recinto):''}</span>
+      </div>
+      <button onclick="removeItemLaudo(${i})" style="border:none;background:none;cursor:pointer;font-size:16px" title="Remover">🗑️</button>
+    </div>`).join('');
 }
 function itensSelecionados(){
   if(scope==='unidade'){
     const estab = document.getElementById('l-estab').value;
     return equipsDoContrato().filter(e=>e.estabelecimento===estab).map(mapEq);
   }
-  const eqs = window._laudoEqs||[];
-  return [...document.querySelectorAll('.l-eq:checked')].map(c=>mapEq(eqs[+c.value]));
+  return itensLaudo.slice();
 }
 function mapEq(e){ return e ? { patrimonio:e.patrimonio||'', tag:e.tag||'', marca:e.marca||'', tipo:e.tipo||'', capacidade:e.capacidade||'', recinto:e.recinto||'', estabelecimento:e.estabelecimento||'' } : null; }
 
@@ -217,6 +245,12 @@ function renderFotos(){
     </div>`).join('');
 }
 
+function unidadeDoLaudo(){
+  if(scope==='unidade') return document.getElementById('l-estab').value || '';
+  // escopo equipamento: deriva dos estabelecimentos das TAGs adicionadas
+  const ests = [...new Set(itensLaudo.map(e=>e.estabelecimento).filter(Boolean))];
+  return ests.join(' / ');
+}
 function coletar(){
   const c = contratoSel();
   return {
@@ -226,7 +260,7 @@ function coletar(){
     cidade: c ? cidadeDoEndereco(c.end) : '',
     respTec: c ? (c.respTec||'') : '',
     crea: c ? (c.crea||'') : '',
-    unidade: document.getElementById('l-estab').value || '',
+    unidade: unidadeDoLaudo(),
     escopo: scope,
     assunto: document.getElementById('l-assunto').value.trim(),
     palavrasChave: document.getElementById('l-kw').value.trim(),
@@ -277,7 +311,8 @@ function gerarPDF(){
   if(!window.jspdf){ showToast('Biblioteca de PDF não carregou.'); return; }
   const d = coletar();
   if(!d.contract){ showToast('Selecione o contrato'); return; }
-  if(!d.unidade){ showToast('Selecione o estabelecimento'); return; }
+  if(scope==='equipamento' && !d.itens.length){ showToast('Adicione ao menos uma TAG'); return; }
+  if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
   if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
   const {jsPDF} = window.jspdf; const doc = new jsPDF({unit:'mm',format:'a4'});
   const yO = { y: pdfHeader(doc) };
@@ -368,7 +403,9 @@ function gerarPDF(){
 
 async function salvarLaudo(){
   const d = coletar();
-  if(!d.contract || !d.unidade){ showToast('Selecione contrato e estabelecimento'); return; }
+  if(!d.contract){ showToast('Selecione o contrato'); return; }
+  if(scope==='equipamento' && !d.itens.length){ showToast('Adicione ao menos uma TAG'); return; }
+  if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
   if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
   try{ await DB.saveLaudo(d); showToast('Laudo salvo'); loadLaudos(); }
   catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
@@ -389,8 +426,12 @@ async function loadLaudos(){
 function reabrirLaudo(id){
   const l = laudosCache.find(x=>x.id===id); if(!l) return;
   document.getElementById('l-contract').value = l.contract||''; onContractChange();
-  document.getElementById('l-estab').value = l.unidade||'';
   setScope(l.escopo||'equipamento');
+  if((l.escopo||'equipamento')==='unidade'){
+    document.getElementById('l-estab').value = l.unidade||'';
+  } else {
+    itensLaudo = Array.isArray(l.itens) ? l.itens.slice() : []; renderItens();
+  }
   document.getElementById('l-assunto').value = l.assunto||'';
   document.getElementById('l-kw').value = l.palavrasChave||'';
   document.getElementById('l-texto').value = l.texto||'';
