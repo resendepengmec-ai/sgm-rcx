@@ -51,6 +51,26 @@ function showToast(msg){
   clearTimeout(window._toastT); window._toastT=setTimeout(()=>{ t.style.opacity='0'; }, 2600);
 }
 
+// API do laudo — INDEPENDENTE do api-client (não quebra se aquele estiver defasado)
+const _SMM_URL = (typeof window.SMM_API!=='undefined') ? window.SMM_API : (localStorage.getItem('smm_api_url')||'');
+async function laudoAPI(method, path, body){
+  const token = sessionStorage.getItem('smm_jwt');
+  let res;
+  try{
+    res = await fetch(`${_SMM_URL}/api${path}`, {
+      method, headers:{'Content-Type':'application/json', ...(token?{'Authorization':'Bearer '+token}:{})},
+      body: body?JSON.stringify(body):undefined
+    });
+  }catch(e){ throw new Error('Sem conexão com o servidor. Verifique a internet.'); }
+  let json; try{ json = await res.json(); }catch(e){ throw new Error(`O servidor não respondeu corretamente (status ${res.status}).`); }
+  if(!json.ok) throw new Error(json.error || `Erro ${res.status}`);
+  return json.data;
+}
+const laudoSave  = l  => laudoAPI('POST','/laudos',{laudo:l});
+const laudoList  = () => laudoAPI('GET','/laudos');
+const laudoDel   = id => laudoAPI('DELETE',`/laudos/${id}`);
+const laudoTexto = p  => laudoAPI('POST','/laudo/gerar-texto',p);
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function contratos(){ try{ return JSON.parse(localStorage.getItem('smm_contracts')||'[]'); }catch(e){ return []; } }
 function contratoSel(){ const el=document.getElementById('l-contract'); const n=el?el.value:''; return contratos().find(c=>String(c.numero)===String(n)) || null; }
@@ -134,8 +154,7 @@ function renderForm(){
 
     <div class="card">
       <div style="display:flex;gap:8px">
-        <button class="btn-lg" style="background:#0369a1;color:#fff;flex:1;min-width:150px" onclick="gerarPDFForm()">🖨️ Gerar PDF (salva)</button>
-        <button class="btn-lg" style="background:#16a34a;color:#fff;flex:1;min-width:130px" onclick="salvarLaudo()">💾 Salvar rascunho</button>
+        <button class="btn-lg" style="background:#0369a1;color:#fff;flex:1" onclick="gerarLaudo(this)">🖨️ Gerar laudo</button>
         <button class="btn-lg" style="background:var(--surface);border:1px solid var(--border);color:var(--text);flex:0 0 auto" onclick="novoLaudo()">＋ Novo</button>
       </div>
     </div>
@@ -193,6 +212,7 @@ function addTag(){
   if(itensLaudo.some(x => numEq(x.tag, tag))){ showToast('TAG já adicionada'); inp.value=''; return; }
   itensLaudo.push(mapEq(found));
   inp.value=''; renderItens();
+  showToast('Equipamento TAG '+(found.tag||tag)+' adicionado');
 }
 function removeItemLaudo(i){ itensLaudo.splice(i,1); renderItens(); }
 function renderItens(){
@@ -228,7 +248,7 @@ async function gerarTexto(btn){
   };
   const txt0 = btn.textContent; btn.disabled=true; btn.textContent='Gerando…';
   try{
-    const res = await DB.gerarLaudoTexto(payload);
+    const res = await laudoTexto(payload);
     document.getElementById('l-texto').value = res.texto || '';
     showToast(res.fonte==='ia' ? 'Texto gerado por IA' : 'Texto gerado (modelo)');
   }catch(e){ showToast('Erro ao gerar: '+(e.message||e)); }
@@ -242,6 +262,7 @@ function addFoto(ev){
   reader.onload = () => {
     const foto = { dataUrl: reader.result, geo: null, capturedAt: Date.now() };
     fotos.push(foto); renderFotos();
+    showToast('Foto adicionada'+(navigator.geolocation?' — localizando…':''));
     if(navigator.geolocation){
       navigator.geolocation.getCurrentPosition(async pos=>{
         foto.geo = { lat:pos.coords.latitude, lng:pos.coords.longitude, precisao:pos.coords.accuracy };
@@ -254,6 +275,7 @@ function addFoto(ev){
           }
         }catch(e){}
         renderFotos();
+        if(foto.geo && foto.geo.shortAddress) showToast('Localização capturada');
       }, ()=>{}, {enableHighAccuracy:false, timeout:8000, maximumAge:0});
     }
   };
@@ -419,44 +441,48 @@ function gerarPDF(d){
   doc.setDrawColor(60,60,60); doc.line(PDF_M, yO.y, PDF_M+80, yO.y); yO.y+=5;
   doc.setFont('helvetica','normal'); doc.setFontSize(10);
   if(d.respTec){ doc.text(`Resp. Técnico: ${d.respTec}`, PDF_M, yO.y); yO.y+=5; }
-  if(d.crea){ doc.text(String(d.crea), PDF_M, yO.y); }
+  if(d.crea){ doc.text(String(d.crea), PDF_M, yO.y); yO.y+=5; }
+  if(d.assinatura && d.assinatura.hash){
+    yO.y += 4; doc.setFontSize(8); doc.setTextColor(120,120,120);
+    const at = d.assinatura.at ? new Date(d.assinatura.at).toLocaleString('pt-BR') : '';
+    doc.text(`Documento assinado digitalmente · HMAC ${String(d.assinatura.hash).slice(0,8)} [${d.assinatura.keyId||'legacy'}]${at?' · '+at:''}`, PDF_M, yO.y);
+    doc.setTextColor(0,0,0); doc.setFontSize(10);
+  }
 
   pdfFooters(doc);
   const nome = `laudo-${(d.unidade||'vistoria').replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30)}-${new Date().toISOString().slice(0,10)}.pdf`;
   try{ doc.save(nome); }catch(e){ showToast('Erro ao gerar PDF'); }
 }
 
-async function salvarLaudo(){
+// Fluxo único: valida → salva no acervo (com assinatura HMAC) → gera o PDF → avisa → limpa a tela
+async function gerarLaudo(btn){
   const d = coletar();
   if(!d.contract){ showToast('Selecione o contrato'); return; }
-  if(scope==='equipamento' && !d.itens.length){ showToast('Adicione ao menos uma TAG'); return; }
+  if(scope==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
   if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
-  if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
-  try{ const saved = await DB.saveLaudo(d); if(saved&&saved.id) currentLaudoId=saved.id; showToast('Laudo salvo'); loadLaudos(); }
-  catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
+  if(!d.texto){ showToast('Gere o texto técnico antes de gerar o laudo'); return; }
+  const t0 = btn ? btn.textContent : ''; if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
+  showToast('Salvando no acervo…');
+  try{
+    const saved = await laudoSave(d);      // persiste no servidor e retorna com assinatura HMAC
+    const full = { ...d, id: saved.id, assinatura: saved.assinatura, createdAt: saved.createdAt };
+    gerarPDF(full);                         // gera e baixa o PDF (com a assinatura HMAC)
+    showToast('Salvo no acervo ✓');
+    await loadLaudos();                     // atualiza a aba Realizados
+    novoLaudo(true);                        // limpa a tela para o próximo
+  }catch(e){
+    showToast('Falha ao salvar: '+(e.message||e));
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=t0; }
+  }
 }
 async function loadLaudos(){
-  try{ laudosCache = await DB.getLaudos() || []; }
+  try{ laudosCache = await laudoList() || []; }
   catch(e){ laudosCache=[]; const el=document.getElementById('l-lista'); if(el) el.innerHTML='<div style="color:#dc2626;font-size:13px;padding:8px 0">Erro ao carregar os laudos: '+esc(e.message||e)+'. Atualize a página (Ctrl+Shift+R).</div>'; return; }
   populateRealFilters();
   renderRealizados();
 }
-
-// Gera o PDF a partir do formulário E persiste o laudo (para aparecer em Realizados)
-async function gerarPDFForm(){
-  const d = coletar();
-  if(!d.contract){ showToast('Selecione o contrato'); return; }
-  if(d.escopo==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
-  if(d.escopo==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
-  if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
-  try{
-    const saved = await DB.saveLaudo(d);
-    if(saved && saved.id){ currentLaudoId = saved.id; d.id = saved.id; }
-    loadLaudos();
-  }catch(e){ showToast('Não foi possível salvar ('+(e.message||e)+') — gerando o PDF assim mesmo'); }
-  gerarPDF(d);
-}
-function novoLaudo(){
+function novoLaudo(silent){
   currentLaudoId = null; _pdfData = null;
   const cs=document.getElementById('l-contract'); if(cs) cs.value=''; onContractChange();
   setScope('equipamento');
@@ -464,7 +490,7 @@ function novoLaudo(){
   ['l-estab','l-assunto','l-kw','l-texto','l-tag'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   fotos = []; renderFotos();
   window.scrollTo({top:0,behavior:'smooth'});
-  showToast('Novo laudo — formulário limpo');
+  if(!silent) showToast('Novo laudo — formulário limpo');
 }
 
 function switchView(v){
@@ -521,7 +547,7 @@ function gerarPDFde(id){ const l=laudosCache.find(x=>x.id===id); if(l) gerarPDF(
 async function excluirLaudo(id){
   const l=laudosCache.find(x=>x.id===id);
   if(!confirm('Excluir o laudo de '+(l?l.unidade:'')+'?')) return;
-  try{ await DB.deleteLaudo(id); laudosCache=laudosCache.filter(x=>x.id!==id); populateRealFilters(); renderRealizados(); showToast('Laudo excluído'); }
+  try{ await laudoDel(id); laudosCache=laudosCache.filter(x=>x.id!==id); populateRealFilters(); renderRealizados(); showToast('Laudo excluído'); }
   catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
 }
 function reabrirLaudo(id){
