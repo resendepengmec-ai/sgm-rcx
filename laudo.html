@@ -465,11 +465,21 @@ async function gerarLaudo(btn){
   showToast('Salvando no acervo…');
   try{
     const saved = await laudoSave(d);      // persiste no servidor e retorna com assinatura HMAC
-    const full = { ...d, id: saved.id, assinatura: saved.assinatura, createdAt: saved.createdAt };
-    gerarPDF(full);                         // gera e baixa o PDF (com a assinatura HMAC)
+    // atualização OTIMISTA: o laudo salvo já entra na lista de Realizados (a partir do retorno do POST)
+    const rec = { ...d, ...saved };
+    laudosCache = [rec, ...laudosCache.filter(x=>x.id!==rec.id)];
+    populateRealFilters(); renderRealizados();
+    gerarPDF(rec);                          // gera e baixa o PDF (com a assinatura HMAC)
     showToast('Salvo no acervo ✓');
-    await loadLaudos();                     // atualiza a aba Realizados
     novoLaudo(true);                        // limpa a tela para o próximo
+    // reconcilia com o servidor em segundo plano (não bloqueia); avisa se o backend não devolveu o laudo
+    loadLaudos().then(()=>{
+      if(saved && saved.id && !laudosCache.some(x=>x.id===saved.id)){
+        laudosCache = [rec, ...laudosCache];   // mantém o otimista para não sumir da tela
+        renderRealizados();
+        showToast('Atenção: o servidor não retornou o laudo salvo — verifique se o backend foi redeployado.');
+      }
+    }).catch(()=>{});
   }catch(e){
     showToast('Falha ao salvar: '+(e.message||e));
   }finally{
@@ -477,8 +487,14 @@ async function gerarLaudo(btn){
   }
 }
 async function loadLaudos(){
-  try{ laudosCache = await laudoList() || []; }
-  catch(e){ laudosCache=[]; const el=document.getElementById('l-lista'); if(el) el.innerHTML='<div style="color:#dc2626;font-size:13px;padding:8px 0">Erro ao carregar os laudos: '+esc(e.message||e)+'. Atualize a página (Ctrl+Shift+R).</div>'; return; }
+  let list;
+  try{ list = await laudoList(); }
+  catch(e){
+    if(!laudosCache.length){ const el=document.getElementById('l-lista'); if(el) el.innerHTML='<div style="color:#dc2626;font-size:13px;padding:8px 0">Não foi possível carregar do servidor: '+esc(e.message||e)+'. Atualize a página (Ctrl+Shift+R).</div>'; }
+    else { populateRealFilters(); renderRealizados(); }
+    return;
+  }
+  laudosCache = Array.isArray(list) ? list : [];
   populateRealFilters();
   renderRealizados();
 }
