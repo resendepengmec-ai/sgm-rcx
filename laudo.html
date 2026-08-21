@@ -41,6 +41,7 @@ let fotos = [];           // { dataUrl, geo, capturedAt }
 let laudosCache = [];
 let scope = 'equipamento';
 let itensLaudo = [];   // equipamentos adicionados por TAG (escopo equipamento)
+let _pdfData = null;   // dados do PDF em geração (form ou laudo salvo)
 
 function showToast(msg){
   let t=document.getElementById('_toast');
@@ -76,7 +77,12 @@ function cidadeDoEndereco(end){
 function renderForm(){
   const opts = contratos().map(c=>`<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
   document.getElementById('root').innerHTML = `
-    <div class="card">
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="scope-tab active" id="vt-novo" onclick="switchView('novo')" style="flex:1">➕ Novo laudo</button>
+      <button class="scope-tab" id="vt-real" onclick="switchView('realizados')" style="flex:1">✅ Realizados</button>
+    </div>
+    <div id="view-novo">
+      <div class="card">
       <div class="card-title">Escopo do laudo</div>
       <div class="field"><label>Contrato *</label>
         <select id="l-contract" onchange="onContractChange()"><option value="">Selecione…</option>${opts}</select>
@@ -132,9 +138,23 @@ function renderForm(){
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">Laudos recentes</div>
-      <div id="l-lista"><div style="color:var(--text-3);font-size:13px">Carregando…</div></div>
+    <div id="view-realizados" style="display:none">
+      <div class="card">
+        <div class="card-title">Laudos realizados</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="field" style="flex:1;min-width:150px;margin-bottom:8px"><label>Contrato</label>
+            <select id="rf-contract" onchange="renderRealizados()"><option value="">Todos</option></select></div>
+          <div class="field" style="flex:1;min-width:150px;margin-bottom:8px"><label>Estabelecimento</label>
+            <select id="rf-estab" onchange="renderRealizados()"><option value="">Todos</option></select></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="field" style="flex:1;min-width:120px;margin-bottom:8px"><label>De (mês)</label>
+            <input id="rf-ini" type="month" onchange="renderRealizados()"></div>
+          <div class="field" style="flex:1;min-width:120px;margin-bottom:8px"><label>Até (mês)</label>
+            <input id="rf-fim" type="month" onchange="renderRealizados()"></div>
+        </div>
+        <div id="l-lista" style="margin-top:6px"><div style="color:var(--text-3);font-size:13px">Carregando…</div></div>
+      </div>
     </div>
   `;
 }
@@ -224,11 +244,12 @@ function addFoto(ev){
       navigator.geolocation.getCurrentPosition(async pos=>{
         foto.geo = { lat:pos.coords.latitude, lng:pos.coords.longitude, precisao:pos.coords.accuracy };
         try{
-          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${foto.geo.lat}&lon=${foto.geo.lng}&zoom=18&addressdetails=1`, {headers:{'Accept':'application/json'}});
-          const j = await r.json(); const a=j.address||{};
-          const rua=a.road||'', bairro=a.suburb||a.neighbourhood||'', cidade=a.city||a.town||a.municipality||'', uf=a.state_code||a.state||'';
-          foto.geo.shortAddress = [rua, bairro, [cidade,uf].filter(Boolean).join('-')].filter(Boolean).join(', ');
-          foto.geo.address = j.display_name||foto.geo.shortAddress;
+          const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${foto.geo.lat}&lon=${foto.geo.lng}&zoom=18&addressdetails=1`, {headers:{'Accept-Language':'pt-BR'}});
+          if(r.ok){ const j = await r.json(); const a=j.address||{};
+            const rua=a.road||a.pedestrian||'', numero=a.house_number?', '+a.house_number:'', bairro=a.suburb||a.neighbourhood||a.city_district||'', cidade=a.city||a.town||a.municipality||'', uf=a.state_code||(a.state?a.state.slice(0,2).toUpperCase():'');
+            foto.geo.shortAddress = [rua?rua+numero:'', bairro, [cidade,uf].filter(Boolean).join('-')].filter(Boolean).join(', ') || null;
+            foto.geo.address = j.display_name || foto.geo.shortAddress;
+          }
         }catch(e){}
         renderFotos();
       }, ()=>{}, {enableHighAccuracy:false, timeout:8000, maximumAge:0});
@@ -241,7 +262,7 @@ function renderFotos(){
     <div class="foto-thumb">
       <img src="${f.dataUrl}">
       <button class="foto-del" onclick="fotos.splice(${i},1);renderFotos()">×</button>
-      ${f.geo?`<div class="foto-geo">📍 ${esc((f.geo.shortAddress||'').split(',')[0]||'localizando…')}</div>`:'<div class="foto-geo">📍 …</div>'}
+      ${f.geo?`<a href="https://maps.google.com/?q=${f.geo.lat},${f.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${esc(f.geo.shortAddress||f.geo.address||'')}" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📍 ${esc(f.geo.shortAddress ? f.geo.shortAddress.split(',')[0] : 'mapa')}</a>`:''}
     </div>`).join('');
 }
 
@@ -278,7 +299,7 @@ function pdfHeader(doc){
     if(h>maxH){ w=w*(maxH/h); h=maxH; }
     try{ doc.addImage(prestadora.logo,'PNG',PDF_M,y-2,w,h); textX=PDF_M+w+6; }catch(e){}
   }
-  const d = coletar();
+  const d = _pdfData || coletar();
   const rightW=52, maxTextW=PDF_W-PDF_M-textX-rightW;
   doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(20,20,20);
   const nameLines = doc.splitTextToSize(prestadora.company||'Empresa prestadora', maxTextW);
@@ -307,12 +328,13 @@ function pdfFooters(doc){
 function ensure(doc, yObj, need){
   if(yObj.y + need > PDF_H-22){ doc.addPage(); yObj.y = pdfHeader(doc); }
 }
-function gerarPDF(){
+function gerarPDF(d){
   if(!window.jspdf){ showToast('Biblioteca de PDF não carregou.'); return; }
-  const d = coletar();
+  d = d || coletar();
   if(!d.contract){ showToast('Selecione o contrato'); return; }
-  if(scope==='equipamento' && !d.itens.length){ showToast('Adicione ao menos uma TAG'); return; }
-  if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
+  if(d.escopo==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
+  if(d.escopo==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
+  _pdfData = d;
   if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
   const {jsPDF} = window.jspdf; const doc = new jsPDF({unit:'mm',format:'a4'});
   const yO = { y: pdfHeader(doc) };
@@ -364,7 +386,7 @@ function gerarPDF(){
     }
   }
 
-  const validas = fotos.filter(f=>f.dataUrl);
+  const validas = (d.photos||[]).filter(f=>f.dataUrl);
   if(validas.length){
     ensure(doc, yO, 20);
     doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text(`Registro fotográfico (${validas.length})`, PDF_M, yO.y); yO.y+=6;
@@ -412,19 +434,70 @@ async function salvarLaudo(){
 }
 async function loadLaudos(){
   try{ laudosCache = await DB.getLaudos(); }catch(e){ laudosCache=[]; }
-  const el = document.getElementById('l-lista'); if(!el) return;
-  if(!laudosCache.length){ el.innerHTML='<div style="color:var(--text-3);font-size:13px">Nenhum laudo salvo ainda.</div>'; return; }
-  el.innerHTML = laudosCache.slice(0,15).map(l=>`
-    <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:8px 0">
+  populateRealFilters();
+  renderRealizados();
+}
+
+function switchView(v){
+  document.getElementById('view-novo').style.display = v==='novo'?'':'none';
+  document.getElementById('view-realizados').style.display = v==='realizados'?'':'none';
+  document.getElementById('vt-novo').classList.toggle('active', v==='novo');
+  document.getElementById('vt-real').classList.toggle('active', v==='realizados');
+  if(v==='realizados'){ populateRealFilters(); renderRealizados(); }
+}
+
+function populateRealFilters(){
+  const cSel=document.getElementById('rf-contract'), eSel=document.getElementById('rf-estab');
+  if(!cSel||!eSel) return;
+  const cAtual=cSel.value, eAtual=eSel.value;
+  const cs=[...new Set(laudosCache.map(l=>String(l.contract||'')).filter(Boolean))].sort();
+  const es=[...new Set(laudosCache.map(l=>String(l.unidade||'')).filter(Boolean))].sort();
+  const razao=n=>{ const c=contratos().find(x=>String(x.numero)===String(n)); return c&&c.razao?` — ${c.razao}`:''; };
+  cSel.innerHTML='<option value="">Todos</option>'+cs.map(c=>`<option value="${esc(c)}">${esc(c)}${esc(razao(c))}</option>`).join('');
+  eSel.innerHTML='<option value="">Todos</option>'+es.map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
+  if([...cSel.options].some(o=>o.value===cAtual)) cSel.value=cAtual;
+  if([...eSel.options].some(o=>o.value===eAtual)) eSel.value=eAtual;
+}
+
+function renderRealizados(){
+  const el=document.getElementById('l-lista'); if(!el) return;
+  const fc=(document.getElementById('rf-contract')||{}).value||'';
+  const fe=(document.getElementById('rf-estab')||{}).value||'';
+  const ini=(document.getElementById('rf-ini')||{}).value||'';
+  const fim=(document.getElementById('rf-fim')||{}).value||'';
+  const mes=ts=>{ const d=new Date(ts); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); };
+  const lista=laudosCache.filter(l=>{
+    if(fc && String(l.contract||'')!==fc) return false;
+    if(fe && String(l.unidade||'')!==fe) return false;
+    const m=mes(l.createdAt||Date.now());
+    if(ini && m<ini) return false;
+    if(fim && m>fim) return false;
+    return true;
+  });
+  if(!lista.length){ el.innerHTML='<div style="color:var(--text-3);font-size:13px;padding:8px 0">Nenhum laudo no filtro selecionado.</div>'; return; }
+  const podeExcluir=['admin','diretor','supervisor'].includes((typeof getCurrentUser==='function'?getCurrentUser():{}).role);
+  el.innerHTML = lista.map(l=>`
+    <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:10px 0">
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:13px">${esc(l.unidade||'—')}</div>
         <div style="font-size:12px;color:var(--text-3)">Contrato ${esc(l.contract||'—')} · ${esc(l.assunto||'')} · ${new Date(l.createdAt).toLocaleDateString('pt-BR')}</div>
       </div>
-      <button onclick="reabrirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Reabrir">↩️</button>
+      <button onclick="gerarPDFde('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Gerar PDF">🖨️</button>
+      <button onclick="reabrirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Reabrir para editar">✏️</button>
+      ${podeExcluir?`<button onclick="excluirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>`:''}
     </div>`).join('');
+}
+
+function gerarPDFde(id){ const l=laudosCache.find(x=>x.id===id); if(l) gerarPDF(l); }
+async function excluirLaudo(id){
+  const l=laudosCache.find(x=>x.id===id);
+  if(!confirm('Excluir o laudo de '+(l?l.unidade:'')+'?')) return;
+  try{ await DB.deleteLaudo(id); laudosCache=laudosCache.filter(x=>x.id!==id); populateRealFilters(); renderRealizados(); showToast('Laudo excluído'); }
+  catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
 }
 function reabrirLaudo(id){
   const l = laudosCache.find(x=>x.id===id); if(!l) return;
+  switchView('novo');
   document.getElementById('l-contract').value = l.contract||''; onContractChange();
   setScope(l.escopo||'equipamento');
   if((l.escopo||'equipamento')==='unidade'){
@@ -436,6 +509,7 @@ function reabrirLaudo(id){
   document.getElementById('l-kw').value = l.palavrasChave||'';
   document.getElementById('l-texto').value = l.texto||'';
   fotos = Array.isArray(l.photos)?l.photos:[]; renderFotos();
+  _pdfData = null;
   window.scrollTo({top:0, behavior:'smooth'});
   showToast('Laudo carregado — edite e gere o PDF');
 }
