@@ -464,7 +464,7 @@ function renderDashboard(user) {
     {id:'contratos', icon:'📑',name:'Contratos',   desc:'Dados, equipamentos e documentos dos contratos', count:`${contratos.length} contrato${contratos.length!==1?'s':''}`, file:'contratos.html'},
     {id:'patrimonio',icon:'🏭',name:'Patrimônio',  desc:'Movimentações patrimoniais com aprovação', count:movPendentes>0?`${movPendentes} pendente${movPendentes!==1?'s':''}`:'Equipamentos', file:'patrimonio.html'},
     {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Relatório gerencial consolidado mensal',  count:'Consolidado',                                file:'relatorio.html'},
-    {id:'laudo',    icon:'📋',name:'Laudo',        desc:'Relatório de vistoria técnica de equipamento ou unidade', count:'Vistoria', file:'laudo.html'},
+    {id:'laudo',    icon:'🔎',name:'Laudo',        desc:'Relatório de vistoria técnica de equipamento ou unidade', count:'Vistoria', file:'laudo.html'},
     {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Métricas e KPIs de manutenção em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
     {id:'admin',    icon:'👑',name:'Administração',desc:'Usuários, permissões e banco de dados', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
   ].filter(m=>role.modules?.includes(m.id));

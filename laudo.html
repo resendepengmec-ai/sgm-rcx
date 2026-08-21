@@ -42,6 +42,7 @@ let laudosCache = [];
 let scope = 'equipamento';
 let itensLaudo = [];   // equipamentos adicionados por TAG (escopo equipamento)
 let _pdfData = null;   // dados do PDF em geração (form ou laudo salvo)
+let currentLaudoId = null;   // id do laudo em edição (evita duplicar ao regerar)
 
 function showToast(msg){
   let t=document.getElementById('_toast');
@@ -133,8 +134,9 @@ function renderForm(){
 
     <div class="card">
       <div style="display:flex;gap:8px">
-        <button class="btn-lg" style="background:var(--surface);border:1px solid var(--border);color:var(--text);flex:1" onclick="gerarPDF()">🖨️ Gerar PDF</button>
-        <button class="btn-lg" style="background:#16a34a;color:#fff;flex:1" onclick="salvarLaudo()">💾 Salvar laudo</button>
+        <button class="btn-lg" style="background:#0369a1;color:#fff;flex:1;min-width:150px" onclick="gerarPDFForm()">🖨️ Gerar PDF (salva)</button>
+        <button class="btn-lg" style="background:#16a34a;color:#fff;flex:1;min-width:130px" onclick="salvarLaudo()">💾 Salvar rascunho</button>
+        <button class="btn-lg" style="background:var(--surface);border:1px solid var(--border);color:var(--text);flex:0 0 auto" onclick="novoLaudo()">＋ Novo</button>
       </div>
     </div>
 
@@ -275,6 +277,7 @@ function unidadeDoLaudo(){
 function coletar(){
   const c = contratoSel();
   return {
+    id: currentLaudoId || undefined,
     contract: c ? c.numero : (document.getElementById('l-contract').value||''),
     contratante: c ? (c.razao||'') : '',
     art: c ? (c.art||'') : '',
@@ -429,13 +432,39 @@ async function salvarLaudo(){
   if(scope==='equipamento' && !d.itens.length){ showToast('Adicione ao menos uma TAG'); return; }
   if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
   if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
-  try{ await DB.saveLaudo(d); showToast('Laudo salvo'); loadLaudos(); }
+  try{ const saved = await DB.saveLaudo(d); if(saved&&saved.id) currentLaudoId=saved.id; showToast('Laudo salvo'); loadLaudos(); }
   catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
 }
 async function loadLaudos(){
-  try{ laudosCache = await DB.getLaudos(); }catch(e){ laudosCache=[]; }
+  try{ laudosCache = await DB.getLaudos() || []; }
+  catch(e){ laudosCache=[]; const el=document.getElementById('l-lista'); if(el) el.innerHTML='<div style="color:#dc2626;font-size:13px;padding:8px 0">Erro ao carregar os laudos: '+esc(e.message||e)+'. Atualize a página (Ctrl+Shift+R).</div>'; return; }
   populateRealFilters();
   renderRealizados();
+}
+
+// Gera o PDF a partir do formulário E persiste o laudo (para aparecer em Realizados)
+async function gerarPDFForm(){
+  const d = coletar();
+  if(!d.contract){ showToast('Selecione o contrato'); return; }
+  if(d.escopo==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
+  if(d.escopo==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
+  if(!d.texto){ showToast('Gere/edite o texto do laudo'); return; }
+  try{
+    const saved = await DB.saveLaudo(d);
+    if(saved && saved.id){ currentLaudoId = saved.id; d.id = saved.id; }
+    loadLaudos();
+  }catch(e){ showToast('Não foi possível salvar ('+(e.message||e)+') — gerando o PDF assim mesmo'); }
+  gerarPDF(d);
+}
+function novoLaudo(){
+  currentLaudoId = null; _pdfData = null;
+  const cs=document.getElementById('l-contract'); if(cs) cs.value=''; onContractChange();
+  setScope('equipamento');
+  itensLaudo = []; renderItens();
+  ['l-estab','l-assunto','l-kw','l-texto','l-tag'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  fotos = []; renderFotos();
+  window.scrollTo({top:0,behavior:'smooth'});
+  showToast('Novo laudo — formulário limpo');
 }
 
 function switchView(v){
@@ -498,6 +527,7 @@ async function excluirLaudo(id){
 function reabrirLaudo(id){
   const l = laudosCache.find(x=>x.id===id); if(!l) return;
   switchView('novo');
+  currentLaudoId = l.id;
   document.getElementById('l-contract').value = l.contract||''; onContractChange();
   setScope(l.escopo||'equipamento');
   if((l.escopo||'equipamento')==='unidade'){
