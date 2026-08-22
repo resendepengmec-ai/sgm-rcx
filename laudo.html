@@ -28,6 +28,7 @@
   <div class="app-header">
     <button onclick="location.href='index.html'" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer">←</button>
     <div style="font-weight:700;font-size:17px">📋 Laudo de Vistoria</div>
+    <div style="margin-left:auto;font-size:10px;color:rgba(255,255,255,.7)" id="l-build">v?</div>
   </div>
 
   <div class="laudo-wrap" id="root">
@@ -36,6 +37,7 @@
 
 <script>
 'use strict';
+const LAUDO_BUILD='2026-08-22.1';
 let prestadora = {};
 let fotos = [];           // { dataUrl, geo, capturedAt }
 let laudosCache = [];
@@ -88,6 +90,7 @@ function cidadeDoEndereco(end){
   if(!['admin','diretor','supervisor','gestor'].includes(user.role)){
     document.getElementById('root').innerHTML='<div class="card">Este módulo é restrito a gestor ou acima.</div>'; return;
   }
+  const bm=document.getElementById('l-build'); if(bm) bm.textContent='v'+LAUDO_BUILD;
   try{ prestadora = await DB.getPrestadoraConfig() || {}; }catch(e){ prestadora = {}; }
   try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) localStorage.setItem('smm_contracts', JSON.stringify(cs)); }catch(e){}
   renderForm();
@@ -465,19 +468,20 @@ async function gerarLaudo(btn){
   showToast('Salvando no acervo…');
   try{
     const saved = await laudoSave(d);      // persiste no servidor e retorna com assinatura HMAC
-    // atualização OTIMISTA: o laudo salvo já entra na lista de Realizados (a partir do retorno do POST)
+    // id garantido (mesmo que o backend não devolva), para a entrada nunca se perder
     const rec = { ...d, ...saved };
+    if(!rec.id) rec.id = 'local-'+Date.now();
+    if(!rec.createdAt) rec.createdAt = Date.now();
+    // OTIMISTA: o laudo já entra no acervo a partir do retorno do POST
     laudosCache = [rec, ...laudosCache.filter(x=>x.id!==rec.id)];
-    populateRealFilters(); renderRealizados();
     gerarPDF(rec);                          // gera e baixa o PDF (com a assinatura HMAC)
-    showToast('Salvo no acervo ✓');
-    novoLaudo(true);                        // limpa a tela para o próximo
-    // reconcilia com o servidor em segundo plano (não bloqueia); avisa se o backend não devolveu o laudo
-    loadLaudos().then(()=>{
+    novoLaudo(true);                        // limpa o formulário
+    switchView('realizados');               // MOSTRA o acervo já com o laudo no topo
+    showToast('Salvo no acervo ✓ ('+laudosCache.length+' no acervo)');
+    // reconcilia com o servidor em segundo plano — MESCLA (nunca remove o que acabou de salvar)
+    loadLaudos(true).then(()=>{
       if(saved && saved.id && !laudosCache.some(x=>x.id===saved.id)){
-        laudosCache = [rec, ...laudosCache];   // mantém o otimista para não sumir da tela
-        renderRealizados();
-        showToast('Atenção: o servidor não retornou o laudo salvo — verifique se o backend foi redeployado.');
+        showToast('Atenção: o servidor não retornou o laudo salvo — verifique o deploy do backend.');
       }
     }).catch(()=>{});
   }catch(e){
@@ -486,7 +490,7 @@ async function gerarLaudo(btn){
     if(btn){ btn.disabled=false; btn.textContent=t0; }
   }
 }
-async function loadLaudos(){
+async function loadLaudos(merge){
   let list;
   try{ list = await laudoList(); }
   catch(e){
@@ -494,7 +498,14 @@ async function loadLaudos(){
     else { populateRealFilters(); renderRealizados(); }
     return;
   }
-  laudosCache = Array.isArray(list) ? list : [];
+  const server = Array.isArray(list) ? list : [];
+  if(merge){
+    const ids = new Set(server.map(x=>x.id));
+    const locais = laudosCache.filter(x=>!ids.has(x.id));   // mantém o que o servidor ainda não devolveu
+    laudosCache = [...locais, ...server];
+  } else {
+    laudosCache = server;
+  }
   populateRealFilters();
   renderRealizados();
 }
