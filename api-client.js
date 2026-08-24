@@ -14,6 +14,32 @@ const SMM_API_URL = (() => {
 
 const SESSION_KEY = 'smm_jwt';
 
+// ── V03: fonte de imagem segura ───────────────────────────────────
+// O sistema interpolava `<img src="${p.dataUrl}">` por concatenação. Um
+// dataUrl gravado por outro usuário podia conter  x" onerror="..."  e
+// executar script na sessão de quem abrisse o registro.
+//
+// Uma data-URL de imagem legítima NÃO contém aspas, < nem >. Validar o
+// formato fecha a quebra do atributo src E a da string do onclick de uma
+// vez. O servidor já recusa dataUrl inválida (validate.js), mas registros
+// gravados ANTES da correção podem trazer conteúdo malicioso do banco —
+// por isso a checagem também vive aqui.
+const _RE_IMG = /^data:image\/(png|jpe?g|webp|gif|bmp|hei[cf]|avif|tiff?);base64,[A-Za-z0-9+/]+={0,2}$/i;
+function imgSrc(dataUrl) { return _RE_IMG.test(String(dataUrl || '')) ? dataUrl : ''; }
+window.imgSrc = imgSrc;
+
+// Monta uma miniatura por DOM em vez de string: atribuir a PROPRIEDADE
+// .src nunca injeta HTML, seja qual for o conteúdo.
+function thumbImg(dataUrl, { alt = 'foto', style = '', onClick = null } = {}) {
+  const img = document.createElement('img');
+  img.src = imgSrc(dataUrl);
+  img.alt = alt;
+  if (style) img.style.cssText = style;
+  if (onClick) img.addEventListener('click', onClick);
+  return img;
+}
+window.thumbImg = thumbImg;
+
 // Escapa texto de usuário antes de inserir em innerHTML — sem isso, um nome,
 // descrição ou observação contendo tags/script poderia rodar código na tela
 // de outra pessoa que visualizasse aquele dado (XSS armazenado).
@@ -134,6 +160,32 @@ function saveSession(token, user) {
 // sem exigir logout — o token (JWT) guarda o papel/contrato só do momento
 // do login, e o backend já revalida a cada chamada, mas a TELA (menus,
 // filtros por contrato) usava o valor congelado do token até isso existir.
+// ── V13: guarda de página com confirmação no servidor ─────────────
+// As guardas de cada página liam o JWT com _decodeJWT (atob puro, SEM
+// verificar assinatura). Bastava editar sessionStorage com um token
+// montado à mão para desbloquear a interface inteira, inclusive o painel
+// admin. Isoladamente isso é cosmético — o requireAuth do backend relê o
+// papel do banco — mas era o multiplicador das rotas que não checavam
+// papel no servidor (corrigidas em V05/V06/V07/V21/V22).
+//
+// Uso nas páginas:  guardaDeModulo('registro').then(u => { if (u) iniciar(u); });
+async function guardaDeModulo(modulo, destino = 'index.html') {
+  const local = getCurrentUser();
+  if (!local) { window.location.href = destino; return null; }
+  let u = local;
+  try {
+    const servidor = await refreshCurrentUser();   // GET /auth/me
+    if (servidor) u = servidor;
+    // Se a rede falhar, segue com o papel local: o servidor continua
+    // sendo a barreira real em cada chamada de API.
+  } catch (e) { /* rede instável em campo — não bloqueia a tela */ }
+  if (!u || !(ROLES[u.role]?.modules || []).includes(modulo)) {
+    window.location.href = destino; return null;
+  }
+  return u;
+}
+window.guardaDeModulo = guardaDeModulo;
+
 async function refreshCurrentUser() {
   try {
     const fresh = await API.get('/auth/me');
@@ -144,9 +196,34 @@ async function refreshCurrentUser() {
   } catch(e) { return _currentUser; }
 }
 
+// V20: o logout removia APENAS o token. Ficavam no localStorage os
+// contratos (com preços e documentos), os registros com fotos, a lista de
+// chamados, o cache de usuários e a whitelist inteira — com e-mails e
+// papéis de toda a equipe. Em tablet compartilhado entre técnicos, cenário
+// comum em campo, o próximo usuário lia tudo pelo DevTools.
+//
+// `smm_api_url` e `smm_client_id` são preservados: são configuração do
+// dispositivo, não dado de usuário.
+const CACHES_DE_SESSAO = [
+  'smm_contracts', 'chamados_list', 'registro_records', 'prev_plans',
+  'orcamento_quotes', 'smm_movimentacoes', 'smm_ordens_servico',
+  'smm_users_cache', 'smm_whitelist_cache', 'smm_custom_db', 'smm_user_cid',
+  'smm_responsaveis', 'smm_laudos', 'smm_prestadora',
+];
+function limparCachesLocais() {
+  CACHES_DE_SESSAO.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.endsWith('_settings') || k.startsWith('smm_cache_'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch(e) {}
+}
+window.limparCachesLocais = limparCachesLocais;
+
 async function logout() {
   try { await DB.logout(); } catch(e) {}
   sessionStorage.removeItem(SESSION_KEY);
+  limparCachesLocais();                 // V20
   _currentUser = null;
   window.location.href = 'index.html';
 }
@@ -165,18 +242,33 @@ async function loginWithGoogleToken(googleToken) {
 }
 
 async function startGoogleLogin() {
-  // Get Client ID from cache or backend
-  let clientId = localStorage.getItem(CLIENT_ID_KEY);
-  if (!clientId) {
-    try {
-      const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
-      const json = await res.json();
-      if (json.ok && json.data.clientId) {
-        clientId = json.data.clientId;
-        localStorage.setItem(CLIENT_ID_KEY, clientId);
-      }
-    } catch(e) {}
+  // ── O Client ID vem SEMPRE do servidor ───────────────────────────
+  // O cache local é apenas fallback para rede indisponível — nunca a
+  // fonte de verdade.
+  //
+  // Por que mudou: antes o cache era permanente ("se já existe, não
+  // busca"). Isso era inofensivo enquanto o backend não validava o
+  // audience do token. Com V01 corrigido, um Client ID antigo em cache
+  // faria o Google emitir um token com `aud` errado e o servidor
+  // recusaria o login — travando o usuário fora do sistema sem forma
+  // óbvia de limpar (smm_client_id é preservado no logout de propósito,
+  // justamente para servir de fallback offline).
+  //
+  // Trocar o Client ID no painel admin agora se propaga sozinho no
+  // próximo login de cada dispositivo.
+  let clientId = null;
+  try {
+    const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
+    const json = await res.json();
+    if (json.ok && json.data.clientId) {
+      clientId = json.data.clientId;
+      localStorage.setItem(CLIENT_ID_KEY, clientId);
+    }
+  } catch(e) {
+    // Rede fora: usa o último valor conhecido em vez de impedir o login.
+    clientId = localStorage.getItem(CLIENT_ID_KEY);
   }
+  if (!clientId) clientId = localStorage.getItem(CLIENT_ID_KEY);
   if (!clientId) {
     if (typeof showToast === 'function') showToast('Client ID nao disponivel. Contate o administrador.');
     return;
@@ -241,7 +333,7 @@ async function startMicrosoftLogin() {
 
 // Carrega Client IDs (Google e Microsoft) do backend silenciosamente ao iniciar
 async function loadClientIdFromBackend() {
-  if (localStorage.getItem(CLIENT_ID_KEY) && localStorage.getItem(MS_CLIENT_ID_KEY)) return; // já em cache
+  // Sem atalho por cache: mantém o valor local alinhado ao do servidor.
   try {
     const res  = await fetch(`${SMM_API_URL}/api/auth/config/public`);
     const json = await res.json();
@@ -447,7 +539,10 @@ function renderSignatures(sigs) {
       const dt   = new Date(s.at).toLocaleString('pt-BR',
         {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
       const hash = (s.hash||'').slice(0,6);
-      return `<span class="sig-entry">${icon} <strong>${s.by_name||s.by}</strong> · ${role} · ${dt} <code class="sig-hash">[${hash}]</code></span>`;
+      // V11: `by_name` vem de signatures.by_name — que, para aceites de
+      // cliente, é o nome do responsável digitado por um técnico em campo.
+      // Era o vetor de XSS armazenado mais direto do sistema.
+      return `<span class="sig-entry">${icon} <strong>${esc(s.by_name||s.by||'?')}</strong> · ${esc(role)} · ${esc(dt)} <code class="sig-hash">[${esc(hash)}]</code></span>`;
     }).join('<span class="sig-sep">|</span>') +
   '</div>';
 }

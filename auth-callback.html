@@ -2,6 +2,35 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Autenticando…</title>
 <style>

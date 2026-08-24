@@ -2,11 +2,40 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#0f766e">
 <title>Contratos — Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#0f766e;--primary-dark:#0d6460;--primary-light:#f0fdfa;
@@ -241,6 +270,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 const user = getCurrentUser();
 if (!user) { window.location.href = 'index.html'; }
 else if (!ROLES[user.role]?.modules.includes('contratos')) { window.location.href = 'index.html'; }
+// V13: confirma o papel no servidor logo após a checagem local — se o
+// token foi adulterado no navegador, a tela fecha assim que /auth/me responder.
+else { guardaDeModulo('contratos'); }
 else { document.getElementById('auth-overlay').style.display = 'none';
   loadPrestadoraConfig();
   const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
@@ -302,25 +334,25 @@ function renderList() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <h3>Contrato ${esc(c.numero)} — ${esc(c.razao)}</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
-          <button onclick="generateContractPDF('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
-          ${canEdit ? `<button onclick="openEdit('${c.id}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
+          <button onclick="generateContractPDF('${esc(c.id)}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
+          ${canEdit ? `<button onclick="openEdit('${esc(c.id)}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
         </div>
       </div>
       <div class="contract-meta">
-        <span>CNPJ: ${c.cnpj||'—'}</span>
-        <span>Resp: ${c.responsavel||'—'}</span>
-        <span>ART: ${c.art||'—'}</span>
+        <span>CNPJ: ${esc(c.cnpj||'—')}</span>
+        <span>Resp: ${esc(c.responsavel||'—')}</span>
+        <span>ART: ${esc(c.art||'—')}</span>
       </div>
       <div class="contract-body">
         <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
         <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
         <div><label>Contratante</label><div>${esc(c.razao)}</div></div>
-        <div><label>Telefone</label><div>${c.tel||'—'}</div></div>
+        <div><label>Telefone</label><div>${esc(c.tel||'—')}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span class="tag-count">📊 ${equip.length} equipamentos</span>
         ${docs.map(d=>`<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
-        ${equip.length ? `<button onclick="viewEquipamentos('${c.id}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
+        ${equip.length ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
       ${_sigTrail(c._signatures)}
       </div>
     </div>`;
@@ -414,9 +446,9 @@ async function generateContractPDF(id) {
   y = addSectionTitle(doc, 'Dados do contrato', y);
   doc.setFontSize(10);
   [
-    [`Contratante: ${c.razao||'—'}`, `CNPJ: ${c.cnpj||'—'}`],
-    [`Responsável: ${c.responsavel||'—'}`, `Telefone: ${c.tel||'—'}`],
-    [`ART: ${c.art||'—'}`, `Vigência: ${c.inicio||'—'} a ${c.fim||'—'} (${vigenciaLabel(c.fim)})`],
+    [`Contratante: ${esc(c.razao||'—')}`, `CNPJ: ${esc(c.cnpj||'—')}`],
+    [`Responsável: ${esc(c.responsavel||'—')}`, `Telefone: ${esc(c.tel||'—')}`],
+    [`ART: ${esc(c.art||'—')}`, `Vigência: ${c.inicio||'—'} a ${c.fim||'—'} (${vigenciaLabel(c.fim)})`],
   ].forEach(([a,b])=>{ doc.text(a, PDF_M, y); doc.text(b, PDF_M+95, y); y += 6; });
   y += 4;
 
@@ -441,7 +473,7 @@ async function generateContractPDF(id) {
     servicos.forEach(s=>{
       if (y > 275) { doc.addPage(); y = 28; }
       const priceTxt = canPriceDoc && s.price ? `R$ ${Number(s.price).toFixed(2)}${s.unit?' / '+s.unit:''}` : (s.unit||'');
-      doc.text(`${s.name||'—'}`, PDF_M, y);
+      doc.text(`${esc(s.name||'—')}`, PDF_M, y);
       doc.text(priceTxt, PDF_W-PDF_M, y, {align:'right'});
       y += 5;
     });
@@ -503,7 +535,7 @@ function renderServicosList() {
       <div style="flex:1">
         <div style="font-size:13px;font-weight:600">${esc(s.name)}</div>
         <div style="font-size:11px;color:var(--text-3)">
-          ${s.unit||'un'}${canPrice&&s.price?` · <strong style="color:var(--primary)">R$ ${Number(s.price).toFixed(2)}</strong>`:''}
+          ${esc(s.unit||'un')}${canPrice&&s.price?` · <strong style="color:var(--primary)">R$ ${Number(s.price).toFixed(2)}</strong>`:''}
         </div>
       </div>
       <button onclick="removeServico(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px">✕</button>
@@ -1005,7 +1037,7 @@ function checkExistingClient() {
         <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${esc(c.numero)} — ${esc(c.razao)}</div>
         <div style="font-size:11px;color:#64748b">${nEquip} equipamento(s) ativo(s)</div>
       </div>
-      <button type="button" onclick="importFromContract('${c.id}')"
+      <button type="button" onclick="importFromContract('${esc(c.id)}')"
         style="padding:5px 12px;border-radius:6px;border:1px solid #2563eb;background:#eff6ff;color:#1e40af;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap">
         Importar equipamentos
       </button>

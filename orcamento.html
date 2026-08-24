@@ -2,11 +2,40 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Orçamentos — Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -212,6 +241,11 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 (function() {
   const user = getCurrentUser();
   if (!user) { window.location.href = 'index.html'; return; }
+// V13: reconfirma o papel REAL no servidor (GET /auth/me). A guarda
+// acima lê o JWT sem verificar a assinatura — bastava editar o
+// sessionStorage para desbloquear a tela.
+try { guardaDeModulo('orcamento'); } catch (e) {}
+
   const role = ROLES[user.role];
   if (!role || !role.modules.includes('orcamento')) {
     window.location.href = 'index.html'; return;
@@ -358,8 +392,8 @@ function showTagSuggestions(q) {
   const box = document.getElementById('tag-suggestions');
   if (!matches.length) { box.style.display = 'none'; return; }
   box.innerHTML = matches.map(m => `
-    <div onclick="selectTag('${m.tag}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
-      <div style="font-weight:600;font-size:14px">TAG ${m.tag}</div>
+    <div onclick="selectTag('${esc(m.tag)}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600;font-size:14px">TAG ${esc(m.tag)}</div>
       <div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo} ${m.capacidade ? m.capacidade+' BTU' : ''} · ${m.estabelecimento}</div>
       <div style="font-size:12px;color:var(--text-3)">${m.recinto}</div>
     </div>`).join('');
@@ -780,7 +814,7 @@ function openDetail(id) {
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px">
       <div>
         <div style="font-size:19px;font-weight:700">Contrato: ${esc(q.client)}</div>
-        ${q.equip ? `<div style="font-size:14px;color:var(--text-2);margin-top:2px">🏷️ TAG: ${q.equip}</div>` : ''}
+        ${q.equip ? `<div style="font-size:14px;color:var(--text-2);margin-top:2px">🏷️ TAG: ${esc(q.equip)}</div>` : ''}
         ${q.machine ? `
           <div style="font-size:13px;color:var(--text-2)">${q.machine.marca} ${q.machine.tipo}${q.machine.capacidade ? ' · '+q.machine.capacidade+' BTU' : ''}</div>
           <div style="font-size:13px;color:var(--text-2)">${q.machine.estabelecimento}</div>
@@ -922,7 +956,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
     doc.rect(M, y, CW, 9, 'F');
     doc.setTextColor(30,58,138); doc.setFont('helvetica','bold'); doc.setFontSize(10);
     const m = q.machine;
-    const eqLabel = `Contrato ${q.client} · TAG ${q.equip || '—'}${m ? '  —  '+m.marca+' '+m.tipo+(m.capacidade?' · '+m.capacidade+' BTU':'') : ''}`;
+    const eqLabel = `Contrato ${esc(q.client)} · TAG ${esc(q.equip || '—')}${m ? '  —  '+m.marca+' '+m.tipo+(m.capacidade?' · '+m.capacidade+' BTU':'') : ''}`;
     doc.text(eqLabel, M+3, y+6);
     y += 9;
     if (m && m.recinto) {
@@ -1037,11 +1071,11 @@ function printPDF(id) {
   doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('DADOS DO CONTRATO', M+4, y+7);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(`Contrato: ${q.client || '—'}`, M+4, y+14);
+  doc.text(`Contrato: ${esc(q.client || '—')}`, M+4, y+14);
   doc.setFontSize(10); doc.setFont('helvetica','normal');
   const m = q.machine;
   const clientLines = [
-    `TAG: ${q.equip || '—'}`,
+    `TAG: ${esc(q.equip || '—')}`,
     m && `Equipamento: ${m.marca} ${m.tipo}${m.capacidade ? ' · ' + m.capacidade + ' BTU' : ''}`,
     m && `Estabelecimento: ${m.estabelecimento}`,
     m && `Recinto: ${m.recinto}`,

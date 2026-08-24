@@ -2,11 +2,40 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#1e1b4b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
 <style>
 /* ── Variáveis — tema padrão ── */
 :root{
@@ -310,6 +339,21 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <script src="api-client.js"></script>
 <script src="db.js"></script>
 <script>
+
+// ── V31: e-mail dentro de string JS em atributo onclick ───────────
+// A whitelist antiga só exigia includes('@'), então um e-mail como
+//   x');alert(1);('@a.com
+// escapava das aspas simples do onclick. O servidor agora valida o
+// formato (validate.js:email), mas escapar aqui fecha o vetor mesmo para
+// registros já gravados antes da correção.
+function jsAttr(v) {
+  return String(v ?? '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
 // ── helpers ──
 const app = document.getElementById('app');
 function showToast(msg) {
@@ -450,8 +494,8 @@ function renderDashboard(user) {
   const orcPend = orcamentos.filter(o=>(o.status||'pending')==='pending').length;
 
   const activities = [
-    ...chamados.map(c=>({ts:c.createdAt,icon:'🔔',color:'#7c3aed',text:`Chamado ${c.id} — TAG ${c.equip||'?'} · ${c.machine?.estabelecimento||'—'}`})),
-    ...registros.map(r=>({ts:r.createdAt,icon:'🔧',color:'#059669',text:`Registro — TAG ${r.equip||'?'} · ${r.machine?.estabelecimento||'—'}`})),
+    ...chamados.map(c=>({ts:c.createdAt,icon:'🔔',color:'#7c3aed',text:`Chamado ${esc(c.id)} — TAG ${esc(c.equip||'?')} · ${c.machine?.estabelecimento||'—'}`})),
+    ...registros.map(r=>({ts:r.createdAt,icon:'🔧',color:'#059669',text:`Registro — TAG ${esc(r.equip||'?')} · ${r.machine?.estabelecimento||'—'}`})),
     ...orcamentos.map(o=>({ts:o.createdAt,icon:'📄',color:'#2563eb',text:`Orçamento — Contrato ${o.client||'?'} TAG ${o.equip||'?'}`})),
   ].sort((a,b)=>b.ts-a.ts).slice(0,6);
 
@@ -775,7 +819,7 @@ function _renderUsersList(el, users, currentUser) {
       </div>
       <span style="font-size:12px;color:var(--text-2);white-space:nowrap">${r.icon||''} ${r.label||u.role}</span>
       <span class="toggle-btn ${u.active?'active':'inactive'}" style="opacity:.85;cursor:default">${u.active?'Ativo':'Inativo'}</span>
-      ${isAdmin ? `<button onclick="editUser('${u.id}','${u.email}')"
+      ${isAdmin ? `<button onclick="editUser('${jsAttr(u.id)}','${jsAttr(u.email)}')"
         style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--primary);font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap">
         ✏️ Editar
       </button>` : ''}
@@ -824,18 +868,18 @@ function _renderWLContent(el, wl) {
         <div style="font-size:11px;color:var(--text-3)">${esc(e.email)}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
-          ${isAdmin ? `<button onclick="editUserContracts('${e.email}')"
+          ${isAdmin ? `<button onclick="editUserContracts('${jsAttr(e.email)}')"
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar contratos
           </button>` : ''}
         </div>
       </div>
       ${isAdmin ? `
-      <select class="role-select" onchange="changeWLRole('${e.email}',this.value)" style="min-width:120px">
+      <select class="role-select" onchange="changeWLRole('${jsAttr(e.email)}',this.value)" style="min-width:120px">
         ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
       </select>` : `<span style="font-size:12px;color:var(--text-2)">${ROLES[e.role]?.icon||''} ${ROLES[e.role]?.label||e.role}</span>`}
       <span class="wl-status ${e.hasAccount||e.usedAt?'used':'pending'}">${e.hasAccount||e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
-      ${isAdmin ? `<button class="btn-icon-sm" onclick="removeWLEntry('${e.email}')" title="Remover">✕</button>` : ''}
+      ${isAdmin ? `<button class="btn-icon-sm" onclick="removeWLEntry('${jsAttr(e.email)}')" title="Remover">✕</button>` : ''}
     </div>`;
   };
 
@@ -1370,7 +1414,7 @@ function renderPrestadoraForm(box, cfg) {
       <label>Logo</label>
       <div style="display:flex;align-items:center;gap:12px">
         <div id="cfg-logo-preview" style="width:64px;height:64px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa">
-          ${_prestadoraLogo.dataUrl ? `<img src="${_prestadoraLogo.dataUrl}" style="max-width:100%;max-height:100%">` : '<span style="font-size:11px;color:var(--text-3)">sem logo</span>'}
+          ${_prestadoraLogo.dataUrl ? `<img src="${imgSrc(_prestadoraLogo.dataUrl)}" style="max-width:100%;max-height:100%">` : '<span style="font-size:11px;color:var(--text-3)">sem logo</span>'}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px">
           <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('cfg-logo-input').click()">📤 Enviar logo</button>
@@ -1577,7 +1621,7 @@ async function renderAuditTab(el) {
         ${expired.map(e=>`
           <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid #fde68a;font-size:12px">
             <span>${esc(e.email)} · <strong>${esc(e.role)}</strong></span>
-            <button onclick="removeWLEntry('${e.email}')"
+            <button onclick="removeWLEntry('${jsAttr(e.email)}')"
               style="padding:3px 10px;border-radius:6px;border:1px solid var(--danger);background:none;color:var(--danger);font-size:11px;cursor:pointer">
               Revogar acesso
             </button>

@@ -2,11 +2,40 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#059669">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Registro de Serviços — Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -239,11 +268,14 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <script src="api-client.js"></script>
 <script src="db.js"></script>
 <script>
-(function() {
-  const user = getCurrentUser();
-  if (!user) { window.location.href = 'index.html'; return; }
-  const role = ROLES[user.role];
-  if (!role || !role.modules.includes('registro')) { window.location.href = 'index.html'; return; }
+(async function() {
+  // V13: a guarda lia o JWT com _decodeJWT (atob puro, SEM verificar a
+  // assinatura). Bastava editar sessionStorage com um token montado à mão
+  // para desbloquear a tela. guardaDeModulo() confirma o papel REAL com
+  // GET /auth/me antes de liberar; se a rede falhar, segue com o papel
+  // local — o servidor continua sendo a barreira real em cada chamada.
+  const user = await guardaDeModulo('registro');
+  if (!user) return;
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
   DB.getAll('registros').then(data => {
@@ -615,7 +647,7 @@ function renderRecordList() {
     }
     const firstPhoto = r.photos && r.photos[0];
     const thumb = firstPhoto
-      ? `<div class="rc-thumb"><img src="${firstPhoto.dataUrl}" alt="foto"></div>`
+      ? `<div class="rc-thumb"><img src="${imgSrc(firstPhoto.dataUrl)}" alt="foto"></div>`
       : `<div class="rc-thumb">📷</div>`;
     const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).join(', ');
     return header + `<div class="record-card" onclick="openDetail('${r.id}')">
@@ -624,11 +656,11 @@ function renderRecordList() {
         <div class="rc-client">
           ${r._avulso
             ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${esc(r.machine?.cliente)||'Cliente avulso'} · ${esc(r.equip)}`
-            : `Contrato ${r.client} · TAG ${r.equip||'—'}`
+            : `Contrato ${esc(r.client)} · TAG ${esc(r.equip||'—')}`
           }
         </div>
         <div class="rc-meta">${r.date||'—'}${r.tech?' · 👷 '+esc(r.tech):''}</div>
-        <div class="rc-meta">${svcNames}</div>
+        <div class="rc-meta">${esc(svcNames)}</div>
         ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.estabelecimento)}${r.machine.recinto?' · '+esc(r.machine.recinto):''}</div>` : ''}
         ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.endereco)}</div>` : ''}
       </div>
@@ -731,7 +763,7 @@ function printFilteredPDF() {
     doc.setFontSize(10); doc.setFont('helvetica','bold');
     doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
     doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text(`Contrato: ${r.client}   |   TAG: ${r.equip||'—'}`, M+4, y+14);
+    doc.text(`Contrato: ${esc(r.client)}   |   TAG: ${esc(r.equip||'—')}`, M+4, y+14);
     doc.setFont('helvetica','normal');
     if (m) {
       doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`, M+4, y+21);
@@ -1136,7 +1168,7 @@ function _getAvailableServices() {
   const c = contracts.find(x => x.numero === contract);
   const custom = (c?.servicos || []).map(s => ({
     name: s.name,
-    desc: s.unit ? `Unidade: ${s.unit}` : '',
+    desc: s.unit ? `Unidade: ${esc(s.unit)}` : '',
     price: s.price,
     unit: s.unit,
     _custom: true,
@@ -1171,14 +1203,14 @@ function filterServices(){
     return added
       ? `<div class="service-item" style="border-color:#86efac;background:#f0fdf4" onclick="removeService(${i})">
       <div class="svc-info">
-        <div class="svc-name" style="color:#16a34a">✓ ${s.name}${customBadge}${priceLabel}</div>
+        <div class="svc-name" style="color:#16a34a">✓ ${esc(s.name)}${customBadge}${priceLabel}</div>
         <div style="font-size:11px;color:#16a34a;margin-top:3px">Lançado — toque para remover</div>
       </div>
       <button class="svc-add" style="background:#16a34a" onclick="removeService(${i});event.stopPropagation()">✓</button>
     </div>`
       : `<div class="service-item" onclick="addService(${i})">
       <div class="svc-info">
-        <div class="svc-name">${s.name}${customBadge}${priceLabel}</div>
+        <div class="svc-name">${esc(s.name)}${customBadge}${priceLabel}</div>
         ${s.desc?`<div style="font-size:11px;color:var(--text-3);margin-top:3px;line-height:1.4">${s.desc.slice(0,90)}…</div>`:''}
       </div>
       <button class="svc-add" onclick="addService(${i});event.stopPropagation()">+</button>
@@ -1399,7 +1431,7 @@ function renderPhotoGrid(){
   if(!newPhotos.length){ grid.innerHTML=''; return; }
   grid.innerHTML = newPhotos.map((p,i)=>`
     <div class="photo-thumb" style="position:relative">
-      <img src="${p.dataUrl}" alt="foto ${i+1}" onclick="openLightbox('${p.dataUrl}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
+      <img src="${imgSrc(p.dataUrl)}" alt="foto ${i+1}" onclick="openLightbox('${imgSrc(p.dataUrl)}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
       <button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button>
       ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📍 ${p.geo.shortAddress ? p.geo.shortAddress.split(',')[0] : 'mapa'}</a>` : ''}
     </div>`).join('');
@@ -1481,12 +1513,12 @@ function openDetail(id){
       </div>`
   ).join('');
   const photos = r.photos && r.photos.length
-    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>p&&p.dataUrl?`<img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')">`:`<div title="Foto salva no servidor" style="width:100%;min-height:70px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:20px;color:#94a3b8">🗂️</div>`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
+    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>p&&p.dataUrl?`<img src="${imgSrc(p.dataUrl)}" onclick="openLightbox('${imgSrc(p.dataUrl)}')">`:`<div title="Foto salva no servidor" style="width:100%;min-height:70px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:20px;color:#94a3b8">🗂️</div>`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
   const addPhotoBtn = (canAddPhoto(r) && (r.photos||[]).length<3)
     ? `<button onclick="triggerAddPhoto('${r.id}')" style="margin-top:12px;width:100%;padding:11px;border:1px dashed var(--border);border-radius:10px;background:var(--bg);color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer">📷 Adicionar foto (com data, hora e localização)</button>` : '';
   document.getElementById('detail-content').innerHTML = `
     <div style="margin-bottom:14px">
-      <div style="font-size:19px;font-weight:700">Contrato ${r.client} · TAG ${r.equip||'—'}</div>
+      <div style="font-size:19px;font-weight:700">Contrato ${esc(r.client)} · TAG ${esc(r.equip||'—')}</div>
       ${r.machine?`<div style="font-size:14px;color:var(--text-2);margin-top:3px">${esc(r.machine.marca)} ${esc(r.machine.tipo)}${r.machine.capacidade?' · '+esc(r.machine.capacidade)+' BTU':''}</div><div style="font-size:13px;color:var(--text-2)">${esc(r.machine.estabelecimento)} · ${esc(r.machine.recinto)}</div>`:(resolveEstab(r)?`<div style="font-size:13px;color:var(--text-2);margin-top:3px">${esc(resolveEstab(r))}</div>`:'')}
       <div style="font-size:13px;color:var(--text-3);margin-top:4px">🗓️ Solicitação: ${r.dateSolic||'—'} · ✅ Execução: ${r.date||'—'}${(()=>{const p=prazoDias(r);return p===null?'':' · ⏱️ '+fmtDias(p);})()}${r.tech?' · 👷 '+esc(r.tech):''}</div>
     </div>
@@ -1614,7 +1646,7 @@ function printPDF(id){
   doc.setFontSize(10); doc.setFont('helvetica','bold');
   doc.text('DADOS DO EQUIPAMENTO', M+4, y+7);
   doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(`Contrato: ${r.client}   |   TAG: ${r.equip||'—'}`, M+4, y+14);
+  doc.text(`Contrato: ${esc(r.client)}   |   TAG: ${esc(r.equip||'—')}`, M+4, y+14);
   if(m){
     doc.setFontSize(10); doc.setFont('helvetica','normal');
     doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`, M+4, y+21);
@@ -1723,7 +1755,7 @@ function printPDF(id){
 
   drawPdfFooters(doc, cont);
 
-  try { doc.save(`OS-${r.client}-TAG${r.equip||'x'}-${r.id.slice(-6)}.pdf`); }
+  try { doc.save(`OS-${esc(r.client)}-TAG${esc(r.equip||'x')}-${r.id.slice(-6)}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal();
   showToast('PDF gerado!');
@@ -2227,9 +2259,9 @@ function renderOSChecklist(services) {
       return `
       <div style="display:flex;align-items:center;gap:10px;padding:8px;background:#fff;border-radius:6px;margin-bottom:4px;border:1px solid ${_on?'#86efac':'#e2e8f0'}">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600;font-size:13px">${s.name}</div>
+          <div style="font-weight:600;font-size:13px">${esc(s.name)}</div>
           <div style="font-size:11px;color:#64748b">
-            ${s.unit || 'un'}${canPrice && s.price ? ` · <strong style="color:#166534">R$ ${Number(s.price).toFixed(2)}</strong>` : ''}
+            ${esc(s.unit || 'un')}${canPrice && s.price ? ` · <strong style="color:#166534">R$ ${Number(s.price).toFixed(2)}</strong>` : ''}
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
@@ -2274,7 +2306,7 @@ function toggleOSChecklistItem(checkbox, idx) {
     if (exists === -1) {
       newItems.push({
         name: s.name,
-        desc: s.unit ? `Unidade: ${s.unit}` : '',
+        desc: s.unit ? `Unidade: ${esc(s.unit)}` : '',
         qty: 1,
         obs: '',
         unit: s.unit,
@@ -2282,7 +2314,7 @@ function toggleOSChecklistItem(checkbox, idx) {
         _fromContract: true,
       });
       renderNewItems();
-      showToast(`✅ ${s.name} adicionado`);
+      showToast(`✅ ${esc(s.name)} adicionado`);
     }
     const q = document.getElementById('svc-qty-'+idx);
     if (q) { q.style.display='flex'; const v=document.getElementById('svc-qtyval-'+idx); if(v){ const it=newItems.find(x=>x.name===s.name); v.textContent=it?(it.qty||1):1; } }
@@ -2292,7 +2324,7 @@ function toggleOSChecklistItem(checkbox, idx) {
     if (idx2 >= 0) {
       newItems.splice(idx2, 1);
       renderNewItems();
-      showToast(`${s.name} removido`);
+      showToast(`${esc(s.name)} removido`);
     }
     const q = document.getElementById('svc-qty-'+idx);
     if (q) q.style.display='none';
@@ -2309,10 +2341,10 @@ function changeSvcQty(idx, delta){
   const next = Math.max(0, cur + delta);
   if (next === cur) return;
   if (next === 0) {
-    if (item) { newItems.splice(newItems.indexOf(item), 1); showToast(`${s.name} removido`); }
+    if (item) { newItems.splice(newItems.indexOf(item), 1); showToast(`${esc(s.name)} removido`); }
   } else if (!item) {
-    newItems.push({ name:s.name, desc:s.unit?`Unidade: ${s.unit}`:'', qty:next, obs:'', unit:s.unit, price:s.price, _fromContract:true });
-    showToast(`✅ ${s.name} adicionado`);
+    newItems.push({ name:s.name, desc:s.unit?`Unidade: ${esc(s.unit)}`:'', qty:next, obs:'', unit:s.unit, price:s.price, _fromContract:true });
+    showToast(`✅ ${esc(s.name)} adicionado`);
   } else {
     item.qty = next;
   }

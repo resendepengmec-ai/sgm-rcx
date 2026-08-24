@@ -2,11 +2,40 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#7c3aed">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Chamados — Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="vendor/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -196,6 +225,11 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 (function() {
   const user = getCurrentUser();
   if (!user) { window.location.href = 'index.html'; return; }
+// V13: reconfirma o papel REAL no servidor (GET /auth/me). A guarda
+// acima lê o JWT sem verificar a assinatura — bastava editar o
+// sessionStorage para desbloquear a tela.
+try { guardaDeModulo('chamados'); } catch (e) {}
+
   const role = ROLES[user.role];
   if (!role || !role.modules.includes('chamados')) { window.location.href = 'index.html'; return; }
   document.getElementById('auth-overlay').style.display = 'none';
@@ -458,15 +492,15 @@ function renderList() {
       header=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${ml}</div>`;
     }
     const thumb = c.photos&&c.photos[0]
-      ? `<div class="cc-thumb"><img src="${c.photos[0].dataUrl}" alt="foto"></div>`
+      ? `<div class="cc-thumb"><img src="${imgSrc(c.photos[0].dataUrl)}" alt="foto"></div>`
       : `<div class="cc-thumb">📷</div>`;
-    return header + `<div class="chamado-card" onclick="openDetail('${c.id}')">
+    return header + `<div class="chamado-card" onclick="openDetail('${esc(c.id)}')">
       <div class="cc-bar ${p.bar}"></div>
       ${thumb}
       <div class="cc-info">
-        <div class="cc-title">${c.id} · TAG ${c.equip||'—'}</div>
+        <div class="cc-title">${esc(c.id)} · TAG ${esc(c.equip||'—')}</div>
         <div class="cc-meta">Contrato ${esc(c.client)} · ${fmtDate(c.date)}${c.requester?' · '+esc(c.requester):''}</div>
-        ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
+        ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${esc(c.machine.estabelecimento)} · ${esc(c.machine.recinto)}</div>`:''}
         <div class="cc-desc">${esc(c.desc)}</div>
       </div>
       <div class="cc-right">
@@ -626,7 +660,7 @@ function renderPhotoGrid(){
   const badge=document.getElementById('photo-badge');
   if (badge) { badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length; }
   if (!grid) return;
-  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img src="${p.dataUrl}" onclick="openLightbox('${p.dataUrl}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
+  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img src="${imgSrc(p.dataUrl)}" onclick="openLightbox('${imgSrc(p.dataUrl)}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
 }
 
 // ── Lightbox ──
@@ -701,10 +735,10 @@ function openDetail(id){
   const statusOpts=['aberto','andamento','resolvido','cancelado'].map(st=>`<option value="${st}" ${c.status===st?'selected':''}>${STATUS_MAP[st].label}</option>`).join('');
   const canChangeStatus = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
   const statusControl = canChangeStatus
-    ? `<select onchange="updateStatus('${c.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
+    ? `<select onchange="updateStatus('${esc(c.id)}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
     : '';
   const photos=c.photos&&c.photos.length
-    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${ph.dataUrl}" onclick="openLightbox('${ph.dataUrl}')">`).join('')}</div></div>`:' ';
+    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${imgSrc(ph.dataUrl)}" onclick="openLightbox('${imgSrc(ph.dataUrl)}')">`).join('')}</div></div>`:' ';
 
   // O.S. vinculadas
   const osVinculadas=ordensCache.filter(o=>o.chamadoId===c.id);
@@ -724,7 +758,7 @@ function openDetail(id){
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;gap:8px">
       <div>
         <div style="font-size:11px;color:var(--text-3);font-weight:600;margin-bottom:2px">CHAMADO</div>
-        <div style="font-size:18px;font-weight:700">${c.id}</div>
+        <div style="font-size:18px;font-weight:700">${esc(c.id)}</div>
         <div style="margin-top:4px"><span class="badge ${s.cls}">${s.label}</span> <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span></div>
       </div>
       ${statusControl}
@@ -732,7 +766,7 @@ function openDetail(id){
     <div style="background:var(--primary-light);border-radius:var(--radius-sm);padding:12px;margin-bottom:12px;font-size:13px;line-height:1.8">
       <div style="font-weight:600;color:var(--primary);margin-bottom:4px">📍 Equipamento</div>
       <div>Contrato ${esc(c.client)} · TAG ${esc(c.equip)||'—'}</div>
-      ${c.machine?`<div>${c.machine.marca} ${c.machine.tipo}${c.machine.capacidade?' · '+c.machine.capacidade+' BTU':''}</div><div>${c.machine.estabelecimento} · ${c.machine.recinto}</div>`:''}
+      ${c.machine?`<div>${esc(c.machine.marca)} ${esc(c.machine.tipo)}${c.machine.capacidade?' · '+c.machine.capacidade+' BTU':''}</div><div>${esc(c.machine.estabelecimento)} · ${esc(c.machine.recinto)}</div>`:''}
     </div>
     <div style="font-size:13px;color:var(--text-2);margin-bottom:10px">📅 ${fmtDate(c.date)}${c.requester?' · 👤 '+esc(c.requester):''}</div>
     <div style="background:var(--bg);border-radius:var(--radius-sm);padding:12px;font-size:14px;line-height:1.6;margin-bottom:12px">
@@ -741,7 +775,7 @@ function openDetail(id){
     </div>
     ${osSection}
     ${canGerarOS && c.status!=='resolvido' && c.status!=='cancelado' ? `
-    <button onclick="gerarOS('${c.id}')"
+    <button onclick="gerarOS('${esc(c.id)}')"
       style="width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:#059669;color:#fff;font-size:14px;font-weight:700;cursor:pointer">
       📋 Gerar Ordem de Serviço
     </button>` : ''}
@@ -764,7 +798,7 @@ function printPDF(id){
 
   let y = drawPdfHeader(doc, {
     title: 'CHAMADO DE MANUTENÇÃO',
-    metaLines: [`Nº ${c.id}`, `Data: ${fmtDate(c.date)}`],
+    metaLines: [`Nº ${esc(c.id)}`, `Data: ${fmtDate(c.date)}`],
   });
 
   // Status + priority row
@@ -784,7 +818,7 @@ function printPDF(id){
   doc.setFontSize(10);doc.setFont('helvetica','bold');
   doc.text('DADOS DO EQUIPAMENTO',M+4,y+7);
   doc.setFontSize(10);doc.setFont('helvetica','bold');
-  doc.text(`Contrato: ${c.client}   |   TAG: ${c.equip||'—'}`,M+4,y+14);
+  doc.text(`Contrato: ${c.client}   |   TAG: ${esc(c.equip||'—')}`,M+4,y+14);
   if(m){
     doc.setFontSize(10);doc.setFont('helvetica','normal');
     doc.text(`Equipamento: ${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`,M+4,y+21);
@@ -825,7 +859,7 @@ function printPDF(id){
 
   drawPdfFooters(doc, cont);
 
-  try { doc.save(`chamado-${c.id}-TAG${c.equip||'x'}.pdf`); }
+  try { doc.save(`chamado-${esc(c.id)}-TAG${esc(c.equip||'x')}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal(); showToast('PDF gerado!');
 }
@@ -886,7 +920,7 @@ function printFilteredPDF(){
     const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
     doc.text(fitText(doc, c.id, wId),colId,y+4.8);
     doc.text(c.date||'—',colData,y+4.8);
-    doc.text(fitText(doc, `${c.client}·T${c.equip||'?'}`, wContrato),colContrato,y+4.8);
+    doc.text(fitText(doc, `${c.client}·T${esc(c.equip||'?')}`, wContrato),colContrato,y+4.8);
     doc.text(fitText(doc, c.machine?.estabelecimento||'—', wEstab),colEstab,y+4.8);
     doc.text(p.label,colPrior,y+4.8);
     doc.text(s.label,M+CW-3,y+4.8,{align:'right'});
@@ -900,7 +934,7 @@ function printFilteredPDF(){
     const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
     y = drawPdfHeader(doc, {
       title: 'CHAMADO DE MANUTENÇÃO',
-      metaLines: [`Nº ${c.id}`, `Data: ${fmtDate(c.date)}`, `${ci+1} / ${filtered.length}`],
+      metaLines: [`Nº ${esc(c.id)}`, `Data: ${fmtDate(c.date)}`, `${ci+1} / ${filtered.length}`],
     });
 
     doc.setFillColor(245,243,255);doc.rect(M,y,CW,12,'F');
@@ -916,7 +950,7 @@ function printFilteredPDF(){
     doc.setTextColor(30,30,30);doc.setFontSize(10);doc.setFont('helvetica','bold');
     doc.text('DADOS DO EQUIPAMENTO',M+4,y+7);
     doc.setFontSize(10);doc.setFont('helvetica','bold');
-    doc.text(`Contrato: ${c.client}   |   TAG: ${c.equip||'—'}`,M+4,y+14);
+    doc.text(`Contrato: ${c.client}   |   TAG: ${esc(c.equip||'—')}`,M+4,y+14);
     if(m){doc.setFontSize(10);doc.setFont('helvetica','normal');doc.text(`${m.marca} ${m.tipo}${m.capacidade?' · '+m.capacidade+' BTU':''}`,M+4,y+21);doc.text(`${m.estabelecimento}`,M+4,y+28);doc.text(`${m.recinto}`,M+4,y+35);}
     y+=bh+8;
 
