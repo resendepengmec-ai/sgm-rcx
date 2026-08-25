@@ -173,16 +173,32 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
 if (!user) { window.location.href = 'index.html'; }
-// V13: reconfirma o papel REAL no servidor (GET /auth/me). A guarda
-// acima lê o JWT sem verificar a assinatura — bastava editar o
-// sessionStorage para desbloquear a tela.
-try { guardaDeModulo('dashboard'); } catch (e) {}
-
 else {
   document.getElementById('auth-overlay').style.display = 'none';
   if (!['admin','diretor','supervisor','gestor'].includes(user.role)) {
     window.location.href = 'index.html';
   }
+
+  // ── V13: reconfirmação de papel no servidor ─────────────────────
+  // A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
+  // assinatura). Aqui o papel REAL é confirmado com GET /auth/me.
+  //
+  // O dashboard não é um "módulo" de ROLES — o acesso é por PAPEL
+  // (gestor pra cima). Por isso confirma pelo papel devolvido pelo
+  // servidor, e não por guardaDeModulo(), que expulsaria todo mundo
+  // procurando um módulo 'dashboard' que não existe na matriz.
+  //
+  // Fica DENTRO do else de propósito: instrução entre `if` e `else` é
+  // SyntaxError, e um SyntaxError aqui mata o script inteiro — a tela
+  // trava em "Verificando acesso…" para sempre.
+  setTimeout(() => {
+    try {
+      refreshCurrentUser().then(u => {
+        if (u && !['admin','diretor','supervisor','gestor'].includes(u.role))
+          window.location.href = 'index.html';
+      }).catch(() => {});   // rede instável em campo não bloqueia a tela
+    } catch (e) {}
+  }, 0);
 }
 
 // ── State ─────────────────────────────────────────────────────────

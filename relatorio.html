@@ -223,12 +223,7 @@ const user = getCurrentUser();
 let _authorized = false;
 if (!user) {
   window.location.href='index.html';
-}
-// V13: reconfirma o papel REAL no servidor (GET /auth/me). A guarda
-// acima lê o JWT sem verificar a assinatura — bastava editar o
-// sessionStorage para desbloquear a tela.
-try { guardaDeModulo('relatorio'); } catch (e) {}
- else if (!CAN_REPORT_ROLES.includes(user.role)) {
+} else if (!CAN_REPORT_ROLES.includes(user.role)) {
   // Bloqueio imediato: nada de tela usável nem de espera — troca o corpo
   // inteiro por um aviso e redireciona sem deixar janela de interação.
   document.body.innerHTML = `
@@ -243,6 +238,17 @@ try { guardaDeModulo('relatorio'); } catch (e) {}
 } else {
   document.getElementById('auth-overlay').style.display='none';
   _authorized = true;
+// ── V13: reconfirmação de papel no servidor ───────────────────────
+// A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
+// assinatura) — bastava editar o sessionStorage para desbloquear a tela.
+// guardaDeModulo() confirma o papel REAL com GET /auth/me e fecha a
+// página se não bater.
+//
+// Fica FORA da cadeia if/else acima de propósito: inserir uma instrução
+// entre um `if` e o seu `else` é SyntaxError, e um SyntaxError aqui mata
+// o script inteiro — a tela trava em "Verificando acesso…" para sempre.
+setTimeout(() => { try { guardaDeModulo('relatorios'); } catch (e) {} }, 0);
+
 }
 
 function showToast(msg, dur=2500) {

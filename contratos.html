@@ -272,9 +272,19 @@ if (!user) { window.location.href = 'index.html'; }
 else if (!ROLES[user.role]?.modules.includes('contratos')) { window.location.href = 'index.html'; }
 // V13: confirma o papel no servidor logo após a checagem local — se o
 // token foi adulterado no navegador, a tela fecha assim que /auth/me responder.
-else { guardaDeModulo('contratos'); }
 else { document.getElementById('auth-overlay').style.display = 'none';
   loadPrestadoraConfig();
+// ── V13: reconfirmação de papel no servidor ───────────────────────
+// A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
+// assinatura) — bastava editar o sessionStorage para desbloquear a tela.
+// guardaDeModulo() confirma o papel REAL com GET /auth/me e fecha a
+// página se não bater.
+//
+// Fica FORA da cadeia if/else acima de propósito: inserir uma instrução
+// entre um `if` e o seu `else` é SyntaxError, e um SyntaxError aqui mata
+// o script inteiro — a tela trava em "Verificando acesso…" para sempre.
+setTimeout(() => { try { guardaDeModulo('contratos'); } catch (e) {} }, 0);
+
   const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
   document.getElementById('fab')?.classList.toggle('hidden', !canCreateContractInit);
   DB.getContratos().then(data => {

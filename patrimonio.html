@@ -254,14 +254,16 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 const user = getCurrentUser();
 const canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
-// V13: reconfirma o papel REAL no servidor (GET /auth/me). A guarda
-// acima lê o JWT sem verificar a assinatura — bastava editar o
-// sessionStorage para desbloquear a tela.
-try { guardaDeModulo('patrimonio'); } catch (e) {}
-
 else {
   document.getElementById('auth-overlay').style.display = 'none';
-  DB.getMovimentacoes().then(data => {
+  // ── V13: reconfirmação de papel no servidor ─────────────────────
+  // A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
+  // assinatura) — bastava editar o sessionStorage para desbloquear a
+  // tela. guardaDeModulo() confirma o papel REAL com GET /auth/me.
+  setTimeout(() => { try { guardaDeModulo('patrimonio'); } catch (e) {} }, 0);
+
+  DB.getMovimentacoes()
+    .then(data => {
     if (data) {
       movimentos = data;
       localStorage.setItem('smm_movimentacoes', JSON.stringify(data));
