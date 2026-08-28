@@ -49,6 +49,91 @@
   --danger: #dc2626; --danger-bg: #fef2f2;
 }
 body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
+
+/* ── "Bolsão" em torno do botão (+) ──────────────────────────────
+   Problema: o (+) flutua SOBRE os cards. Ao mirar nele e errar por
+   alguns pixels, o toque cai no card de baixo e abre um chamado sem
+   querer — irritante em campo, com a mão trêmula ou luva.
+
+   A solução tem DUAS zonas, e a segunda é a que importa:
+
+   1. ANEL ATIVO (+10px): amplia a área de toque do próprio botão de
+      56px para 76px. Uma quase-acerto agora acerta — que é o que a
+      pessoa queria fazer.
+
+   2. ANEL MORTO (mais 10px, até 96px): não aciona NADA. Nem o (+),
+      nem o card embaixo. É o "bolsão" propriamente dito.
+
+   Por que não simplesmente ampliar mais o botão: aí o problema
+   inverteria — quem mira num card perto do canto passaria a abrir o
+   formulário de novo chamado sem querer. Um anel que não faz nada
+   resolve os dois lados: erro de mira não vira ação errada.
+
+   A rolagem continua normal: o escudo não chama preventDefault, e
+   arrastar sobre ele rola a lista como em qualquer elemento. */
+
+.fab::before {
+  content: '';
+  position: absolute;
+  inset: -10px;          /* anel ativo: 56px → 76px de alvo */
+  border-radius: 50%;
+}
+
+#fab-shield {
+  position: fixed;
+  /* centralizado no mesmo ponto do .fab: bottom 70px + 28 (metade do
+     botão), right 20px + 28 — menos metade do próprio escudo. */
+  /* 96px é o maior diâmetro que fica concêntrico ao botão SEM ultrapassar
+     a borda direita (centro do FAB = 48px da borda; 96/2 = 48). Um escudo
+     maior transbordaria a viewport e poderia criar rolagem horizontal. */
+  bottom: calc(70px + env(safe-area-inset-bottom) - 20px);
+  right: 0;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  z-index: 98;           /* abaixo do .fab (99), acima dos cards */
+  background: transparent;
+  /* Sem isto o escudo seria "invisível ao toque" e não serviria para nada. */
+  pointer-events: auto;
+}
+#fab-shield.hidden { display: none; }
+
+/* Espaço extra no fim da lista: sem isso o último card fica embaixo do
+   botão, que é justamente onde o toque errado acontece com mais
+   frequência. Ataca a causa, não só o sintoma. */
+#chamados-list { padding-bottom: 96px; }
+#triagem-lista  { padding-bottom: 24px; }
+
+/* ── Aba de triagem ──────────────────────────────────────────────
+   .nav-btn.hidden e .nav-badge não existem no shared.css; ficam aqui
+   para não alterar o CSS compartilhado por todas as páginas. */
+.nav-btn.hidden { display: none; }
+.nav-btn { position: relative; }
+.nav-badge {
+  position: absolute; top: 4px; right: 50%; transform: translateX(22px);
+  background: #dc2626; color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px;
+  border-radius: 8px; text-align: center;
+}
+.nav-badge.hidden { display: none; }
+
+.tri-card {
+  border: 1px solid var(--border); border-left: 4px solid #6366f1;
+  border-radius: 10px; padding: 12px; margin-bottom: 10px; background: var(--surface);
+}
+.tri-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.tri-id { font-weight: 700; font-size: 13px; flex: 1; min-width: 0; }
+.tri-meta { font-size: 11px; color: var(--text-2); line-height: 1.6; }
+.tri-desc {
+  background: var(--bg); border-radius: 6px; padding: 8px;
+  font-size: 13px; line-height: 1.5; margin: 8px 0;
+}
+.tri-acoes { display: flex; gap: 8px; }
+.tri-acoes button { flex: 1; padding: 10px; border-radius: 8px; border: none;
+  font-size: 13px; font-weight: 700; cursor: pointer; }
+.tri-ok   { background: #059669; color: #fff; }
+.tri-nao  { background: var(--bg); color: var(--text-2); border: 1px solid var(--border) !important; }
+.tri-vazio { text-align: center; padding: 32px 12px; color: var(--text-3); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -183,6 +268,29 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </div>
 
 <!-- FAB -->
+<!-- ══ Fila de triagem ═══════════════════════════════════════════
+     Chamados abertos por solicitante não geram O.S. automática: alguém
+     com competência técnica precisa avaliar. Antes, esses chamados
+     ficavam misturados na lista geral e só se distinguiam pelo selo —
+     na prática, a fila de triagem não existia como lugar.
+     Visível apenas para gestor ou acima. -->
+<div id="screen-triagem" class="screen">
+  <div class="container">
+    <div class="card">
+      <div class="card-title">Aguardando avaliação</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">
+        Chamados abertos por solicitantes. Avalie e gere a O.S. quando for caso de
+        serviço — ou recuse, se não for.
+      </div>
+      <div id="triagem-lista"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Escudo do (+): absorve toques no anel externo para que um erro de
+     mira não abra o card que está por baixo. Ver #fab-shield no CSS.
+     aria-hidden porque não é conteúdo: leitores de tela devem ignorá-lo. -->
+<div id="fab-shield" aria-hidden="true"></div>
 <button class="fab" id="fab" onclick="startNew()">+</button>
 
 <!-- Detail modal -->
@@ -222,6 +330,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
     Chamados
+  </button>
+  <!-- Aparece só para gestor+; quem não pode avaliar não vê o botão, e o
+       servidor recusa a criação de O.S. de qualquer forma. -->
+  <button class="nav-btn hidden" onclick="switchTab('triagem')" id="nav-triagem">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+    Gerar O.S.
+    <span id="triagem-badge" class="nav-badge hidden">0</span>
   </button>
 </nav>
 
@@ -348,6 +463,10 @@ function loadOrdens() {
     ordensCache = list || [];
     try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
     if (currentDetailId) openDetail(currentDetailId); // re-renderiza modal aberto, se houver
+    // A fila de triagem exclui chamados que já têm O.S., então o contador
+    // só fica correto depois que as O.S. chegam do servidor.
+    atualizarBadgeTriagem();
+    if (document.getElementById('screen-triagem')?.classList.contains('active')) renderTriagem();
   }).catch(()=>{});
 }
 let newPhotos = [];
@@ -381,12 +500,157 @@ const STATUS_MAP = {
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('screen-' + (tab==='list'?'list':'new')).classList.add('active');
-  // O rodapé agora só tem "Chamados"; #nav-new não existe mais.
-  const navBtn = document.getElementById('nav-' + (tab==='list'?'list':'new'));
+  const tela = tab === 'list' ? 'list' : (tab === 'triagem' ? 'triagem' : 'new');
+  document.getElementById('screen-' + tela).classList.add('active');
+  const navBtn = document.getElementById('nav-' + tela);   // #nav-new não existe
   if (navBtn) navBtn.classList.add('active');
-  document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
-  if (tab === 'list') renderList();
+  // O (+) só faz sentido na lista: na triagem se avalia o que já existe.
+  const mostrarFab = tab === 'list';
+  document.getElementById('fab').classList.toggle('hidden', !mostrarFab);
+  // O escudo some junto — um bolsão invisível numa tela sem botão
+  // bloquearia toques sem que ninguém entendesse por quê.
+  document.getElementById('fab-shield')?.classList.toggle('hidden', !mostrarFab);
+  if (tab === 'list')    renderList();
+  if (tab === 'triagem') renderTriagem();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// FILA DE TRIAGEM — avaliar chamados de solicitante
+// ══════════════════════════════════════════════════════════════════
+// Chamado aberto por solicitante não gera O.S. automática: ele relata um
+// problema, e pode ser dúvida, engano ou algo já resolvido. Quem tem
+// competência técnica avalia e decide.
+//
+// Antes esses chamados ficavam misturados na lista geral, distinguíveis
+// só pelo selo — ou seja, a fila existia no dado mas não na interface.
+
+function podeTriagem() {
+  return ['admin','superadmin','diretor','supervisor','gestor']
+    .includes(getCurrentUser()?.role);
+}
+
+// Um chamado precisa de avaliação quando está aberto, foi lançado por
+// solicitante e ainda não tem O.S. O terceiro critério importa: se o
+// gestor gerou a O.S. pelo detalhe do chamado, ele sai da fila sozinho.
+function pendentesDeTriagem() {
+  return (chamados || []).filter(c => {
+    if (c.status !== 'aberto') return false;
+    const daTriagem = c.exigeTriagem === true ||
+                      (c.exigeTriagem === undefined && c.aberturaPor === 'solicitante');
+    if (!daTriagem) return false;
+    return !ordensCache.some(o => o.chamadoId === c.id);
+  }).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+// O contador no rodapé é o que faz a fila ser notada sem precisar abrir a
+// aba — é a diferença entre um lugar e um lugar que se lembra de visitar.
+function atualizarBadgeTriagem() {
+  const btn   = document.getElementById('nav-triagem');
+  const badge = document.getElementById('triagem-badge');
+  if (!btn || !badge) return;
+  if (!podeTriagem()) { btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  const n = pendentesDeTriagem().length;
+  badge.textContent = n > 99 ? '99+' : String(n);
+  badge.classList.toggle('hidden', n === 0);
+}
+
+function renderTriagem() {
+  const alvo = document.getElementById('triagem-lista');
+  if (!alvo) return;
+  if (!podeTriagem()) {
+    alvo.innerHTML = '<div class="tri-vazio">Sem permissão para avaliar chamados.</div>';
+    return;
+  }
+
+  const fila = pendentesDeTriagem();
+  atualizarBadgeTriagem();
+
+  if (!fila.length) {
+    alvo.innerHTML = `<div class="tri-vazio">
+      ✅ Nenhum chamado aguardando avaliação.<br>
+      <span style="font-size:12px">Chamados abertos por técnicos já geram O.S. automaticamente.</span>
+    </div>`;
+    return;
+  }
+
+  alvo.innerHTML = fila.map(c => {
+    const rec = analisarRecorrencia(c.equip, c.client, c.id);
+    const dias = Math.floor((Date.now() - (c.createdAt || Date.now())) / 86400000);
+    const espera = dias === 0 ? 'hoje' : `há ${dias} dia${dias > 1 ? 's' : ''}`;
+    const prio = { alta:'🔴', normal:'🟡', baixa:'🟢' }[c.priority] || '🟡';
+
+    // O histórico de recorrência aparece aqui de propósito: é justamente
+    // na hora de decidir que ele muda a decisão. Um equipamento com 4
+    // chamados em 90 dias talvez peça substituição, não mais um reparo.
+    const alertaRec = rec && (rec.nivel === 'critico' || rec.nivel === 'atencao')
+      ? `<div style="font-size:11px;font-weight:700;color:${rec.nivel==='critico'?'#991b1b':'#92400e'};
+             background:${rec.nivel==='critico'?'#fee2e2':'#fef3c7'};padding:4px 8px;
+             border-radius:5px;margin-top:6px">
+           🔁 ${rec.total} chamados nesta TAG em ${RECORRENCIA.janelaDias} dias
+         </div>` : '';
+
+    return `
+      <div class="tri-card">
+        <div class="tri-top">
+          <div class="tri-id">${prio} ${esc(c.id)} · TAG ${esc(c.equip) || '—'}</div>
+          <div style="font-size:11px;color:var(--text-3);white-space:nowrap">${espera}</div>
+        </div>
+        <div class="tri-meta">
+          Contrato ${esc(c.client)}${c.requester ? ' · 👤 ' + esc(c.requester) : ''}
+          ${c.machine ? `<br>${esc(c.machine.estabelecimento)} · ${esc(c.machine.recinto)}` : ''}
+        </div>
+        ${alertaRec}
+        <div class="tri-desc">${esc(c.desc) || '—'}</div>
+        <div class="tri-acoes">
+          <button class="tri-ok"  onclick="triagemGerar('${jsAttrCh(c.id)}')">📋 Gerar O.S.</button>
+          <button class="tri-nao" onclick="triagemRecusar('${jsAttrCh(c.id)}')">Não é serviço</button>
+        </div>
+        <button onclick="openDetail('${jsAttrCh(c.id)}')"
+          style="width:100%;margin-top:6px;padding:7px;border-radius:6px;border:none;
+                 background:none;color:var(--primary);font-size:12px;cursor:pointer">
+          Ver detalhes e fotos →
+        </button>
+      </div>`;
+  }).join('');
+}
+
+// Escape para string JS em atributo onclick (mesmo motivo de V31).
+function jsAttrCh(v) {
+  return String(v ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function triagemGerar(id) {
+  gerarOS(id);            // reaproveita o fluxo que já existia no detalhe
+  setTimeout(renderTriagem, 400);
+}
+
+// A recusa é o outro lado da avaliação. Sem ela, um chamado improcedente
+// ficaria na fila para sempre, e a contagem perderia o sentido.
+function triagemRecusar(id) {
+  const c = chamados.find(x => x.id === id);
+  if (!c) return;
+  const motivo = prompt(
+    `Recusar o chamado ${id}?\n\n` +
+    'Ele será marcado como cancelado, sem gerar O.S.\n' +
+    'Descreva o motivo (fica registrado no chamado):'
+  );
+  if (motivo === null) return;                    // desistiu
+  if (!String(motivo).trim()) { showToast('Informe o motivo da recusa'); return; }
+
+  DB.updateChamadoStatus(id, 'cancelado').then(() => {
+    c.status = 'cancelado';
+    c.motivoRecusa = String(motivo).trim();
+    c.recusadoPor  = getCurrentUser()?.name || '';
+    c.recusadoEm   = Date.now();
+    return persist(c);
+  }).then(() => {
+    signRecord(id, 'recusado', 'chamados').catch(() => {});
+    showToast('Chamado recusado e registrado');
+    renderTriagem();
+    renderList();
+  }).catch(e => showToast('Erro ao recusar: ' + e.message));
 }
 
 // ── Filters ──
@@ -518,6 +782,7 @@ function selo(c) {
 // ── List ──
 function renderList() {
   _recCache.clear();     // a contagem depende da lista atual
+  atualizarBadgeTriagem();   // a fila muda quando um chamado entra ou vira O.S.
   buildFilterOptions();
   const filtered = getFiltered();
   const list = document.getElementById('chamados-list');
