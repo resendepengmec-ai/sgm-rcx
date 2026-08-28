@@ -134,6 +134,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         <div id="mi-estab"></div>
         <div id="mi-recinto"></div>
       </div>
+      <!-- Aviso de recorrência: aparece ao escolher uma TAG que já teve
+           chamados recentes. É informativo, nunca bloqueia — reincidência
+           legítima existe, e o técnico é quem sabe. -->
+      <div id="recorrencia-aviso" style="display:none;margin-top:8px"></div>
     </div>
 
     <div class="field">
@@ -206,15 +210,18 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- Bottom Nav -->
+<!-- Bottom Nav
+     O botão "Novo" foi REMOVIDO daqui. Ele era redundante com o botão
+     flutuante (+) e, pior, tinha um defeito: chamava switchTab('new')
+     direto, sem passar por startNew(). switchTab só troca a tela visível —
+     quem limpa os campos é startNew(). O resultado é que o formulário
+     reabria preenchido com o último chamado, e um clique em Salvar criaria
+     uma cópia (ou, pior, editaria o anterior se editingId ainda estivesse
+     setado). O (+) sempre chamou startNew() e nunca teve esse problema. -->
 <nav class="bottom-nav">
   <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
     Chamados
-  </button>
-  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-    Novo
   </button>
 </nav>
 
@@ -375,7 +382,9 @@ function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('screen-' + (tab==='list'?'list':'new')).classList.add('active');
-  document.getElementById('nav-' + (tab==='list'?'list':'new')).classList.add('active');
+  // O rodapé agora só tem "Chamados"; #nav-new não existe mais.
+  const navBtn = document.getElementById('nav-' + (tab==='list'?'list':'new'));
+  if (navBtn) navBtn.classList.add('active');
   document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
   if (tab === 'list') renderList();
 }
@@ -465,8 +474,50 @@ function getFiltered() {
   });
 }
 
+// Selo de recorrência no card. Conta quantos chamados aquela TAG teve no
+// mesmo contrato dentro da janela — inclusive o próprio, por isso o "2+"
+// só aparece quando há de fato repetição.
+const _recCache = new Map();
+function contarRecorrencia(c) {
+  const chave = `${c.client}|${c.equip}`;
+  if (_recCache.has(chave)) return _recCache.get(chave);
+  const limite = Date.now() - RECORRENCIA.janelaDias * 86400000;
+  const n = (chamados || []).filter(x =>
+    String(x.equip||'').trim() === String(c.equip||'').trim() &&
+    String(x.client||'') === String(c.client||'') &&
+    (x.createdAt || 0) >= limite
+  ).length;
+  _recCache.set(chave, n);
+  return n;
+}
+// Selo de "aguardando avaliação": chamado aberto por solicitante que ainda
+// não passou pela triagem. Sem isso, um chamado sem O.S. fica visualmente
+// igual a um que já tem — e a fila de triagem some no meio da lista.
+function seloTriagem(c) {
+  if (c.status !== 'aberto') return '';
+  const daTriagem = c.exigeTriagem === true ||
+                    (c.exigeTriagem === undefined && c.aberturaPor === 'solicitante');
+  if (!daTriagem) return '';
+  return `<span title="Aberto por solicitante — aguarda avaliação para gerar O.S."
+    style="margin-left:6px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;
+           background:#e0e7ff;color:#3730a3;white-space:nowrap">📨 avaliar</span>`;
+}
+
+function selo(c) {
+  if (!c.equip) return '';
+  const n = contarRecorrencia(c);
+  if (n < RECORRENCIA.alertaAmarelo) return '';
+  const critico = n >= RECORRENCIA.alertaVermelho;
+  const cor = critico ? '#991b1b' : '#92400e';
+  const bg  = critico ? '#fee2e2' : '#fef3c7';
+  return `<span title="${n} chamados nesta TAG em ${RECORRENCIA.janelaDias} dias"
+    style="margin-left:6px;font-size:10px;font-weight:700;padding:1px 5px;border-radius:4px;
+           background:${bg};color:${cor};white-space:nowrap">🔁 ${n}x</span>`;
+}
+
 // ── List ──
 function renderList() {
+  _recCache.clear();     // a contagem depende da lista atual
   buildFilterOptions();
   const filtered = getFiltered();
   const list = document.getElementById('chamados-list');
@@ -498,7 +549,7 @@ function renderList() {
       <div class="cc-bar ${p.bar}"></div>
       ${thumb}
       <div class="cc-info">
-        <div class="cc-title">${esc(c.id)} · TAG ${esc(c.equip||'—')}</div>
+        <div class="cc-title">${esc(c.id)} · TAG ${esc(c.equip||'—')}${selo(c)}${seloTriagem(c)}</div>
         <div class="cc-meta">Contrato ${esc(c.client)} · ${fmtDate(c.date)}${c.requester?' · '+esc(c.requester):''}</div>
         ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${esc(c.machine.estabelecimento)} · ${esc(c.machine.recinto)}</div>`:''}
         <div class="cc-desc">${esc(c.desc)}</div>
@@ -523,7 +574,7 @@ function startNew() {
   document.getElementById('f-priority').value='normal';
   document.getElementById('f-requester').value='';
   document.getElementById('f-desc').value='';
-  hideMachineInfo(); renderPhotoGrid(); switchTab('new');
+  hideMachineInfo(); esconderRecorrencia(); renderPhotoGrid(); switchTab('new');
 }
 function cancelNew() { switchTab('list'); }
 
@@ -558,11 +609,18 @@ function saveChamado() {
     showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
     persist(c).then(() => {
       if (isNew) {
+        // A O.S. automática depende do PAPEL de quem abriu, e quem decide
+        // isso é o servidor — a tela apenas informa o que aconteceu.
+        // Técnico pra cima: já tem competência para o juízo que a triagem
+        // faria, então o chamado nasce com O.S. Solicitante: relata um
+        // problema, e a avaliação de gestor+ decide se vira O.S.
         DB.getOrdensByChamado(c.id).then(list => {
           if (list && list.length) {
             ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
             try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
-            showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`);
+            showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`, 4000);
+          } else {
+            showToast('📨 Chamado registrado. Aguardando avaliação para gerar a O.S.', 5000);
           }
         }).catch(()=>{});
       }
@@ -667,12 +725,138 @@ function renderPhotoGrid(){
 function openLightbox(src){ document.getElementById('lightbox-img').src=src; document.getElementById('lightbox').classList.remove('hidden'); }
 function closeLightbox(){ document.getElementById('lightbox').classList.add('hidden'); }
 
+// ══════════════════════════════════════════════════════════════════
+// AVISO DE RECORRÊNCIA
+// ══════════════════════════════════════════════════════════════════
+// Um equipamento que volta a dar chamado é o sinal mais barato que a
+// manutenção tem. Ele separa três coisas que a lista cronológica esconde:
+//
+//   • duplicata acidental — o mesmo chamado lançado duas vezes hoje;
+//   • reincidência — o problema voltou depois de "resolvido";
+//   • equipamento problemático — muitos chamados em poucos meses,
+//     candidato a troca em vez de conserto.
+//
+// A contagem é por TAG (equipamento), não por texto da descrição. Duas
+// pessoas descrevem "não gela" e "está quente" para a mesma falha; o que
+// não muda é a máquina. Comparar descrição daria falso negativo na maior
+// parte dos casos reais.
+//
+// O aviso NUNCA bloqueia. Reincidência legítima existe, e quem está em
+// campo é quem sabe. Bloquear faria a pessoa contornar o sistema.
+
+const RECORRENCIA = {
+  janelaDias:   90,   // período analisado
+  duplicataHoras: 24, // dentro disso, é provável duplicata
+  alertaAmarelo: 2,   // 2+ chamados na janela → atenção
+  alertaVermelho: 4,  // 4+ → equipamento problemático
+};
+
+// Analisa o histórico daquela TAG naquele contrato.
+function analisarRecorrencia(tag, contrato, ignorarId) {
+  const alvo = String(tag || '').trim();
+  if (!alvo) return null;
+  const agora = Date.now();
+  const limite = agora - RECORRENCIA.janelaDias * 86400000;
+
+  const doEquip = (chamados || []).filter(c =>
+    String(c.equip || '').trim() === alvo &&
+    String(c.client || '') === String(contrato) &&
+    c.id !== ignorarId &&
+    (c.createdAt || 0) >= limite
+  ).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  if (!doEquip.length) return null;
+
+  const recentes = doEquip.filter(c =>
+    (agora - (c.createdAt || 0)) <= RECORRENCIA.duplicataHoras * 3600000);
+  const abertos = doEquip.filter(c => c.status === 'aberto' || c.status === 'andamento');
+  const ultimo = doEquip[0];
+  const diasUltimo = Math.floor((agora - (ultimo.createdAt || agora)) / 86400000);
+
+  let nivel = 'info';
+  if (recentes.length)                              nivel = 'duplicata';
+  else if (doEquip.length >= RECORRENCIA.alertaVermelho) nivel = 'critico';
+  else if (doEquip.length >= RECORRENCIA.alertaAmarelo)  nivel = 'atencao';
+
+  return { total: doEquip.length, abertos, recentes, ultimo, diasUltimo, nivel, lista: doEquip };
+}
+
+function esconderRecorrencia() {
+  const el = document.getElementById('recorrencia-aviso');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+function checarRecorrencia(tag, contrato) {
+  const el = document.getElementById('recorrencia-aviso');
+  if (!el) return;
+  const r = analisarRecorrencia(tag, contrato, editingId);
+  if (!r) { esconderRecorrencia(); return; }
+
+  const estilo = {
+    duplicata: { bg:'#fef2f2', bd:'#fecaca', cor:'#991b1b', icone:'⚠️' },
+    critico:   { bg:'#fef2f2', bd:'#fecaca', cor:'#991b1b', icone:'🔁' },
+    atencao:   { bg:'#fffbeb', bd:'#fde68a', cor:'#92400e', icone:'🔁' },
+    info:      { bg:'#eff6ff', bd:'#bfdbfe', cor:'#1e40af', icone:'ℹ️' },
+  }[r.nivel];
+
+  let titulo, corpo;
+  if (r.nivel === 'duplicata') {
+    titulo = `Já existe chamado para esta TAG hoje`;
+    corpo = `${r.recentes.length} chamado(s) nas últimas ${RECORRENCIA.duplicataHoras}h. ` +
+            `Confira se não é duplicata antes de salvar.`;
+  } else if (r.nivel === 'critico') {
+    titulo = `Equipamento com ${r.total} chamados em ${RECORRENCIA.janelaDias} dias`;
+    corpo = `Reincidência alta — vale avaliar substituição em vez de novo reparo.`;
+  } else if (r.nivel === 'atencao') {
+    titulo = `${r.total} chamados nesta TAG em ${RECORRENCIA.janelaDias} dias`;
+    corpo = `Último há ${r.diasUltimo} dia(s).`;
+  } else {
+    titulo = `Esta TAG já teve chamado`;
+    corpo = `Último há ${r.diasUltimo} dia(s).`;
+  }
+
+  const aberto = r.abertos.length
+    ? `<div style="margin-top:6px;font-weight:600">
+         ${r.abertos.length} chamado(s) ainda em aberto: ${r.abertos.map(c=>esc(c.id)).join(', ')}
+       </div>` : '';
+
+  const historico = r.lista.slice(0, 4).map(c => {
+    const d = c.date ? c.date.split('-').reverse().join('/') : '—';
+    const st = { aberto:'Aberto', andamento:'Em andamento', resolvido:'Resolvido' }[c.status] || c.status || '';
+    return `<div style="font-size:11px;opacity:.85;margin-top:3px">
+      • ${d} · ${esc(st)} · ${esc((c.desc||'').slice(0,60))}${(c.desc||'').length>60?'…':''}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="background:${estilo.bg};border:1px solid ${estilo.bd};color:${estilo.cor};
+                border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5">
+      <div style="font-weight:700">${estilo.icone} ${esc(titulo)}</div>
+      <div style="margin-top:2px">${esc(corpo)}</div>
+      ${aberto}
+      ${historico}
+      <div style="margin-top:8px;font-size:11px;opacity:.75">
+        Este aviso não impede o registro — se o chamado é legítimo, siga normalmente.
+      </div>
+    </div>`;
+  el.style.display = 'block';
+}
+
 // ── TAG lookup ──
 function onTagInput(){
   const val=document.getElementById('f-equip').value.trim();
   clearTimeout(tagTimeout); hideMachineInfo();
+  esconderRecorrencia();
   if(!val){document.getElementById('tag-suggestions').style.display='none';return;}
-  tagTimeout=setTimeout(()=>showTagSuggestions(val),150);
+  tagTimeout=setTimeout(()=>{
+    showTagSuggestions(val);
+    // Também checa quando a TAG é digitada por inteiro, sem passar pela
+    // lista de sugestões — em campo, muita gente digita e ignora o dropdown.
+    const contrato = document.getElementById('f-client').value;
+    if (contrato && (getEffDB()[contrato]||[]).some(m => String(m.tag||'')===val)) {
+      checarRecorrencia(val, contrato);
+    }
+  },150);
 }
 function showTagSuggestions(q){
   const contract=document.getElementById('f-client').value;
@@ -709,6 +893,7 @@ function selectTag(tag){
   document.getElementById('f-equip').value=tag;
   document.getElementById('tag-suggestions').style.display='none';
   showMachineInfo(m);
+  checarRecorrencia(tag, contract);
 }
 function showMachineInfo(m){
   document.getElementById('machine-info').style.display='block';
