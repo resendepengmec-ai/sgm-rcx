@@ -244,6 +244,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <!-- Passo 3: revisão -->
     <div class="card" id="imp-passo3" style="display:none">
       <div class="card-title">3. Conferir e gerar</div>
+      <!-- O número vem do próprio pedido; fica editável porque o documento
+           nem sempre o traz, e porque precisa ser único no contrato. -->
+      <div class="field">
+        <label>Nº do orçamento *</label>
+        <input type="text" id="imp-numero" autocomplete="off" oninput="conferirNumeroImp()">
+        <div id="imp-numero-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
+      </div>
       <div id="imp-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
       <div id="imp-pendencias"></div>
       <div id="imp-tabela"></div>
@@ -744,15 +751,38 @@ function impAplicarRespostas() {
 }
 
 // ── Passo 3: revisão ──────────────────────────────────────────────
+function conferirNumeroImp() {
+  const contrato = document.getElementById('imp-contrato')?.value;
+  const campo = document.getElementById('imp-numero');
+  const aviso = document.getElementById('imp-numero-aviso');
+  if (!campo || !aviso) return true;
+  const n = campo.value.trim();
+  if (!n) { aviso.textContent = `Sugestão: ${proximoNumeroLivre(contrato)}`;
+            aviso.style.color = 'var(--text-2)'; return false; }
+  if (numeroEmUso(n, contrato)) {
+    aviso.textContent = `⚠️ Já existe no contrato ${contrato}. Livre: ${proximoNumeroLivre(contrato)}`;
+    aviso.style.color = 'var(--danger)'; return false;
+  }
+  aviso.textContent = '✓ Disponível neste contrato.';
+  aviso.style.color = '#166534'; return true;
+}
+
 function impMostrarRevisao() {
   document.getElementById('imp-passo3').style.display = 'block';
+  // Número do pedido lido do PDF; se não veio, sugere o próximo livre.
+  const campoNum = document.getElementById('imp-numero');
+  if (campoNum && !campoNum.value.trim()) {
+    const contrato = document.getElementById('imp-contrato')?.value;
+    campoNum.value = impDados.numeroPedido || proximoNumeroLivre(contrato);
+  }
+  conferirNumeroImp();
   const comServico = impDados.equipamentos.filter(e => e.servicos.length);
   const totalServ  = comServico.reduce((a, e) => a + e.servicos.length, 0);
 
   document.getElementById('imp-resumo').innerHTML = `
     ${impDados.estabelecimento ? '🏢 ' + esc(impDados.estabelecimento) + '<br>' : ''}
     <strong>${comServico.length}</strong> equipamento(s) · <strong>${totalServ}</strong> serviço(s) ·
-    serão gerados <strong>${comServico.length}</strong> orçamento(s), um por TAG.`;
+    será gerado <strong>1 orçamento</strong> com todas as TAGs.`;
 
   // O que a IA não conseguiu mapear aparece em destaque, não escondido.
   // Um pedido lido pela metade sem aviso é pior que um pedido não lido.
@@ -817,56 +847,77 @@ function impGerar() {
   const contrato = document.getElementById('imp-contrato').value;
   const validos = impDados.equipamentos.filter(e => e.servicos.length);
   if (!validos.length) { showToast('Nenhum equipamento com serviço para gerar'); return; }
-  if (!confirm(`Gerar ${validos.length} orçamento(s) para o contrato ${contrato}?`)) return;
 
-  const catalogo = _getAvailableServices();
+  // ── UM pedido = UM orçamento ──────────────────────────────────
+  // A versão anterior criava um orçamento por TAG. Estava errado: o
+  // documento que vai ao cliente é UM só, com todas as TAGs na mesma
+  // tabela e um valor total — como no modelo 039, que tem 25 PMOCs e
+  // um total. Vinte e cinco orçamentos separados não são o pedido: são
+  // vinte e cinco documentos que o cliente não pediu.
+  //
+  // Cada item passa a carregar a sua própria TAG, o que também faz a
+  // tabela do PDF (PMOC | Serviço | Valor) sair naturalmente.
+  const numero = (document.getElementById('imp-numero')?.value || '').trim();
+  if (!numero) { showToast('Informe o nº do orçamento'); return; }
+  if (numeroEmUso(numero, contrato)) {
+    showToast(`O número "${numero}" já existe no contrato ${contrato}. ` +
+              `Livre: ${proximoNumeroLivre(contrato)}`);
+    return;
+  }
+
+  const totalServ = validos.reduce((a, e) => a + e.servicos.length, 0);
+  if (!confirm(`Gerar 1 orçamento nº ${numero} com ${validos.length} equipamento(s) ` +
+               `e ${totalServ} serviço(s)?`)) return;
+
+  const catalogo = _getAvailableServices(contrato);   // contrato da aba Importar
   const hoje = new Date().toISOString().slice(0,10);
-  const criados = [];
 
+  // Itens de TODAS as TAGs, cada um marcado com a sua.
+  const items = [];
   validos.forEach(e => {
-    const items = e.servicos.map(sv => {
-      // O preço vem do catálogo local só para exibir na hora; o servidor
-      // reescreve pelo contrato ao gravar. Nunca do PDF.
+    e.servicos.forEach(sv => {
+      // O preço aqui é só para exibir enquanto grava; o servidor
+      // reescreve pelo catálogo do contrato. Nunca vem do PDF.
       const doCat = catalogo.find(c => c.name === sv.name);
-      return { name: sv.name, price: doCat?.price || 0, qty: sv.qty,
-               taxRate: doCat?.taxRate || 0, unit: doCat?.unit || sv.unit || 'un', labor: 0 };
+      items.push({
+        tag: e.tag, local: e.local || '',
+        name: sv.name, qty: sv.qty || 1,
+        price: doCat?.price || 0, unit: doCat?.unit || sv.unit || 'un',
+        taxRate: doCat?.taxRate || 0, labor: 0,
+      });
     });
-    const q = {
-      id: genId(), client: contrato, phone:'', address:'',
-      equip: e.tag, machine: null, date: hoje, validity:'', payment:'',
-      notes: [impDados.estabelecimento ? 'Estabelecimento: ' + impDados.estabelecimento : '',
-              e.local || '', 'Importado de pedido em PDF.'].filter(Boolean).join(' · '),
-      // Guardados para o PDF: o número do pedido nomeia o arquivo
-      // (<nº>_<Estabelecimento>.pdf) e a unidade agrupa o consolidado.
-      numeroPedido: impDados.numeroPedido || '',
-      unidade: impDados.estabelecimento || '',
-      // Vindos da leitura do pedido: viram o cabeçalho, a linha de data e
-      // o bloco de descrição do PDF, sem ninguém digitar nada.
-      remetente: impDados.remetente || '',
-      cidade: impDados.cidade || '',
-      descricoes: impDados.descricoes || {},
-      items, status:'sent', createdAt: Date.now(),   // nasce como Enviado
-    };
-    quotes.unshift(q);
-    criados.push(q);
   });
 
-  // Persiste um a um: o backend valida contrato e recalcula preço em cada.
-  Promise.allSettled(criados.map(q =>
-    signRecord(q.id, 'criado', 'orcamentos')
-      .then(sig => { q._signatures = [sig]; return persist(q); })
-      .catch(() => persist(q))
-  )).then(res => {
-    const falhas = res.filter(r => r.status === 'rejected').length;
-    // O módulo grava o cache local direto, sem função auxiliar.
-    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
-    renderQuoteList();
-    switchTab('quotes');
-    impRecomecar();
-    showToast(falhas
-      ? `${criados.length - falhas} orçamento(s) gerados, ${falhas} com erro — confira a lista`
-      : `✅ ${criados.length} orçamento(s) gerados`, 5000);
-  });
+  const q = {
+    id: genId(), client: contrato, phone:'', address:'',
+    // `equip` era a TAG única. Agora o orçamento cobre várias, então fica
+    // vazio e a informação real vive em items[].tag — mas o campo continua
+    // existindo para não quebrar telas antigas que o leem.
+    equip: '', machine: null, date: hoje, validity:'', payment:'',
+    notes: [impDados.estabelecimento ? 'Estabelecimento: ' + impDados.estabelecimento : '',
+            `${validos.length} equipamento(s)`, 'Importado de pedido em PDF.']
+           .filter(Boolean).join(' · '),
+    numeroOrcamento: numero,
+    numeroPedido: impDados.numeroPedido || '',
+    unidade: impDados.estabelecimento || '',
+    remetente: impDados.remetente || '',
+    cidade: impDados.cidade || '',
+    descricoes: impDados.descricoes || {},
+    items, status:'sent', createdAt: Date.now(),
+  };
+
+  quotes.unshift(q);
+  signRecord(q.id, 'criado', 'orcamentos')
+    .then(sig => { q._signatures = [sig]; return persist(q); })
+    .catch(() => persist(q))
+    .then(() => {
+      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+      renderQuoteList();
+      switchTab('quotes');
+      impRecomecar();
+      showToast(`✅ Orçamento ${numero} gerado com ${validos.length} equipamento(s)`, 5000);
+    })
+    .catch(e => showToast('Erro ao gravar: ' + e.message));
 }
 
 // ── Quotes list ──
@@ -916,7 +967,10 @@ function renderQuoteList() {
       <div class="qi-info" style="flex:1;min-width:0">
         <div class="qc-numero">${numero ? esc(numero) : '<span style=\'color:var(--text-3);font-weight:400\'>sem número</span>'}</div>
         ${unid ? `<div class="qc-unidade">${esc(unid)}</div>` : ''}
-        <div class="qc-meta">Contrato ${esc(q.client) || '—'} · ${q.date || ''} · ${q.items.length} serviço(s)</div>
+        <div class="qc-meta">Contrato ${esc(q.client) || '—'} · ${q.date || ''} ·
+          ${(() => { const t = new Set((q.items||[]).map(i => i.tag).filter(Boolean));
+                     return t.size > 1 ? `${t.size} TAGs` : ''; })()}
+          ${q.items.length} serviço(s)</div>
         <div class="qc-meta" style="margin-top:3px">
           <span class="badge ${sCls}">${sLabel}</span>
           ${q.equip ? ` · 🏷️ ${esc(q.equip)}` : ''}
@@ -1219,9 +1273,16 @@ function openServiceModal() {
 }
 function closeServiceModal() { document.getElementById('service-modal').classList.add('hidden'); }
 
-// Combina serviços do contrato + catálogo padrão
-function _getAvailableServices() {
-  const contract = document.getElementById('f-client')?.value;
+// Combina serviços do contrato + catálogo padrão.
+//
+// `contratoExplicito` existe por causa de um defeito real: a função lia
+// SEMPRE o campo #f-client, que é o da aba "Novo". Chamada a partir da
+// aba "Importar" — onde o contrato está em #imp-contrato — ela devolvia
+// o catálogo VAZIO, e os itens saíam sem preço e sem unidade.
+function _getAvailableServices(contratoExplicito) {
+  const contract = contratoExplicito
+    || document.getElementById('imp-contrato')?.value
+    || document.getElementById('f-client')?.value;
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const c = contracts.find(x => x.numero === contract);
   const custom = (c?.servicos || []).map(s => ({
@@ -1331,7 +1392,7 @@ function openDetail(id) {
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
-          <span>${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
+          <span>${it.tag ? `<strong style="font-size:12px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
           ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>`}
         </div>`).join('')}
     </div>
@@ -1569,7 +1630,10 @@ function printConsolidatedPDF(unitName, unitQuotes) {
       const qtd = it.qty || 1;
       const sub = (Number(it.price) || 0) * qtd;
       total += sub;
-      linhaTabela(q.equip || '—', it.name + (qtd > 1 ? ` (${qtd}x)` : ''), money(sub), false);
+      // A TAG é do ITEM: um orçamento cobre várias. `q.equip` só serve
+      // para os orçamentos antigos, de TAG única.
+      linhaTabela(it.tag || q.equip || '—',
+                  it.name + (qtd > 1 ? ` (${qtd}x)` : ''), money(sub), false);
     });
   });
 
