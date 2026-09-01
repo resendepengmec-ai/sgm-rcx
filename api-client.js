@@ -199,12 +199,12 @@ window.guardaDeModulo = guardaDeModulo;
 
 // ── SaaS: empresas (tenant) ───────────────────────────────────────
 const Empresas = {
-  listar:    ()        => API.get('/empresas').then(r => r.data),
-  obter:     (id)      => API.get('/empresas/' + encodeURIComponent(id)).then(r => r.data),
-  criar:     (empresa) => API.post('/empresas', { empresa }).then(r => r.data),
-  atualizar: (id, e)   => API.post('/empresas/' + encodeURIComponent(id), { empresa: e }).then(r => r.data),
-  status:    (id, ativa) => API.post('/empresas/' + encodeURIComponent(id) + '/status', { ativa }).then(r => r.data),
-  vincular:  (id, email) => API.post('/empresas/' + encodeURIComponent(id) + '/vincular', { email }).then(r => r.data),
+  listar:    ()        => API.get('/empresas'),
+  obter:     (id)      => API.get('/empresas/' + encodeURIComponent(id)),
+  criar:     (empresa) => API.post('/empresas', { empresa }),
+  atualizar: (id, e)   => API.post('/empresas/' + encodeURIComponent(id), { empresa: e }),
+  status:    (id, ativa) => API.post('/empresas/' + encodeURIComponent(id) + '/status', { ativa }),
+  vincular:  (id, email) => API.post('/empresas/' + encodeURIComponent(id) + '/vincular', { email }),
 };
 window.Empresas = Empresas;
 
@@ -214,11 +214,11 @@ window.Empresas = Empresas;
 // não pode ser marcado, mas quem decide é sempre o backend.
 const Permissoes = {
   obter: (contrato) =>
-    API.get('/contratos/' + encodeURIComponent(contrato) + '/permissoes').then(r => r.data),
+    API.get('/contratos/' + encodeURIComponent(contrato) + '/permissoes'),
   salvar: (contrato, matriz) =>
-    API.post('/contratos/' + encodeURIComponent(contrato) + '/permissoes', { matriz }).then(r => r.data),
+    API.post('/contratos/' + encodeURIComponent(contrato) + '/permissoes', { matriz }),
   restaurar: (contrato) =>
-    API.delete('/contratos/' + encodeURIComponent(contrato) + '/permissoes').then(r => r.data),
+    API.delete('/contratos/' + encodeURIComponent(contrato) + '/permissoes'),
 };
 window.Permissoes = Permissoes;
 
@@ -242,14 +242,14 @@ window.podeNoContrato = podeNoContrato;
 // edições posteriores: ele carrega o próprio snapshot congelado.
 const Checklists = {
   listar: (contrato) =>
-    API.get('/contratos/' + encodeURIComponent(contrato) + '/checklists').then(r => r.data),
+    API.get('/contratos/' + encodeURIComponent(contrato) + '/checklists'),
   salvar: (contrato, checklist) =>
-    API.post('/contratos/' + encodeURIComponent(contrato) + '/checklists', { checklist }).then(r => r.data),
+    API.post('/contratos/' + encodeURIComponent(contrato) + '/checklists', { checklist }),
   remover: (contrato, chave) =>
-    API.delete('/contratos/' + encodeURIComponent(contrato) + '/checklists/' + encodeURIComponent(chave)).then(r => r.data),
+    API.delete('/contratos/' + encodeURIComponent(contrato) + '/checklists/' + encodeURIComponent(chave)),
   gerarIA: (contrato, tipo, observacao) =>
     API.post('/contratos/' + encodeURIComponent(contrato) + '/checklists/gerar',
-             { tipo, observacao }).then(r => r.data),
+             { tipo, observacao }),
 };
 window.Checklists = Checklists;
 
@@ -467,8 +467,7 @@ const DB = {
   // IA e devolve um RASCUNHO conciliado com o catálogo do contrato — nada
   // é gravado nesta chamada.
   importarPedidoPdf: (contrato, pdf, respostas) =>
-    API.post('/orcamentos/importar-pdf', { contrato, pdf, respostas })
-       .then(r => r.data),
+    API.post('/orcamentos/importar-pdf', { contrato, pdf, respostas }),
   updateOrcamentoStatus: (id, status) => API.patch(`/orcamentos/${id}/status`, { status }),
   delete:    (col, id) => API.delete(`/${col}/${id}`),
 

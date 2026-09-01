@@ -53,6 +53,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
    shared.css; ficam aqui para não alterar o CSS de todas as páginas. */
 .badge-rejected { background:#fee2e2; color:#991b1b; }
 .badge-executed { background:#dbeafe; color:#1e40af; }
+
+/* Número do orçamento em destaque na lista. O que identifica o documento
+   na conversa com o cliente é o número, não o contrato. */
+.qc-numero  { font-size:17px; font-weight:800; letter-spacing:-.01em; line-height:1.15; }
+.qc-unidade { font-size:12px; font-weight:600; color:var(--text-2); margin-top:1px;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.quote-card .qc-meta { font-size:11px; }
 </style>
 </head>
 <body>
@@ -123,9 +130,21 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label>Contrato *</label>
-      <select id="f-client">
+      <select id="f-client" onchange="onContratoChange()">
         <option value="">Selecione um contrato…</option>
       </select>
+    </div>
+
+    <!-- O número identifica o orçamento na conversa com o cliente e nomeia
+         o PDF. Precisa ser único DENTRO do contrato: dois com o mesmo
+         número gerariam arquivos de nome igual. -->
+    <div class="field">
+      <label>Nº / nome do orçamento *</label>
+      <input type="text" id="f-numero" autocomplete="off" placeholder="Ex: 40"
+             oninput="conferirNumero()">
+      <div id="f-numero-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)">
+        Escolha o contrato para ver a sugestão.
+      </div>
     </div>
 
     <div class="field">
@@ -887,11 +906,21 @@ function renderQuoteList() {
       const mLabel = month ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'Sem data';
       header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${mLabel}</div>`;
     }
+    // O NÚMERO é o que identifica o orçamento na conversa com o cliente
+    // ("o 039 foi aprovado?"). Antes ele nem aparecia na lista — só
+    // contrato e data, que não distinguem dois orçamentos do mesmo mês.
+    // Por isso vem primeiro e grande; o resto fica em corpo menor.
+    const numero = numeroDoOrcamento(q);
+    const unid = q.unidade || q.machine?.estabelecimento || '';
     return header + `<div class="quote-card" onclick="openDetail('${q.id}')">
-      <div class="qi-info" style="flex:1">
-        <div class="qc-client">Contrato: ${esc(q.client) || '—'}</div>
-        <div class="qc-meta">${q.date || ''} · ${q.items.length} serviço(s) · <span class="badge ${sCls}">${sLabel}</span></div>
-        ${q.equip ? `<div class="qc-meta" style="margin-top:2px">🏷️ TAG: ${esc(q.equip)}${q.machine ? ' · '+esc(q.machine.marca)+' · '+esc(q.machine.estabelecimento) : ''}</div>` : ''}
+      <div class="qi-info" style="flex:1;min-width:0">
+        <div class="qc-numero">${numero ? esc(numero) : '<span style=\'color:var(--text-3);font-weight:400\'>sem número</span>'}</div>
+        ${unid ? `<div class="qc-unidade">${esc(unid)}</div>` : ''}
+        <div class="qc-meta">Contrato ${esc(q.client) || '—'} · ${q.date || ''} · ${q.items.length} serviço(s)</div>
+        <div class="qc-meta" style="margin-top:3px">
+          <span class="badge ${sCls}">${sLabel}</span>
+          ${q.equip ? ` · 🏷️ ${esc(q.equip)}` : ''}
+        </div>
       </div>
       <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${_sigTrail(q._signatures)}
 </div>
@@ -899,9 +928,95 @@ function renderQuoteList() {
   }).join('');
 }
 
+// Sugere um número livre ao trocar de contrato, sem sobrescrever o que a
+// pessoa já digitou nem atrapalhar a edição de um orçamento existente.
+function onContratoChange() {
+  const contrato = document.getElementById('f-client')?.value;
+  const campo = document.getElementById('f-numero');
+  if (!campo || !contrato) return;
+  if (!campo.value.trim() && !editingId) campo.value = proximoNumeroLivre(contrato);
+  conferirNumero();
+}
+
+// Aviso ao vivo: erro de número só descoberto ao salvar faz a pessoa
+// refazer o preenchimento inteiro.
+function conferirNumero() {
+  const contrato = document.getElementById('f-client')?.value;
+  const campo = document.getElementById('f-numero');
+  const aviso = document.getElementById('f-numero-aviso');
+  if (!campo || !aviso) return true;
+  const n = campo.value.trim();
+
+  if (!contrato) { aviso.textContent = 'Escolha o contrato para ver a sugestão.';
+                   aviso.style.color = 'var(--text-2)'; return true; }
+  if (!n)        { aviso.textContent = `Sugestão para este contrato: ${proximoNumeroLivre(contrato)}`;
+                   aviso.style.color = 'var(--text-2)'; return true; }
+  if (numeroEmUso(n, contrato, editingId)) {
+    aviso.textContent = `⚠️ O número "${n}" já existe no contrato ${contrato}. ` +
+                        `Livre: ${proximoNumeroLivre(contrato)}`;
+    aviso.style.color = 'var(--danger)';
+    campo.style.borderColor = 'var(--danger)';
+    return false;
+  }
+  aviso.textContent = '✓ Disponível neste contrato.';
+  aviso.style.color = '#166534';
+  campo.style.borderColor = '';
+  return true;
+}
+
+// Espelha CAN_REPORT do backend (gestor pra cima). É só para a tela: a
+// rota PATCH /orcamentos/:id/status valida o papel E o escopo por
+// contrato de novo, então esconder o seletor é conveniência, nunca a
+// barreira.
+function podeMudarStatus() {
+  return ['superadmin','admin','diretor','supervisor','gestor']
+    .includes(getCurrentUser()?.role);
+}
+
+// ── Numeração do orçamento ────────────────────────────────────────
+// O número identifica o documento na conversa com o cliente e nomeia o
+// PDF. Vem de duas origens:
+//   • importação: o número do próprio pedido (campo numeroPedido);
+//   • criação manual: o usuário escolhe.
+//
+// Em ambos os casos precisa ser ÚNICO DENTRO DO CONTRATO. Dois orçamentos
+// com o mesmo número no mesmo contrato gerariam PDFs de mesmo nome e
+// tornariam impossível saber qual foi aprovado.
+function numeroDoOrcamento(q) {
+  return String(q?.numeroOrcamento || q?.numeroPedido || '').trim();
+}
+
+// Confere se o número já existe naquele contrato. `ignorarId` permite
+// reeditar um orçamento sem que ele acuse conflito consigo mesmo.
+function numeroEmUso(numero, contrato, ignorarId) {
+  const alvo = String(numero || '').trim().toLowerCase();
+  if (!alvo) return false;
+  return (quotes || []).some(q =>
+    q.id !== ignorarId &&
+    String(q.client) === String(contrato) &&
+    numeroDoOrcamento(q).toLowerCase() === alvo);
+}
+
+// Sugere o próximo número livre do contrato: maior número puramente
+// numérico + 1. Se a numeração do contrato não for numérica, devolve
+// vazio — melhor deixar em branco do que sugerir algo sem sentido.
+function proximoNumeroLivre(contrato) {
+  const usados = (quotes || [])
+    .filter(q => String(q.client) === String(contrato))
+    .map(q => numeroDoOrcamento(q))
+    .filter(n => /^\d+$/.test(n))
+    .map(Number);
+  if (!usados.length) return '1';
+  let n = Math.max(...usados) + 1;
+  while (numeroEmUso(String(n), contrato)) n++;
+  return String(n);
+}
+
 // ── New/edit quote ──
 function startNew() {
   editingId = null;
+  const cn = document.getElementById('f-numero');
+  if (cn) { cn.value = ''; cn.style.borderColor = ''; }
   hideMachineInfo();
   document.getElementById('tag-suggestions').style.display = 'none';
   newItems = [];
@@ -925,6 +1040,12 @@ function editQuote(id) {
   document.getElementById('f-equip').value = q.equip || '';
   document.getElementById('f-date').value = q.date || today();
   document.getElementById('f-notes').value = q.notes || '';
+  // Reaproveita o número que o orçamento já tem — inclusive quando veio da
+  // importação (numeroPedido). editingId faz a checagem de duplicidade
+  // ignorar o próprio registro.
+  const cn = document.getElementById('f-numero');
+  if (cn) { cn.value = numeroDoOrcamento(q); cn.style.borderColor = ''; }
+  conferirNumero();
   // Try to reload machine info
   if (q.equip && q.client && getEffDB()[q.client]) {
     const m = getEffDB()[q.client].find(x => x.tag === q.equip);
@@ -943,6 +1064,16 @@ function saveQuote() {
   const client = document.getElementById('f-client').value.trim();
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
+
+  // O aviso ao vivo orienta; esta checagem é que impede de fato. Número
+  // repetido no mesmo contrato geraria dois PDFs com o mesmo nome.
+  const numero = (document.getElementById('f-numero')?.value || '').trim();
+  if (!numero) { showToast('Informe o nº ou nome do orçamento'); return; }
+  if (numeroEmUso(numero, client, editingId)) {
+    showToast(`O número "${numero}" já existe no contrato ${client}. ` +
+              `Sugestão livre: ${proximoNumeroLivre(client)}`);
+    return;
+  }
   const isNew = !editingId;
   const q = {
     id: editingId || genId(),
@@ -956,6 +1087,7 @@ function saveQuote() {
     payment: '',
     notes: document.getElementById('f-notes').value,
     items: newItems,
+    numeroOrcamento: numero,      // identifica o documento e nomeia o PDF
     status: 'sent',        // nasce como Enviado
     createdAt: editingId ? (quotes.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
   };
@@ -1161,6 +1293,11 @@ function openDetail(id) {
   // Ordem do ciclo: enviado → aprovado/reprovado → executado.
   const _rot = { sent:'Enviado', approved:'Aprovado', rejected:'Reprovado',
                  executed:'Executado', pending:'Pendente (antigo)' };
+  const statusMapDet = {
+    pending:['Pendente','badge-pending'],   sent:['Enviado','badge-sent'],
+    approved:['Aprovado','badge-approved'], rejected:['Reprovado','badge-rejected'],
+    executed:['Executado','badge-executed'],
+  };
   const _opts = ['sent','approved','rejected','executed'];
   // Só mostra 'pending' se o orçamento AINDA estiver nele — não faz sentido
   // oferecer como destino um status que saiu de uso.
@@ -1180,7 +1317,16 @@ function openDetail(id) {
         ${q.address ? `<div style="font-size:14px;color:var(--text-2)">📍 ${q.address}</div>` : ''}
         <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${q.date || ''}</div>
       </div>
-      <select onchange="updateStatus('${q.id}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>
+      ${podeMudarStatus()
+        ? `<select onchange="updateStatus('${q.id}',this.value)"
+                   style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
+        // Quem não pode alterar vê o status como ETIQUETA, não como campo.
+        // Antes o seletor aparecia para todos: o técnico trocava e levava
+        // 403 do servidor, sem entender o motivo. A barreira sempre foi do
+        // backend; o que faltava era a tela dizer a verdade.
+        : `<span class="badge ${statusMapDet[q.status]?.[1] || 'badge-pending'}"
+                 style="font-size:12px;padding:6px 10px">${
+                   statusMapDet[q.status]?.[0] || 'Pendente'}</span>`}
     </div>
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
@@ -1342,9 +1488,12 @@ function printConsolidatedPDF(unitName, unitQuotes) {
 
   // Número do orçamento: o do pedido importado, quando houver; senão o
   // sequencial do módulo. Vira também o nome do arquivo.
-  const numero = String(unitQuotes.find(q => q.numeroPedido)?.numeroPedido || '')
-    .replace(/\D/g, '');
-  const numeroFmt = numero ? numero.padStart(3, '0') : '';
+  // Vale tanto o número do pedido importado quanto o escolhido à mão.
+  const numeroBruto = unitQuotes.map(q => numeroDoOrcamento(q)).find(Boolean) || '';
+  const numero = numeroBruto;
+  // Zeros à esquerda só quando é puramente numérico (039); um nome como
+  // "Reforma bloco B" fica como está.
+  const numeroFmt = /^\d+$/.test(numero) ? numero.padStart(3, '0') : numero;
 
   doc.setFont(MOD.fonte, 'normal');
   doc.setFontSize(MOD.tam);
