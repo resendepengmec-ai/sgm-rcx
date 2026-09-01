@@ -80,16 +80,6 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <!-- Screens -->
 <div id="screen-quotes" class="screen active">
 
-  <!-- Textos que entram no PDF do orçamento (descrição dos serviços,
-       itens não incluídos, cidade). Sem isto o modelo sai incompleto,
-       e antes não havia onde configurá-los. -->
-  <div style="padding:8px 12px 0;text-align:right">
-    <button onclick="abrirConfigPdf()"
-      style="background:none;border:none;color:var(--primary);font-size:12px;cursor:pointer">
-      ⚙️ Textos do PDF
-    </button>
-  </div>
-
   <!-- Filter bar -->
   <div class="filter-bar">
     <div class="filter-row">
@@ -381,7 +371,9 @@ const SERVICES = [
 
 // ── State ──
 let quotes = JSON.parse(localStorage.getItem('orcamento_quotes') || '[]');
-let settings = JSON.parse(localStorage.getItem('orcamento_settings') || '{}');
+// (a variável  foi removida: os textos do PDF agora vêm da
+// leitura do pedido — remetente, cidade e descrições — ou são fixos,
+// no caso dos itens não incluídos.)
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
   DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
@@ -829,6 +821,11 @@ function impGerar() {
       // (<nº>_<Estabelecimento>.pdf) e a unidade agrupa o consolidado.
       numeroPedido: impDados.numeroPedido || '',
       unidade: impDados.estabelecimento || '',
+      // Vindos da leitura do pedido: viram o cabeçalho, a linha de data e
+      // o bloco de descrição do PDF, sem ninguém digitar nada.
+      remetente: impDados.remetente || '',
+      cidade: impDados.cidade || '',
+      descricoes: impDados.descricoes || {},
       items, status:'sent', createdAt: Date.now(),   // nasce como Enviado
     };
     quotes.unshift(q);
@@ -1274,92 +1271,6 @@ function generateConsolidatedPDFs() {
   showToast(`${unitNames.length} PDF(s) gerado(s)!`);
 }
 
-// ── Textos do PDF ─────────────────────────────────────────────────
-// O modelo aprovado tem três blocos de texto que não vêm dos dados:
-// a descrição de cada serviço, os itens não incluídos e a cidade. Eles
-// ficam aqui, editáveis, em vez de fixos no código — cada contrato
-// descreve seus serviços do próprio jeito.
-function abrirConfigPdf() {
-  let m = document.getElementById('cfgpdf-modal');
-  if (!m) {
-    m = document.createElement('div');
-    m.id = 'cfgpdf-modal';
-    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;' +
-      'display:flex;align-items:center;justify-content:center;padding:16px';
-    m.addEventListener('click', ev => { if (ev.target === m) fecharConfigPdf(); });
-    document.body.appendChild(m);
-  }
-  m.style.display = 'flex';
-
-  const nomes = [...new Set(quotes.flatMap(q => (q.items||[]).map(i=>i.name)).filter(Boolean))].sort();
-  const desc  = settings.descricoes || {};
-  const excl  = (settings.ressalvas && settings.ressalvas.trim())
-    ? settings.ressalvas : EXCLUSOES_PADRAO.join('\n');
-
-  m.innerHTML = `
-    <div style="background:var(--surface);border-radius:12px;padding:20px;max-width:640px;
-                width:100%;max-height:88vh;overflow:auto">
-      <div style="font-size:16px;font-weight:700;margin-bottom:4px">⚙️ Textos do PDF do orçamento</div>
-      <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">
-        Estes textos entram no PDF exatamente como no modelo aprovado.
-      </div>
-
-      <div class="field"><label>Destinatário (primeira linha)</label>
-        <input id="cfg-destinatario" type="text" value="${esc(settings.destinatario||'')}"
-               placeholder="À SECRETARIA DE EDUCAÇÃO DE APARECIDA DE GOIÂNIA - GO"></div>
-
-      <div class="field"><label>Cidade (linha final, com a data do dia)</label>
-        <input id="cfg-cidade" type="text" value="${esc(settings.cidade||'Aparecida de Goiânia')}"></div>
-
-      <div class="field"><label>Próximo nº de orçamento</label>
-        <input id="cfg-numero" type="text" value="${esc(settings.proximoNumero||'')}" placeholder="039">
-        <div style="font-size:11px;color:var(--text-2);margin-top:4px">
-          Usado quando o pedido importado não trouxer número. Também nomeia o arquivo.
-        </div></div>
-
-      <div style="font-size:13px;font-weight:600;margin:16px 0 6px">Descrição dos serviços</div>
-      <div style="font-size:11px;color:var(--text-2);margin-bottom:8px">
-        Só aparecem no PDF os serviços que o orçamento usa. Deixe em branco para omitir.
-      </div>
-      ${nomes.length ? nomes.map(n => `
-        <div class="field">
-          <label style="font-size:12px">${esc(n)}</label>
-          <textarea rows="2" data-desc="${esc(n)}"
-            style="font-size:12px">${esc(desc[n]||'')}</textarea>
-        </div>`).join('')
-        : '<div style="font-size:12px;color:var(--text-3)">Nenhum serviço usado ainda.</div>'}
-
-      <div class="field" style="margin-top:12px">
-        <label>Itens que não estão incluídos (um por linha)</label>
-        <textarea id="cfg-ressalvas" rows="7" style="font-size:12px">${esc(excl)}</textarea>
-      </div>
-
-      <button class="btn btn-primary" style="width:100%" onclick="salvarConfigPdf()">💾 Salvar</button>
-      <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharConfigPdf()">Fechar</button>
-    </div>`;
-}
-
-function fecharConfigPdf() {
-  const m = document.getElementById('cfgpdf-modal');
-  if (m) m.style.display = 'none';
-}
-
-function salvarConfigPdf() {
-  const v = id => (document.getElementById(id)?.value || '').trim();
-  settings.destinatario   = v('cfg-destinatario');
-  settings.cidade         = v('cfg-cidade');
-  settings.proximoNumero  = v('cfg-numero').replace(/\D/g, '');
-  settings.ressalvas      = document.getElementById('cfg-ressalvas')?.value || '';
-  settings.descricoes = {};
-  document.querySelectorAll('[data-desc]').forEach(t => {
-    const txt = t.value.trim();
-    if (txt) settings.descricoes[t.getAttribute('data-desc')] = txt;
-  });
-  try { localStorage.setItem('orcamento_settings', JSON.stringify(settings)); } catch (e) {}
-  showToast('✅ Textos salvos');
-  fecharConfigPdf();
-}
-
 // ══════════════════════════════════════════════════════════════════
 // PDF DO ORÇAMENTO — fiel ao modelo aprovado
 // ══════════════════════════════════════════════════════════════════
@@ -1396,31 +1307,28 @@ const MOD = {
 const money = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR',
   { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-// Descrições e exclusões vêm das configurações do módulo. Se não houver
-// nada configurado, usa os textos do modelo aprovado como ponto de
-// partida — assim o primeiro orçamento já sai completo, e quem quiser
-// ajustar edita em Configurações.
-const EXCLUSOES_PADRAO = [
+// ── Itens não incluídos ───────────────────────────────────────────
+// FIXOS, conforme o modelo aprovado. Não são editáveis de propósito: são
+// a delimitação do escopo do orçamento, e escopo que muda por tela vira
+// divergência entre o que foi orçado e o que foi combinado.
+const EXCLUSOES = Object.freeze([
   'Fornecimento do equipamento de ar-condicionado;',
   'Adequações elétricas no quadro de distribuição até a unidade condensadora;',
   'Fornecimento de disjuntor e circuito exclusivo para o aparelho;',
   'Infraestrutura embutida em alvenaria;',
   'Andaimes, plataformas elevatórias ou serviços em altura especiais;',
   'Tubulações adicionais além da distância prevista.',
-];
+]);
 
-function _descricoesDosServicos(nomesUsados) {
-  // A descrição de cada serviço fica no catálogo do contrato (campo
-  // `descricao`). Só entram no PDF os serviços que o orçamento usa —
-  // como no modelo, que descreve apenas os cinco que aparecem na tabela.
-  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
-  const mapa = new Map();
-  contratos.forEach(c => (c.servicos || []).forEach(sv => {
-    if (sv && sv.name && sv.descricao) mapa.set(sv.name, sv.descricao);
-  }));
-  const extras = settings.descricoes || {};
+// As descrições são REDIGIDAS PELA IA na leitura do pedido e guardadas
+// no próprio orçamento. Só entram no PDF os serviços que o orçamento usa —
+// como no modelo, que descreve apenas os cinco que aparecem na tabela.
+// Serviço sem descrição é omitido, nunca inventado aqui.
+function _descricoesDosServicos(nomesUsados, unitQuotes) {
+  const mapa = {};
+  (unitQuotes || []).forEach(q => Object.assign(mapa, q.descricoes || {}));
   return nomesUsados
-    .map(n => ({ nome: n, texto: extras[n] || mapa.get(n) || '' }))
+    .map(n => ({ nome: n, texto: mapa[n] || '' }))
     .filter(d => d.texto);
 }
 
@@ -1434,10 +1342,8 @@ function printConsolidatedPDF(unitName, unitQuotes) {
 
   // Número do orçamento: o do pedido importado, quando houver; senão o
   // sequencial do módulo. Vira também o nome do arquivo.
-  const numero = String(
-    unitQuotes.find(q => q.numeroPedido)?.numeroPedido ||
-    settings.proximoNumero || ''
-  ).replace(/\D/g, '');
+  const numero = String(unitQuotes.find(q => q.numeroPedido)?.numeroPedido || '')
+    .replace(/\D/g, '');
   const numeroFmt = numero ? numero.padStart(3, '0') : '';
 
   doc.setFont(MOD.fonte, 'normal');
@@ -1449,7 +1355,10 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   const cabe = (h) => { if (y + h > MOD.base) novaPagina(); };
 
   // ── Cabeçalho ───────────────────────────────────────────────────
-  const destino = settings.destinatario || (cont ? `À ${cont.razao}` : '');
+  // Quem enviou o pedido é quem recebe o orçamento. Vem da leitura do PDF;
+  // sem isso, cai na razão social do contrato.
+  const remetente = unitQuotes.find(q => q.remetente)?.remetente || '';
+  const destino = remetente ? `À ${remetente}` : (cont ? `À ${cont.razao}` : '');
   if (destino) {
     doc.setFont(MOD.fonte, 'bold');
     doc.text(destino.toUpperCase(), MOD.ML, y);
@@ -1471,7 +1380,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   const nomesUsados = [...new Set(
     unitQuotes.flatMap(q => (q.items || []).map(i => i.name)).filter(Boolean)
   )];
-  _descricoesDosServicos(nomesUsados).forEach(d => {
+  _descricoesDosServicos(nomesUsados, unitQuotes).forEach(d => {
     const rotulo = d.nome + ': ';
     const largRotulo = doc.getTextWidth(rotulo);
     const linhas = doc.splitTextToSize(d.texto, MOD.LARG - largRotulo);
@@ -1523,9 +1432,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   y += MOD.paragrafo + MOD.linha;
 
   // ── Itens não incluídos ─────────────────────────────────────────
-  const exclusoes = (settings.ressalvas && settings.ressalvas.trim())
-    ? settings.ressalvas.split('\n').map(t => t.trim()).filter(Boolean)
-    : EXCLUSOES_PADRAO;
+  const exclusoes = EXCLUSOES;   // fixas, conforme o modelo
   if (exclusoes.length) {
     cabe(MOD.linha * (exclusoes.length + 2));
     doc.setFont(MOD.fonte, 'bold');
@@ -1544,9 +1451,12 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   // ── Cidade e data (data do relógio, no dia da emissão) ──────────
   y += MOD.paragrafo * 2;
   cabe(MOD.linha * 2);
-  const cidade = settings.cidade || 'Aparecida de Goiânia';
+  // Cidade lida do pedido. Sem ela, imprime só a data — melhor omitir do
+  // que carimbar uma cidade que pode não ser a certa.
+  const cidade = unitQuotes.find(q => q.cidade)?.cidade || '';
   doc.setFont(MOD.fonte, 'normal');
-  doc.text(`${cidade}, ${new Date().toLocaleDateString('pt-BR')}.`, MOD.ML, y);
+  const dataHoje = new Date().toLocaleDateString('pt-BR');
+  doc.text(cidade ? `${cidade}, ${dataHoje}.` : `${dataHoje}.`, MOD.ML, y);
 
   // ── Nome do arquivo: <nºpedido>_<Estabelecimento>.pdf ───────────
   const estab = String(unitName || 'ORCAMENTO')
