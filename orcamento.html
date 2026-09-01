@@ -48,6 +48,11 @@
   --danger: #dc2626; --danger-bg: #fef2f2;
 }
 body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
+
+/* Badges dos status novos. 'rejected' e 'executed' não existiam no
+   shared.css; ficam aqui para não alterar o CSS de todas as páginas. */
+.badge-rejected { background:#fee2e2; color:#991b1b; }
+.badge-executed { background:#dbeafe; color:#1e40af; }
 </style>
 </head>
 <body>
@@ -74,6 +79,16 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- Screens -->
 <div id="screen-quotes" class="screen active">
+
+  <!-- Textos que entram no PDF do orçamento (descrição dos serviços,
+       itens não incluídos, cidade). Sem isto o modelo sai incompleto,
+       e antes não havia onde configurá-los. -->
+  <div style="padding:8px 12px 0;text-align:right">
+    <button onclick="abrirConfigPdf()"
+      style="background:none;border:none;color:var(--primary);font-size:12px;cursor:pointer">
+      ⚙️ Textos do PDF
+    </button>
+  </div>
 
   <!-- Filter bar -->
   <div class="filter-bar">
@@ -175,6 +190,65 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   </div>
 </div>
 
+<!-- ══ Importar pedido em PDF ═══════════════════════════════════════
+     Fluxo para pedidos em série: o cliente manda um PDF com várias TAGs
+     e os serviços pedidos para cada uma. A IA lê e mapeia contra o
+     catálogo do contrato; a pessoa revisa e gera os orçamentos.
+     A revisão é obrigatória de propósito — orçamento é dinheiro. -->
+<div id="screen-import" class="screen">
+  <div style="padding:12px">
+
+    <!-- Passo 1 -->
+    <div class="card" id="imp-passo1">
+      <div class="card-title">1. Contrato e arquivo</div>
+      <div class="field">
+        <label>Contrato *</label>
+        <select id="imp-contrato"></select>
+        <div style="font-size:11px;color:var(--text-2);margin-top:4px">
+          Os serviços e os preços vêm do catálogo deste contrato.
+        </div>
+      </div>
+      <div class="field">
+        <label>PDF do pedido *</label>
+        <input type="file" id="imp-arquivo" accept="application/pdf,.pdf" onchange="impArquivoEscolhido()">
+        <div id="imp-arquivo-info" style="font-size:11px;color:var(--text-2);margin-top:4px"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%" id="imp-btn-ler" onclick="impLerPdf()">
+        ✨ Extrair informações
+      </button>
+      <div id="imp-status" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Passo 2: dúvidas -->
+    <div class="card" id="imp-passo2" style="display:none">
+      <div class="card-title">2. Esclarecer</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">
+        A leitura encontrou pedidos que podem corresponder a mais de um serviço.
+        Escolha o que vale para este contrato.
+      </div>
+      <div id="imp-duvidas"></div>
+      <button class="btn btn-primary" style="width:100%" onclick="impAplicarRespostas()">
+        Aplicar respostas
+      </button>
+    </div>
+
+    <!-- Passo 3: revisão -->
+    <div class="card" id="imp-passo3" style="display:none">
+      <div class="card-title">3. Conferir e gerar</div>
+      <div id="imp-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
+      <div id="imp-pendencias"></div>
+      <div id="imp-tabela"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="impGerar()">
+        📋 Gerar orçamentos
+      </button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="impRecomecar()">
+        Recomeçar
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()" title="Novo orçamento">+</button>
 
@@ -230,6 +304,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
+  </button>
+  <button class="nav-btn" onclick="switchTab('import')" id="nav-import">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
+    Importar PDF
   </button>
 </nav>
 
@@ -507,6 +585,272 @@ function switchTab(tab) {
   document.getElementById('nav-' + tab).classList.add('active');
   document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
   if (tab === 'quotes') renderQuoteList();
+  if (tab === 'import') impPrepararTela();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// IMPORTAR PEDIDO DE ORÇAMENTO EM PDF
+// ══════════════════════════════════════════════════════════════════
+// Fluxo para pedidos em série, em três passos:
+//   1. contrato + PDF        → a IA lê e mapeia contra o catálogo
+//   2. dúvidas               → a pessoa decide o que era ambíguo
+//   3. revisão               → confere, ajusta e gera N orçamentos
+//
+// Um PDF costuma trazer VÁRIAS TAGs. Cada TAG vira UM orçamento, porque
+// é assim que o modelo de dados funciona (um orçamento = um equipamento)
+// e é assim que a aprovação acontece na prática: o cliente aprova por
+// equipamento, não o lote inteiro.
+//
+// O PREÇO NUNCA VEM DO PDF. Vem do catálogo do contrato, e o servidor
+// reescreve na gravação de qualquer forma (V08). A IA decide QUAIS
+// serviços entram, nunca QUANTO custam.
+
+let impDados   = null;   // resultado da leitura, já conciliado
+let impPdf     = null;   // dataUrl do arquivo escolhido
+let impRespostas = {};   // dúvidas respondidas
+
+function impPrepararTela() {
+  const sel = document.getElementById('imp-contrato');
+  if (!sel) return;
+  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Selecione…</option>' +
+    contratos.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao || '')}</option>`).join('');
+  if (atual) sel.value = atual;
+}
+
+function impArquivoEscolhido() {
+  const f = document.getElementById('imp-arquivo').files[0];
+  const info = document.getElementById('imp-arquivo-info');
+  impPdf = null;
+  if (!f) { info.textContent = ''; return; }
+  if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)) {
+    info.innerHTML = '<span style="color:var(--danger)">O arquivo precisa ser um PDF.</span>';
+    return;
+  }
+  const mb = f.size / 1048576;
+  if (mb > 8) {
+    info.innerHTML = `<span style="color:var(--danger)">PDF de ${mb.toFixed(1)} MB — o limite é 8 MB.
+      Divida o pedido ou reduza a resolução da digitalização.</span>`;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    impPdf = reader.result;
+    info.textContent = `${f.name} · ${mb.toFixed(1)} MB`;
+  };
+  reader.readAsDataURL(f);
+}
+
+function impLerPdf(respostas) {
+  const contrato = document.getElementById('imp-contrato').value;
+  if (!contrato) { showToast('Selecione o contrato'); return; }
+  if (!impPdf)   { showToast('Escolha o PDF do pedido'); return; }
+
+  const st  = document.getElementById('imp-status');
+  const btn = document.getElementById('imp-btn-ler');
+  btn.disabled = true;
+  // Leitura de PDF leva alguns segundos; sem este aviso a pessoa clica
+  // de novo e dispara uma segunda chamada — que é paga.
+  st.innerHTML = `<div style="font-size:12px;color:var(--text-2);padding:8px 0">
+    ✨ Lendo o documento… isso pode levar de 10 a 40 segundos.</div>`;
+
+  DB.importarPedidoPdf(contrato, impPdf, respostas || null)
+    .then(r => {
+      impDados = r;
+      st.innerHTML = '';
+      btn.disabled = false;
+      if (r.duvidas && r.duvidas.length) impMostrarDuvidas();
+      else impMostrarRevisao();
+    })
+    .catch(e => {
+      btn.disabled = false;
+      st.innerHTML = `<div style="font-size:12px;color:var(--danger);padding:8px 0">
+        ${esc(e.message)}</div>`;
+    });
+}
+
+// ── Passo 2: dúvidas ──────────────────────────────────────────────
+// O exemplo que motivou isto: o pedido diz "limpeza geral" e o catálogo
+// tem limpeza de condensadora e de evaporadora. A IA não deve escolher —
+// quem conhece o contrato escolhe.
+function impMostrarDuvidas() {
+  document.getElementById('imp-passo2').style.display = 'block';
+  document.getElementById('imp-passo3').style.display = 'none';
+  const el = document.getElementById('imp-duvidas');
+
+  el.innerHTML = impDados.duvidas.map(d => `
+    <div style="border:1px solid var(--border);border-left:4px solid #f59e0b;border-radius:8px;
+                padding:12px;margin-bottom:10px">
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
+        ${d.tag ? 'TAG ' + esc(d.tag) + ' · ' : ''}no pedido: “${esc(d.textoOriginal)}”
+      </div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">${esc(d.pergunta)}</div>
+      ${d.opcoes.map((o, i) => `
+        <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;cursor:pointer">
+          <input type="${d.multipla ? 'checkbox' : 'radio'}" name="dv-${esc(d.id)}"
+                 value="${esc(o)}" data-duvida="${esc(d.id)}">
+          <span>${esc(o)}</span>
+        </label>`).join('')}
+      <label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;
+                    cursor:pointer;color:var(--text-2);border-top:1px solid var(--border);margin-top:6px">
+        <input type="${d.multipla ? 'checkbox' : 'radio'}" name="dv-${esc(d.id)}"
+               value="__nenhum__" data-duvida="${esc(d.id)}">
+        <span>Nenhum destes — não incluir</span>
+      </label>
+    </div>`).join('');
+}
+
+function impAplicarRespostas() {
+  impRespostas = {};
+  (impDados.duvidas || []).forEach(d => {
+    const marcados = [...document.querySelectorAll(`input[data-duvida="${d.id}"]:checked`)]
+      .map(i => i.value).filter(v => v !== '__nenhum__');
+    if (marcados.length) impRespostas[d.id] = marcados;
+  });
+
+  // As respostas são aplicadas LOCALMENTE, sem reler o PDF. Reler custaria
+  // outra chamada paga e poderia mudar o que já foi conferido — o usuário
+  // decidiu, e a decisão dele é que vale.
+  const porTag = new Map(impDados.equipamentos.map(e => [e.tag, e]));
+  (impDados.duvidas || []).forEach(d => {
+    const escolhas = impRespostas[d.id];
+    if (!escolhas) return;
+    let eq = porTag.get(d.tag);
+    if (!eq) {
+      eq = { tag: d.tag || '', marca: '', local: '', servicos: [] };
+      impDados.equipamentos.push(eq); porTag.set(d.tag, eq);
+    }
+    escolhas.forEach(nome => {
+      if (!eq.servicos.some(s => s.name === nome))
+        eq.servicos.push({ name: nome, unit: 'un', qty: 1, textoOriginal: d.textoOriginal });
+    });
+  });
+
+  impDados.duvidas = [];
+  document.getElementById('imp-passo2').style.display = 'none';
+  impMostrarRevisao();
+}
+
+// ── Passo 3: revisão ──────────────────────────────────────────────
+function impMostrarRevisao() {
+  document.getElementById('imp-passo3').style.display = 'block';
+  const comServico = impDados.equipamentos.filter(e => e.servicos.length);
+  const totalServ  = comServico.reduce((a, e) => a + e.servicos.length, 0);
+
+  document.getElementById('imp-resumo').innerHTML = `
+    ${impDados.estabelecimento ? '🏢 ' + esc(impDados.estabelecimento) + '<br>' : ''}
+    <strong>${comServico.length}</strong> equipamento(s) · <strong>${totalServ}</strong> serviço(s) ·
+    serão gerados <strong>${comServico.length}</strong> orçamento(s), um por TAG.`;
+
+  // O que a IA não conseguiu mapear aparece em destaque, não escondido.
+  // Um pedido lido pela metade sem aviso é pior que um pedido não lido.
+  const pend = impDados.naoEncontrados || [];
+  document.getElementById('imp-pendencias').innerHTML = pend.length ? `
+    <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px">
+        ⚠️ ${pend.length} item(ns) não encontrados no catálogo do contrato
+      </div>
+      <div style="font-size:11px;color:#92400e;line-height:1.6">
+        ${pend.slice(0, 15).map(p =>
+          `• ${p.tag ? 'TAG ' + esc(p.tag) + ': ' : ''}“${esc(p.textoOriginal)}”`).join('<br>')}
+        ${pend.length > 15 ? `<br>… e mais ${pend.length - 15}` : ''}
+      </div>
+      <div style="font-size:11px;color:#92400e;margin-top:6px">
+        Estes NÃO entram nos orçamentos. Cadastre o serviço no contrato ou acrescente à mão depois.
+      </div>
+    </div>` : '';
+
+  document.getElementById('imp-tabela').innerHTML = impDados.equipamentos.map((e, i) => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <input type="text" value="${esc(e.tag)}" placeholder="TAG"
+               oninput="impSetTag(${i}, this.value)"
+               style="flex:1;font-weight:700;font-size:13px;padding:6px;border:1px solid var(--border);border-radius:6px">
+        <button onclick="impRemoverEquip(${i})" title="Não gerar para esta TAG"
+                style="background:none;border:1px solid var(--border);border-radius:6px;
+                       padding:4px 8px;color:var(--danger);cursor:pointer">✕</button>
+      </div>
+      ${e.local ? `<div style="font-size:11px;color:var(--text-2);margin-bottom:6px">${esc(e.local)}</div>` : ''}
+      ${e.servicos.length ? e.servicos.map((sv, j) => `
+        <div style="display:flex;gap:6px;align-items:center;padding:4px 0;font-size:12px">
+          <span style="flex:1">${esc(sv.name)}</span>
+          <input type="number" min="1" max="999" value="${sv.qty}"
+                 onchange="impSetQty(${i},${j},this.value)"
+                 style="width:56px;padding:4px;border:1px solid var(--border);border-radius:6px;text-align:center">
+          <button onclick="impRemoverServico(${i},${j})"
+                  style="background:none;border:none;color:var(--danger);cursor:pointer;padding:0 4px">✕</button>
+        </div>
+        ${sv.textoOriginal ? `<div style="font-size:10px;color:var(--text-3);margin:-2px 0 4px 0">
+           no pedido: “${esc(sv.textoOriginal)}”</div>` : ''}
+      `).join('') : '<div style="font-size:12px;color:var(--text-3);padding:4px 0">Sem serviços — não será gerado.</div>'}
+    </div>`).join('');
+}
+
+function impSetTag(i, v)          { impDados.equipamentos[i].tag = v.trim(); }
+function impSetQty(i, j, v)       { impDados.equipamentos[i].servicos[j].qty = Math.max(1, parseInt(v,10)||1); }
+function impRemoverServico(i, j)  { impDados.equipamentos[i].servicos.splice(j,1); impMostrarRevisao(); }
+function impRemoverEquip(i)       { impDados.equipamentos.splice(i,1); impMostrarRevisao(); }
+
+function impRecomecar() {
+  impDados = null; impPdf = null; impRespostas = {};
+  document.getElementById('imp-arquivo').value = '';
+  document.getElementById('imp-arquivo-info').textContent = '';
+  document.getElementById('imp-passo2').style.display = 'none';
+  document.getElementById('imp-passo3').style.display = 'none';
+  document.getElementById('imp-status').innerHTML = '';
+}
+
+// ── Gerar os orçamentos ───────────────────────────────────────────
+function impGerar() {
+  const contrato = document.getElementById('imp-contrato').value;
+  const validos = impDados.equipamentos.filter(e => e.servicos.length);
+  if (!validos.length) { showToast('Nenhum equipamento com serviço para gerar'); return; }
+  if (!confirm(`Gerar ${validos.length} orçamento(s) para o contrato ${contrato}?`)) return;
+
+  const catalogo = _getAvailableServices();
+  const hoje = new Date().toISOString().slice(0,10);
+  const criados = [];
+
+  validos.forEach(e => {
+    const items = e.servicos.map(sv => {
+      // O preço vem do catálogo local só para exibir na hora; o servidor
+      // reescreve pelo contrato ao gravar. Nunca do PDF.
+      const doCat = catalogo.find(c => c.name === sv.name);
+      return { name: sv.name, price: doCat?.price || 0, qty: sv.qty,
+               taxRate: doCat?.taxRate || 0, unit: doCat?.unit || sv.unit || 'un', labor: 0 };
+    });
+    const q = {
+      id: genId(), client: contrato, phone:'', address:'',
+      equip: e.tag, machine: null, date: hoje, validity:'', payment:'',
+      notes: [impDados.estabelecimento ? 'Estabelecimento: ' + impDados.estabelecimento : '',
+              e.local || '', 'Importado de pedido em PDF.'].filter(Boolean).join(' · '),
+      // Guardados para o PDF: o número do pedido nomeia o arquivo
+      // (<nº>_<Estabelecimento>.pdf) e a unidade agrupa o consolidado.
+      numeroPedido: impDados.numeroPedido || '',
+      unidade: impDados.estabelecimento || '',
+      items, status:'sent', createdAt: Date.now(),   // nasce como Enviado
+    };
+    quotes.unshift(q);
+    criados.push(q);
+  });
+
+  // Persiste um a um: o backend valida contrato e recalcula preço em cada.
+  Promise.allSettled(criados.map(q =>
+    signRecord(q.id, 'criado', 'orcamentos')
+      .then(sig => { q._signatures = [sig]; return persist(q); })
+      .catch(() => persist(q))
+  )).then(res => {
+    const falhas = res.filter(r => r.status === 'rejected').length;
+    // O módulo grava o cache local direto, sem função auxiliar.
+    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+    renderQuoteList();
+    switchTab('quotes');
+    impRecomecar();
+    showToast(falhas
+      ? `${criados.length - falhas} orçamento(s) gerados, ${falhas} com erro — confira a lista`
+      : `✅ ${criados.length} orçamento(s) gerados`, 5000);
+  });
 }
 
 // ── Quotes list ──
@@ -529,8 +873,16 @@ function renderQuoteList() {
   let lastMonth = '';
   list.innerHTML = filtered.map(q => {
     const total = q.items.reduce((s,i) => s + i.price * i.qty + (i.labor||0), 0);
-    const statusMap = { pending: ['Pendente','badge-pending'], sent: ['Enviado','badge-sent'], approved: ['Aprovado','badge-approved'] };
-    const [sLabel, sCls] = statusMap[q.status || 'pending'];
+    // 'pending' fica só por compatibilidade: orçamentos criados antes desta
+    // versão têm esse status e precisam continuar abrindo normalmente.
+    const statusMap = {
+      pending:  ['Pendente',  'badge-pending'],
+      sent:     ['Enviado',   'badge-sent'],
+      approved: ['Aprovado',  'badge-approved'],
+      rejected: ['Reprovado', 'badge-rejected'],
+      executed: ['Executado', 'badge-executed'],
+    };
+    const [sLabel, sCls] = statusMap[q.status] || statusMap.pending;
     const month = q.date ? q.date.slice(0,7) : '';
     let header = '';
     if (month !== lastMonth) {
@@ -607,7 +959,7 @@ function saveQuote() {
     payment: '',
     notes: document.getElementById('f-notes').value,
     items: newItems,
-    status: 'pending',
+    status: 'sent',        // nasce como Enviado
     createdAt: editingId ? (quotes.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
   };
   if (editingId) {
@@ -809,7 +1161,15 @@ function openDetail(id) {
   const sub = q.items.reduce((s,i) => s + i.price*i.qty, 0);
   const laborTotal = q.items.reduce((s,i) => s + (i.labor||0), 0);
   const tax = q.items.reduce((s,i) => s + i.price*i.qty*i.taxRate, 0);
-  const statusOpts = ['pending','sent','approved'].map(s => `<option value="${s}" ${q.status===s?'selected':''}>${{pending:'Pendente',sent:'Enviado',approved:'Aprovado'}[s]}</option>`).join('');
+  // Ordem do ciclo: enviado → aprovado/reprovado → executado.
+  const _rot = { sent:'Enviado', approved:'Aprovado', rejected:'Reprovado',
+                 executed:'Executado', pending:'Pendente (antigo)' };
+  const _opts = ['sent','approved','rejected','executed'];
+  // Só mostra 'pending' se o orçamento AINDA estiver nele — não faz sentido
+  // oferecer como destino um status que saiu de uso.
+  if (q.status === 'pending') _opts.unshift('pending');
+  const statusOpts = _opts.map(s =>
+    `<option value="${s}" ${q.status===s?'selected':''}>${_rot[s]}</option>`).join('');
   document.getElementById('detail-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:14px">
       <div>
@@ -914,138 +1274,287 @@ function generateConsolidatedPDFs() {
   showToast(`${unitNames.length} PDF(s) gerado(s)!`);
 }
 
-function printConsolidatedPDF(unitName, unitQuotes) {
-  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const W = 210, M = 20, CW = W - M*2;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
-  const cont = unitQuotes[0] ? contracts.find(x=>x.numero===unitQuotes[0].client) : null;
-  const drawHeader = (pageTitle) => drawPdfHeader(doc, { title: pageTitle, metaLines: [`Emitido em: ${new Date().toLocaleDateString('pt-BR')}`] });
-
-  let y = drawHeader('ORÇAMENTO CONSOLIDADO');
-
-
-  // Unit box
-  doc.setFillColor(239,246,255);
-  doc.rect(M, y, CW, 20, 'F');
-  doc.setTextColor(30,30,30);
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text('UNIDADE / ESTABELECIMENTO', M+4, y+7);
-  doc.setFontSize(10); doc.setFont('helvetica','bold');
-  doc.text(unitName, M+4, y+15);
-  y += 26;
-
-  // Intro text
-  if (settings.intro && settings.intro.trim()) {
-    const introLines = doc.splitTextToSize(settings.intro, CW);
-    doc.setTextColor(50,50,50); doc.setFont('helvetica','normal'); doc.setFontSize(12);
-    doc.text(introLines, M, y);
-    y += introLines.length * 5 + 8;
+// ── Textos do PDF ─────────────────────────────────────────────────
+// O modelo aprovado tem três blocos de texto que não vêm dos dados:
+// a descrição de cada serviço, os itens não incluídos e a cidade. Eles
+// ficam aqui, editáveis, em vez de fixos no código — cada contrato
+// descreve seus serviços do próprio jeito.
+function abrirConfigPdf() {
+  let m = document.getElementById('cfgpdf-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'cfgpdf-modal';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;' +
+      'display:flex;align-items:center;justify-content:center;padding:16px';
+    m.addEventListener('click', ev => { if (ev.target === m) fecharConfigPdf(); });
+    document.body.appendChild(m);
   }
-  if (y > 260) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+  m.style.display = 'flex';
 
-  let grandTotal = 0, grandTax = 0;
+  const nomes = [...new Set(quotes.flatMap(q => (q.items||[]).map(i=>i.name)).filter(Boolean))].sort();
+  const desc  = settings.descricoes || {};
+  const excl  = (settings.ressalvas && settings.ressalvas.trim())
+    ? settings.ressalvas : EXCLUSOES_PADRAO.join('\n');
 
-  // One section per equipment (TAG)
-  unitQuotes.forEach((q, qi) => {
-    if (y > 250) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
+  m.innerHTML = `
+    <div style="background:var(--surface);border-radius:12px;padding:20px;max-width:640px;
+                width:100%;max-height:88vh;overflow:auto">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">⚙️ Textos do PDF do orçamento</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:14px">
+        Estes textos entram no PDF exatamente como no modelo aprovado.
+      </div>
 
-    // Equipment sub-header
-    doc.setFillColor(219,234,254);
-    doc.rect(M, y, CW, 9, 'F');
-    doc.setTextColor(30,58,138); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    const m = q.machine;
-    const eqLabel = `Contrato ${esc(q.client)} · TAG ${esc(q.equip || '—')}${m ? '  —  '+m.marca+' '+m.tipo+(m.capacidade?' · '+m.capacidade+' BTU':'') : ''}`;
-    doc.text(eqLabel, M+3, y+6);
-    y += 9;
-    if (m && m.recinto) {
-      doc.setTextColor(80,80,80); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-      doc.text(`Recinto: ${m.recinto}`, M+3, y+5);
-      y += 7;
-    }
+      <div class="field"><label>Destinatário (primeira linha)</label>
+        <input id="cfg-destinatario" type="text" value="${esc(settings.destinatario||'')}"
+               placeholder="À SECRETARIA DE EDUCAÇÃO DE APARECIDA DE GOIÂNIA - GO"></div>
 
-    // Services table header
-    doc.setFillColor(37,99,235);
-    doc.rect(M, y, CW, 7, 'F');
-    doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
-    doc.text('SERVIÇO', M+3, y+5);
-    doc.text('QTD', M+CW*0.58, y+5, {align:'center'});
-    doc.text('VALOR UNIT.', M+CW*0.75, y+5, {align:'center'});
-    doc.text('TOTAL', M+CW-3, y+5, {align:'right'});
-    y += 7;
+      <div class="field"><label>Cidade (linha final, com a data do dia)</label>
+        <input id="cfg-cidade" type="text" value="${esc(settings.cidade||'Aparecida de Goiânia')}"></div>
 
-    let sub = 0, tax = 0, labor = 0;
-    q.items.forEach((it, idx) => {
-      if (y > 270) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
-      const line = it.price * it.qty + (it.labor || 0);
-      const t = (it.price * it.qty) * it.taxRate;
-      sub += it.price * it.qty; tax += t; labor += (it.labor || 0);
-      if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 7, 'F'); }
-      if (it.inviavel) {
-        doc.setFillColor(254,242,242); doc.rect(M, y, CW, 7, 'F');
-        doc.setTextColor(220,38,38); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-        doc.text('INVIÁVEL — Equipamento condenado', M+3, y+5);
-        doc.text('—', M+CW-3, y+5, {align:'right'});
-      } else {
-        doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-        const nameStr = doc.splitTextToSize(it.name + (it.labor ? ` (+ M.O. ${fmt(it.labor)})` : ''), CW*0.52);
-        doc.text(nameStr, M+3, y+5);
-        doc.text(String(it.qty), M+CW*0.58, y+5, {align:'center'});
-        doc.text(fmt(it.price), M+CW*0.75, y+5, {align:'center'});
-        doc.setFont('helvetica','bold');
-        doc.text(fmt(line), M+CW-3, y+5, {align:'right'});
-      }
-      y += 7;
-    });
+      <div class="field"><label>Próximo nº de orçamento</label>
+        <input id="cfg-numero" type="text" value="${esc(settings.proximoNumero||'')}" placeholder="039">
+        <div style="font-size:11px;color:var(--text-2);margin-top:4px">
+          Usado quando o pedido importado não trouxer número. Também nomeia o arquivo.
+        </div></div>
 
-    grandTotal += sub + labor; grandTax += tax;
+      <div style="font-size:13px;font-weight:600;margin:16px 0 6px">Descrição dos serviços</div>
+      <div style="font-size:11px;color:var(--text-2);margin-bottom:8px">
+        Só aparecem no PDF os serviços que o orçamento usa. Deixe em branco para omitir.
+      </div>
+      ${nomes.length ? nomes.map(n => `
+        <div class="field">
+          <label style="font-size:12px">${esc(n)}</label>
+          <textarea rows="2" data-desc="${esc(n)}"
+            style="font-size:12px">${esc(desc[n]||'')}</textarea>
+        </div>`).join('')
+        : '<div style="font-size:12px;color:var(--text-3)">Nenhum serviço usado ainda.</div>'}
 
-    // Subtotal per equipment
-    doc.setTextColor(80,80,80); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.text(`Subtotal do equipamento:`, M+CW*0.55, y+4);
-    doc.text(fmt(sub + labor), M+CW-3, y+4, {align:'right'});
-    y += 10;
+      <div class="field" style="margin-top:12px">
+        <label>Itens que não estão incluídos (um por linha)</label>
+        <textarea id="cfg-ressalvas" rows="7" style="font-size:12px">${esc(excl)}</textarea>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%" onclick="salvarConfigPdf()">💾 Salvar</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharConfigPdf()">Fechar</button>
+    </div>`;
+}
+
+function fecharConfigPdf() {
+  const m = document.getElementById('cfgpdf-modal');
+  if (m) m.style.display = 'none';
+}
+
+function salvarConfigPdf() {
+  const v = id => (document.getElementById(id)?.value || '').trim();
+  settings.destinatario   = v('cfg-destinatario');
+  settings.cidade         = v('cfg-cidade');
+  settings.proximoNumero  = v('cfg-numero').replace(/\D/g, '');
+  settings.ressalvas      = document.getElementById('cfg-ressalvas')?.value || '';
+  settings.descricoes = {};
+  document.querySelectorAll('[data-desc]').forEach(t => {
+    const txt = t.value.trim();
+    if (txt) settings.descricoes[t.getAttribute('data-desc')] = txt;
+  });
+  try { localStorage.setItem('orcamento_settings', JSON.stringify(settings)); } catch (e) {}
+  showToast('✅ Textos salvos');
+  fecharConfigPdf();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PDF DO ORÇAMENTO — fiel ao modelo aprovado
+// ══════════════════════════════════════════════════════════════════
+// A tipografia e as medidas abaixo foram MEDIDAS no PDF modelo
+// (Orcamento_039), não estimadas:
+//
+//   Página ......... Carta / Letter, 215,9 × 279,4 mm  (não é A4)
+//   Fonte .......... Arial 12 pt (helvetica no jsPDF, métrica equivalente)
+//   Margem esq/dir . 90 pt = 31,75 mm  → texto com 152,4 mm de largura
+//   Margem superior  ~26 mm
+//   Entrelinha ..... 16 pt = 5,64 mm dentro do parágrafo
+//   Entre parágrafos 26 pt = 9,17 mm
+//   Tabela ......... de 101,5 pt a 510,5 pt  (35,8 mm a 180,1 mm)
+//   Colunas ........ PMOC 44,8 mm · Serviço 77,6 mm · Valor 153,1 mm
+//
+// A ordem do documento também segue o modelo:
+//   cabeçalho → nº do orçamento → descrição dos serviços → tabela →
+//   valor total → itens não incluídos → cidade e data.
+const MOD = {
+  fonte: 'helvetica', tam: 12,
+  ML: 31.75, LARG: 152.4,
+  // 29.4 e não 26: o jsPDF posiciona pela LINHA DE BASE, enquanto a
+  // medição do modelo foi feita pelo topo do glifo. A diferença é a
+  // altura ascendente da Arial 12pt (~3,4 mm) — sem somá-la, o texto
+  // sairia 3,4 mm mais alto que o original.
+  MT: 29.4,
+  linha: 5.64, paragrafo: 9.17, cabecalho: 7.2,
+  tabX: 35.81, tabFim: 180.07,
+  colPmoc: 44.8, colServico: 77.6, colValor: 153.1,
+  alturaLinha: 10.05,
+  base: 279.4 - 20,          // limite inferior útil
+};
+
+const money = v => 'R$ ' + Number(v || 0).toLocaleString('pt-BR',
+  { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Descrições e exclusões vêm das configurações do módulo. Se não houver
+// nada configurado, usa os textos do modelo aprovado como ponto de
+// partida — assim o primeiro orçamento já sai completo, e quem quiser
+// ajustar edita em Configurações.
+const EXCLUSOES_PADRAO = [
+  'Fornecimento do equipamento de ar-condicionado;',
+  'Adequações elétricas no quadro de distribuição até a unidade condensadora;',
+  'Fornecimento de disjuntor e circuito exclusivo para o aparelho;',
+  'Infraestrutura embutida em alvenaria;',
+  'Andaimes, plataformas elevatórias ou serviços em altura especiais;',
+  'Tubulações adicionais além da distância prevista.',
+];
+
+function _descricoesDosServicos(nomesUsados) {
+  // A descrição de cada serviço fica no catálogo do contrato (campo
+  // `descricao`). Só entram no PDF os serviços que o orçamento usa —
+  // como no modelo, que descreve apenas os cinco que aparecem na tabela.
+  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+  const mapa = new Map();
+  contratos.forEach(c => (c.servicos || []).forEach(sv => {
+    if (sv && sv.name && sv.descricao) mapa.set(sv.name, sv.descricao);
+  }));
+  const extras = settings.descricoes || {};
+  return nomesUsados
+    .map(n => ({ nome: n, texto: extras[n] || mapa.get(n) || '' }))
+    .filter(d => d.texto);
+}
+
+function printConsolidatedPDF(unitName, unitQuotes) {
+  if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'letter' });   // modelo é Carta
+
+  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+  const cont = unitQuotes[0] ? contratos.find(x => x.numero === unitQuotes[0].client) : null;
+
+  // Número do orçamento: o do pedido importado, quando houver; senão o
+  // sequencial do módulo. Vira também o nome do arquivo.
+  const numero = String(
+    unitQuotes.find(q => q.numeroPedido)?.numeroPedido ||
+    settings.proximoNumero || ''
+  ).replace(/\D/g, '');
+  const numeroFmt = numero ? numero.padStart(3, '0') : '';
+
+  doc.setFont(MOD.fonte, 'normal');
+  doc.setFontSize(MOD.tam);
+  doc.setTextColor(0, 0, 0);
+  let y = MOD.MT;
+
+  const novaPagina = () => { doc.addPage(); y = MOD.MT; };
+  const cabe = (h) => { if (y + h > MOD.base) novaPagina(); };
+
+  // ── Cabeçalho ───────────────────────────────────────────────────
+  const destino = settings.destinatario || (cont ? `À ${cont.razao}` : '');
+  if (destino) {
+    doc.setFont(MOD.fonte, 'bold');
+    doc.text(destino.toUpperCase(), MOD.ML, y);
+    y += MOD.cabecalho;
+  }
+  doc.setFont(MOD.fonte, 'normal');
+  doc.text('ASSUNTO: ORÇAMENTO DE MANUTENÇÃO', MOD.ML, y);   y += MOD.cabecalho;
+  doc.text(`UNIDADE ESCOLAR: ${unitName}`, MOD.ML, y);       y += MOD.cabecalho * 2;
+
+  if (numeroFmt) {
+    doc.setFont(MOD.fonte, 'bold');
+    doc.text(`ORÇAMENTO ${numeroFmt}`, 215.9 / 2, y, { align: 'center' });
+    y += MOD.paragrafo + MOD.cabecalho;
+  }
+
+  // ── Descrição dos serviços ──────────────────────────────────────
+  // Como no modelo: nome em negrito, dois-pontos, e o texto seguindo na
+  // mesma linha, quebrando com a entrelinha do parágrafo.
+  const nomesUsados = [...new Set(
+    unitQuotes.flatMap(q => (q.items || []).map(i => i.name)).filter(Boolean)
+  )];
+  _descricoesDosServicos(nomesUsados).forEach(d => {
+    const rotulo = d.nome + ': ';
+    const largRotulo = doc.getTextWidth(rotulo);
+    const linhas = doc.splitTextToSize(d.texto, MOD.LARG - largRotulo);
+    const resto = linhas.length > 1
+      ? doc.splitTextToSize(linhas.slice(1).join(' '), MOD.LARG) : [];
+    cabe((1 + resto.length) * MOD.linha + MOD.paragrafo);
+    doc.setFont(MOD.fonte, 'bold');
+    doc.text(rotulo, MOD.ML, y);
+    doc.setFont(MOD.fonte, 'normal');
+    doc.text(linhas[0] || '', MOD.ML + largRotulo, y);
+    y += MOD.linha;
+    resto.forEach(l => { doc.text(l, MOD.ML, y); y += MOD.linha; });
+    y += MOD.paragrafo - MOD.linha;
   });
 
-  // Grand total
-  if (y > 255) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
-  y += 2;
-  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(80,80,80);
-  doc.text('Subtotal geral:', M+CW*0.55, y);
-  doc.text(fmt(grandTotal), M+CW-3, y, {align:'right'});
-  y += 7;
-  doc.text('Impostos (~20%):', M+CW*0.55, y);
-  doc.text(fmt(grandTax), M+CW-3, y, {align:'right'});
-  y += 5;
-  doc.setFillColor(37,99,235);
-  doc.rect(M+CW*0.5, y, CW*0.5, 11, 'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-  doc.text('TOTAL GERAL:', M+CW*0.54, y+7.5);
-  doc.text(fmt(grandTotal), M+CW-3, y+7.5, {align:'right'});
-  y += 18;
+  // ── Tabela ──────────────────────────────────────────────────────
+  y += MOD.paragrafo;
+  const linhaTabela = (pmoc, servico, valor, negrito) => {
+    cabe(MOD.alturaLinha);
+    doc.setFont(MOD.fonte, negrito ? 'bold' : 'normal');
+    doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.2);
+    doc.rect(MOD.tabX, y, MOD.tabFim - MOD.tabX, MOD.alturaLinha);
+    const yt = y + MOD.alturaLinha / 2 + 1.5;
+    doc.text(String(pmoc), MOD.colPmoc, yt);
+    doc.text(doc.splitTextToSize(String(servico), MOD.colValor - MOD.colServico - 4)[0] || '',
+             MOD.colServico, yt);
+    doc.text(String(valor), MOD.colValor, yt);
+    y += MOD.alturaLinha;
+  };
 
-  // Ressalvas finais
-  if (settings.ressalvas && settings.ressalvas.trim()) {
-    if (y > 255) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
-    doc.setFillColor(255,251,235);
-    const resLines = doc.splitTextToSize(settings.ressalvas, CW-8);
-    const resH = resLines.length * 5 + 10;
-    if (y + resH > 280) { doc.addPage(); y = drawHeader('ORÇAMENTO CONSOLIDADO'); }
-    doc.rect(M, y, CW, resH, 'F');
-    doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.text('RESSALVAS', M+4, y+6);
-    doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50); doc.setFontSize(12);
-    doc.text(resLines, M+4, y+12);
-    y += resH + 4;
+  linhaTabela('PMOC', 'Serviço', 'Valor total', true);
+
+  let total = 0;
+  unitQuotes.forEach(q => {
+    (q.items || []).forEach(it => {
+      if (it.inviavel) return;
+      const qtd = it.qty || 1;
+      const sub = (Number(it.price) || 0) * qtd;
+      total += sub;
+      linhaTabela(q.equip || '—', it.name + (qtd > 1 ? ` (${qtd}x)` : ''), money(sub), false);
+    });
+  });
+
+  // ── Valor total ─────────────────────────────────────────────────
+  y += MOD.paragrafo;
+  cabe(MOD.linha * 2);
+  doc.setFont(MOD.fonte, 'bold');
+  doc.text(`Valor total: ${money(total)}`, MOD.ML, y);
+  y += MOD.paragrafo + MOD.linha;
+
+  // ── Itens não incluídos ─────────────────────────────────────────
+  const exclusoes = (settings.ressalvas && settings.ressalvas.trim())
+    ? settings.ressalvas.split('\n').map(t => t.trim()).filter(Boolean)
+    : EXCLUSOES_PADRAO;
+  if (exclusoes.length) {
+    cabe(MOD.linha * (exclusoes.length + 2));
+    doc.setFont(MOD.fonte, 'bold');
+    doc.text('Itens que não estão incluídos:', MOD.ML, y);
+    y += MOD.paragrafo;
+    doc.setFont(MOD.fonte, 'normal');
+    exclusoes.forEach(t => {
+      const linhas = doc.splitTextToSize(t, MOD.LARG - 12.7);
+      cabe(linhas.length * MOD.linha);
+      doc.text('\u25CF', MOD.ML + 6.35, y);          // bullet a 108 pt
+      doc.text(linhas, MOD.ML + 12.7, y);            // texto a 126 pt
+      y += linhas.length * MOD.linha + 1.5;
+    });
   }
 
-  drawPdfFooters(doc, cont);
+  // ── Cidade e data (data do relógio, no dia da emissão) ──────────
+  y += MOD.paragrafo * 2;
+  cabe(MOD.linha * 2);
+  const cidade = settings.cidade || 'Aparecida de Goiânia';
+  doc.setFont(MOD.fonte, 'normal');
+  doc.text(`${cidade}, ${new Date().toLocaleDateString('pt-BR')}.`, MOD.ML, y);
 
-  const safeName = unitName.replace(/[^\w\sÀ-ú-]/g,'').replace(/\s+/g,'-').slice(0,40);
-  const dateTag = filterMonth || new Date().toISOString().slice(0,7);
-  try { doc.save(`orcamento-consolidado-${safeName}-${dateTag}.pdf`); }
-  catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
+  // ── Nome do arquivo: <nºpedido>_<Estabelecimento>.pdf ───────────
+  const estab = String(unitName || 'ORCAMENTO')
+    .replace(/[\\/:*?"<>|]/g, '')      // caracteres proibidos em nome de arquivo
+    .replace(/\s+/g, ' ').trim();
+  const nome = (numeroFmt ? `${numero}_${estab}` : estab).slice(0, 120);
+  try { doc.save(`${nome}.pdf`); }
+  catch (e) { showToast('Erro ao gerar o PDF: ' + e.message); }
 }
 
 function printPDF(id) {

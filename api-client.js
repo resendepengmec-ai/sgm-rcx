@@ -54,6 +54,14 @@ function esc(str) {
 }
 
 const ROLES = {
+  // Papel da PLATAFORMA (dono do Client ID Google). Fica acima do admin:
+  // cadastra as empresas prestadoras assinantes e enxerga todas elas.
+  // Os papéis abaixo são internos a UMA empresa e não mudaram.
+  superadmin:  { label:'Plataforma',    icon:'🛰️', color:'#be123c',
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','saas'],
+                 canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
+                 canApprove:true, canManageUsers:true, canManageEmpresas:true },
+
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
                  modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
@@ -93,7 +101,10 @@ async function _call(method, path, body) {
   // Timeout: em rede de campo instável, o fetch pode travar sem resolver
   // nem rejeitar. O AbortController garante que a chamada sempre termina.
   const ctrl = new AbortController();
-  const TIMEOUT_MS = 60000;
+  // 60s serve para tudo, MENOS leitura de PDF por IA: um pedido com muitas
+  // páginas leva mais que isso, e abortar no meio desperdiça uma chamada
+  // paga que já estava quase pronta. Só esta rota tem folga maior.
+  const TIMEOUT_MS = path.startsWith('/orcamentos/importar-pdf') ? 180000 : 60000;
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   let res;
   try {
@@ -185,6 +196,87 @@ async function guardaDeModulo(modulo, destino = 'index.html') {
   return u;
 }
 window.guardaDeModulo = guardaDeModulo;
+
+// ── SaaS: empresas (tenant) ───────────────────────────────────────
+const Empresas = {
+  listar:    ()        => API.get('/empresas').then(r => r.data),
+  obter:     (id)      => API.get('/empresas/' + encodeURIComponent(id)).then(r => r.data),
+  criar:     (empresa) => API.post('/empresas', { empresa }).then(r => r.data),
+  atualizar: (id, e)   => API.post('/empresas/' + encodeURIComponent(id), { empresa: e }).then(r => r.data),
+  status:    (id, ativa) => API.post('/empresas/' + encodeURIComponent(id) + '/status', { ativa }).then(r => r.data),
+  vincular:  (id, email) => API.post('/empresas/' + encodeURIComponent(id) + '/vincular', { email }).then(r => r.data),
+};
+window.Empresas = Empresas;
+
+// ── Matriz CRUD por contrato ──────────────────────────────────────
+// O admin da empresa ajusta, contrato a contrato, o que cada papel faz
+// em cada recurso. O servidor recorta pelo TETO — a tela desabilita o que
+// não pode ser marcado, mas quem decide é sempre o backend.
+const Permissoes = {
+  obter: (contrato) =>
+    API.get('/contratos/' + encodeURIComponent(contrato) + '/permissoes').then(r => r.data),
+  salvar: (contrato, matriz) =>
+    API.post('/contratos/' + encodeURIComponent(contrato) + '/permissoes', { matriz }).then(r => r.data),
+  restaurar: (contrato) =>
+    API.delete('/contratos/' + encodeURIComponent(contrato) + '/permissoes').then(r => r.data),
+};
+window.Permissoes = Permissoes;
+
+// Permissão efetiva do usuário ATUAL naquele contrato, para a tela
+// esconder o que o servidor recusaria. `contrato` é o objeto vindo de
+// DB.getContratos(), que já traz `_permissoes` calculado pelo servidor.
+function podeNoContrato(contrato, recurso, acao) {
+  const u = getCurrentUser();
+  if (!u) return false;
+  if (u.role === 'superadmin' || u.role === 'admin') return true;
+  const p = contrato && contrato._permissoes;
+  // Contrato sem a informação (cache antigo, ou tela que não carregou a
+  // lista): não bloqueia a UI — o servidor continua sendo a barreira.
+  if (!p || !p[recurso]) return true;
+  return p[recurso].includes(acao);
+}
+window.podeNoContrato = podeNoContrato;
+
+// ── Checklists de preventiva por tipo de equipamento ──────────────
+// Os templates vivem no CONTRATO. Um plano já criado NÃO é afetado por
+// edições posteriores: ele carrega o próprio snapshot congelado.
+const Checklists = {
+  listar: (contrato) =>
+    API.get('/contratos/' + encodeURIComponent(contrato) + '/checklists').then(r => r.data),
+  salvar: (contrato, checklist) =>
+    API.post('/contratos/' + encodeURIComponent(contrato) + '/checklists', { checklist }).then(r => r.data),
+  remover: (contrato, chave) =>
+    API.delete('/contratos/' + encodeURIComponent(contrato) + '/checklists/' + encodeURIComponent(chave)).then(r => r.data),
+  gerarIA: (contrato, tipo, observacao) =>
+    API.post('/contratos/' + encodeURIComponent(contrato) + '/checklists/gerar',
+             { tipo, observacao }).then(r => r.data),
+};
+window.Checklists = Checklists;
+
+// Itens que valem para um equipamento dentro de um plano. Usa o SNAPSHOT
+// congelado no plano; se o plano for anterior a esta versão, cai no
+// checklist padrão — nenhum plano antigo fica sem lista.
+function checklistDoEquipamento(plano, equipamento, nivel) {
+  const chave = chaveTipoEquip(equipamento?.tipo);
+  const snap  = plano?.checklistSnapshot?.[chave]
+             || plano?.checklistSnapshot?.['sem-tipo'];
+  const itens = snap?.itens;
+  if (!itens) return null;                       // chamador usa CHECKLIST padrão
+  const n = Math.min(3, Math.max(1, parseInt(nivel, 10) || 1));
+  const out = [];
+  for (let i = 1; i <= n; i++) out.push(...(itens[i] || []));
+  return out;
+}
+// Mesma normalização do backend (checklists.js): "Split Hi-Wall",
+// "split hi wall" e "SPLIT HI-WALL" precisam bater na mesma chave.
+function chaveTipoEquip(tipo) {
+  const t = String(tipo || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return t || 'sem-tipo';
+}
+window.checklistDoEquipamento = checklistDoEquipamento;
+window.chaveTipoEquip = chaveTipoEquip;
 
 async function refreshCurrentUser() {
   try {
@@ -370,6 +462,13 @@ const DB = {
   getAll:    col       => API.get(`/${col}`),
   save:      (col, r)  => API.post(`/${col}`, { record:r }),
   updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
+
+  // Importação de pedido de orçamento em PDF. O servidor lê o arquivo com
+  // IA e devolve um RASCUNHO conciliado com o catálogo do contrato — nada
+  // é gravado nesta chamada.
+  importarPedidoPdf: (contrato, pdf, respostas) =>
+    API.post('/orcamentos/importar-pdf', { contrato, pdf, respostas })
+       .then(r => r.data),
   updateOrcamentoStatus: (id, status) => API.patch(`/orcamentos/${id}/status`, { status }),
   delete:    (col, id) => API.delete(`/${col}/${id}`),
 
