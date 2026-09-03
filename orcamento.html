@@ -36,6 +36,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Orçamentos — Sistema de Manutenção</title>
 <script src="vendor/jspdf.umd.min.js"></script>
+<script src="vendor/docx.iife.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -289,7 +290,12 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div id="detail-content"></div>
     <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
       <button class="btn btn-secondary btn-sm" onclick="editQuote(currentDetailId)" style="flex:1">✏️ Editar</button>
-      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
+      <!-- .docx é a saída oficial (prompt mestre). O PDF "sem template"
+           reproduz o mesmo documento, sem o cabeçalho/rodapé dos outros
+           módulos. O PDF "com template" é o antigo, mantido para quem
+           ainda o usa em outros contextos. -->
+      <button class="btn btn-primary btn-sm" onclick="gerarDocxDoDetalhe()" style="flex:1">📄 .docx</button>
+      <button class="btn btn-secondary btn-sm" onclick="gerarPdfSemTemplate()" style="flex:1">🖨️ PDF</button>
       
       <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger)" onclick="deleteQuote(currentDetailId)">🗑️ Excluir</button>
     </div>
@@ -881,6 +887,10 @@ function impGerar() {
       const doCat = catalogo.find(c => c.name === sv.name);
       items.push({
         tag: e.tag, local: e.local || '',
+        // O patrimônio é coluna obrigatória da tabela (prompt mestre), e
+        // pertence ao equipamento — por isso desce para cada item dele.
+        patrimonio: e.patrimonio || '',
+        marca: e.marca || '', potencia: e.potencia || '',
         name: sv.name, qty: sv.qty || 1,
         price: doCat?.price || 0, unit: doCat?.unit || sv.unit || 'un',
         taxRate: doCat?.taxRate || 0, labor: 0,
@@ -1476,6 +1486,224 @@ function generateConsolidatedPDFs() {
   unitNames.forEach(unit => printConsolidatedPDF(unit, groups[unit]));
   document.getElementById('consolidated-modal').classList.add('hidden');
   showToast(`${unitNames.length} PDF(s) gerado(s)!`);
+}
+
+function gerarDocxDoDetalhe() {
+  const q = quotes.find(x => x.id === currentDetailId);
+  if (q) gerarDocx(q);
+}
+
+// PDF sem template: mesmo conteúdo do .docx, sem cabeçalho com logo e sem
+// rodapé com dados da prestadora. O modelo 039 não tem nenhum dos dois.
+function gerarPdfSemTemplate() {
+  const q = quotes.find(x => x.id === currentDetailId);
+  if (!q) return;
+  printConsolidatedPDF(q.unidade || q.client || '', [q]);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DOCX DO ORÇAMENTO — formato oficial (prompt mestre)
+// ══════════════════════════════════════════════════════════════════
+// O prompt mestre define .docx como saída obrigatória, e a formatação
+// vem de lá, não de estimativa:
+//
+//   margens 2 cm em todos os lados
+//   texto FORA das tabelas: espaçamento 1,5 e justificado
+//   conteúdo das tabelas: centralizado na horizontal E na vertical
+//   colunas ajustadas ao conteúdo (autofit), nunca à margem da página
+//   tabela: PMOC/TAG | Patrimônio | Serviço | Valor
+//   valores em padrão brasileiro
+//
+// Ordem do documento, seguindo o modelo 039:
+//   destinatário → assunto → estabelecimento → nº → resumo →
+//   tabela → total → excludentes → cidade e data
+//
+// Sem cabeçalho e sem rodapé: o modelo não tem nenhum dos dois, e o
+// template dos outros módulos (logo, dados da prestadora, paginação)
+// não pertence a este documento.
+
+const CM = 567;            // 1 cm em twips (1440/2,54)
+const PT = 20;             // 1 pt em twips
+
+// Excludentes: texto fixo do prompt mestre, inseridos "sem alteração".
+const EXCLUDENTES = Object.freeze([
+  'Fornecimento do equipamento de ar-condicionado;',
+  'Adequações elétricas no quadro de distribuição até a unidade condensadora;',
+  'Fornecimento de disjuntor e circuito exclusivo para o aparelho;',
+  'Infraestrutura embutida em alvenaria;',
+  'Andaimes, plataformas elevatórias ou serviços em altura especiais;',
+  'Tubulações adicionais além da distância prevista.',
+]);
+
+const OBS_CUSTO_ELEVADO =
+  '* Observação: devido ao custo dos serviços de manutenção representar mais de ' +
+  '50% do valor de mercado do equipamento, sugere-se a substituição por máquina ' +
+  'nova de capacidade equivalente.';
+
+const brl = v => Number(v || 0).toLocaleString('pt-BR',
+  { style: 'currency', currency: 'BRL' });
+
+// ── Resumo dos serviços efetivamente orçados ──────────────────────
+// O prompt mestre pede um resumo ANTES da tabela, com a nomenclatura da
+// lista vigente e as quantidades, contendo SOMENTE o que está na tabela.
+// Por isso ele é derivado dos itens, nunca de um texto solto: assim não
+// há como listar serviço que não foi orçado.
+function _resumoDosServicos(items) {
+  const mapa = new Map();
+  (items || []).forEach(it => {
+    if (it.inviavel) return;
+    const k = it.name;
+    const at = mapa.get(k) || { name: k, qtd: 0, unit: it.unit || 'un' };
+    at.qtd += (it.qty || 1);
+    mapa.set(k, at);
+  });
+  return [...mapa.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+}
+
+// ── Alerta de custo elevado ───────────────────────────────────────
+// O prompt mestre condiciona o alerta a existir um valor de mercado
+// definido. O sistema não guarda esse valor hoje, então a marcação NÃO é
+// aplicada — a regra manda não aplicar sem base, e inventar um valor de
+// mercado seria pior do que omitir o alerta.
+// `valoresMercado` fica preparado para quando esse dado existir.
+function _tagsComCustoElevado(items, valoresMercado) {
+  if (!valoresMercado) return new Set();
+  const porTag = new Map();
+  (items || []).forEach(it => {
+    if (it.inviavel || !it.tag) return;
+    porTag.set(it.tag, (porTag.get(it.tag) || 0) + (it.price || 0) * (it.qty || 1));
+  });
+  const marcadas = new Set();
+  porTag.forEach((custo, tag) => {
+    const mercado = valoresMercado[tag];
+    if (mercado > 0 && custo > mercado * 0.5) marcadas.add(tag);
+  });
+  return marcadas;
+}
+
+function gerarDocx(q) {
+  if (typeof docx === 'undefined') {
+    showToast('Erro: biblioteca .docx não carregou. Recarregue a página.');
+    return;
+  }
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+          AlignmentType, WidthType, VerticalAlign, BorderStyle, HeadingLevel } = docx;
+
+  const items = (q.items || []).filter(i => !i.inviavel);
+  if (!items.length) { showToast('Este orçamento não tem serviços para gerar'); return; }
+
+  const marcadas = _tagsComCustoElevado(items, q.valoresMercado);
+
+  // Parágrafo de texto comum: justificado, entrelinha 1,5 (regra do prompt).
+  const P = (texto, opts = {}) => new Paragraph({
+    alignment: opts.center ? AlignmentType.CENTER : AlignmentType.JUSTIFIED,
+    spacing: { line: 360, after: opts.after != null ? opts.after : 6 * PT },  // 360 = 1,5
+    children: [new TextRun({ text: texto, bold: !!opts.bold, size: 24 })],   // 24 半pt = 12pt
+  });
+
+  // Célula de tabela: centralizada nos dois eixos, como manda o prompt.
+  const C = (texto, opts = {}) => new TableCell({
+    verticalAlign: VerticalAlign.CENTER,
+    margins: { top: 60, bottom: 60, left: 100, right: 100 },
+    children: [new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { line: 240, after: 0 },
+      children: [new TextRun({ text: String(texto ?? ''), bold: !!opts.bold, size: 22 })],
+    })],
+  });
+
+  const filhos = [];
+
+  // ── Identificação ─────────────────────────────────────────────
+  // Destinatário = remetente/solicitante do pedido. O prompt é explícito:
+  // não presumir quem aparece depois do "À" no documento recebido.
+  if (q.remetente) filhos.push(P(`À ${q.remetente}`, { bold: true }));
+  filhos.push(P('ASSUNTO: ORÇAMENTO DE MANUTENÇÃO'));
+  if (q.unidade) filhos.push(P(`UNIDADE: ${q.unidade}`));
+  const numero = numeroDoOrcamento(q);
+  if (numero) filhos.push(P(`ORÇAMENTO ${numero}`, { bold: true, center: true, after: 10 * PT }));
+
+  // ── Resumo ────────────────────────────────────────────────────
+  const resumo = _resumoDosServicos(items);
+  if (resumo.length) {
+    filhos.push(P('Serviços orçados:', { bold: true, after: 4 * PT }));
+    resumo.forEach(r => filhos.push(new Paragraph({
+      alignment: AlignmentType.JUSTIFIED,
+      spacing: { line: 360, after: 2 * PT },
+      bullet: { level: 0 },
+      children: [new TextRun({ text: `${r.name} — ${r.qtd} ${r.unit}`, size: 24 })],
+    })));
+    filhos.push(P('', { after: 6 * PT }));
+  }
+
+  // ── Tabela ────────────────────────────────────────────────────
+  // Autofit pelo conteúdo: o prompt proíbe dimensionar pela margem.
+  const linhas = [new TableRow({
+    tableHeader: true,
+    children: [C('PMOC/TAG', { bold:true }), C('Patrimônio', { bold:true }),
+               C('Serviço', { bold:true }), C('Valor', { bold:true })],
+  })];
+
+  let total = 0;
+  items.forEach(it => {
+    const qtd = it.qty || 1;
+    const sub = (Number(it.price) || 0) * qtd;
+    total += sub;
+    const tag = (it.tag || q.equip || '—') + (marcadas.has(it.tag) ? ' *' : '');
+    // A unidade importa: M multiplica metros, UN multiplica peças. Mostrar
+    // a quantidade evita que uma linha de 2,5 m pareça preço unitário.
+    const servico = qtd > 1 ? `${it.name} (${qtd} ${it.unit || 'un'})` : it.name;
+    linhas.push(new TableRow({
+      children: [C(tag), C(it.patrimonio || '—'), C(servico), C(brl(sub))],
+    }));
+  });
+
+  filhos.push(new Table({
+    rows: linhas,
+    width: { size: 0, type: WidthType.AUTO },   // ajusta ao conteúdo
+    layout: docx.TableLayoutType ? docx.TableLayoutType.AUTOFIT : undefined,
+    alignment: AlignmentType.CENTER,
+  }));
+
+  // ── Total ─────────────────────────────────────────────────────
+  filhos.push(P('', { after: 6 * PT }));
+  filhos.push(P(`Valor total: ${brl(total)}`, { bold: true, after: 8 * PT }));
+
+  if (marcadas.size) filhos.push(P(OBS_CUSTO_ELEVADO, { after: 8 * PT }));
+
+  // ── Excludentes ───────────────────────────────────────────────
+  filhos.push(P('Itens que não estão incluídos:', { bold: true, after: 4 * PT }));
+  EXCLUDENTES.forEach(t => filhos.push(new Paragraph({
+    alignment: AlignmentType.JUSTIFIED,
+    spacing: { line: 360, after: 2 * PT },
+    bullet: { level: 0 },
+    children: [new TextRun({ text: t, size: 24 })],
+  })));
+
+  // ── Cidade e data de elaboração ───────────────────────────────
+  filhos.push(P('', { after: 10 * PT }));
+  const data = new Date().toLocaleDateString('pt-BR');
+  filhos.push(P(q.cidade ? `${q.cidade}, ${data}.` : `${data}.`));
+
+  const doc = new Document({
+    sections: [{
+      properties: { page: { margin: { top: 2*CM, right: 2*CM, bottom: 2*CM, left: 2*CM } } },
+      children: filhos,
+    }],
+    styles: { default: { document: { run: { font: 'Arial', size: 24 } } } },
+  });
+
+  const nomeArq = `${numero ? numero + '_' : ''}${
+    String(q.unidade || q.client || 'ORCAMENTO').replace(/[\\/:*?"<>|]/g,'').trim()}`.slice(0,120);
+
+  Packer.toBlob(doc).then(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nomeArq + '.docx';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast('✅ ' + nomeArq + '.docx gerado');
+  }).catch(e => showToast('Erro ao gerar .docx: ' + e.message));
 }
 
 // ══════════════════════════════════════════════════════════════════
