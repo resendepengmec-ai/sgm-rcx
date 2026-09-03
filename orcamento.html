@@ -817,9 +817,26 @@ function impMostrarRevisao() {
   document.getElementById('imp-resumo').innerHTML = `
     ${impDados.estabelecimento ? '🏢 ' + esc(impDados.estabelecimento) + '<br>' : ''}
     <strong>${comServico.length}</strong> equipamento(s) · <strong>${totalServ}</strong> serviço(s) ·
-    será gerado <strong>1 orçamento</strong> com todas as TAGs.`;
+    será gerado <strong>1 orçamento</strong> com todas as TAGs incluídas.`;
 
-  // ── (b) Conferência: TODO termo do pedido × catálogo do contrato ──
+  // TAGs que o usuário decidiu incluir mesmo sem cadastro. Começa VAZIO: a
+// inclusão é escolha consciente, não padrão. TAG fora do parque costuma
+// ser erro de digitação no pedido — orçar às cegas cria serviço para
+// equipamento que não existe.
+let _incluirTags = new Set();
+
+function alternarTagSemCadastro(tag, incluir) {
+  if (incluir) _incluirTags.add(tag); else _incluirTags.delete(tag);
+  impMostrarRevisao();
+}
+
+function marcarTodasTags(v) {
+  const semCad = (impDados.divergencias || []).filter(d => d.tipo === 'nao_cadastrada');
+  _incluirTags = v ? new Set(semCad.map(d => d.tag)) : new Set();
+  impMostrarRevisao();
+}
+
+// ── (b) Conferência: TODO termo do pedido × catálogo do contrato ──
   // Mostrar só o que falhou não padroniza nada. Ver os pares lado a lado
   // é o que permite perceber que o pedido diz "recarga de gás" e o
   // contrato tem "Recarga de gás R410" — e decidir de uma vez.
@@ -864,12 +881,27 @@ function impMostrarRevisao() {
           `• ${esc(d.tag)} — pedido: ${esc(d.noPedido)} · cadastro: ${esc(d.noCadastro)}`).join('<br>')}
         ${outraUnidade.length>8 ? `<br>… e mais ${outraUnidade.length-8}` : ''}
       </div>` : ''}
-      ${semCadastro.length ? `<div style="font-size:11px;color:#92400e">
-        ${semCadastro.length} TAG(s) não encontradas no banco deste contrato:
-        ${semCadastro.slice(0,12).map(d => esc(d.tag)).join(', ')}${semCadastro.length>12 ? '…' : ''}
+      ${semCadastro.length ? `<div style="font-size:11px;color:#92400e;margin-top:4px">
+        <strong>${semCadastro.length} TAG(s) não encontradas no banco deste contrato.</strong>
+        Marque as que devem entrar assim mesmo — pode ser equipamento novo
+        ainda não cadastrado, ou TAG digitada errada no pedido.
+        <div style="max-height:140px;overflow:auto;margin-top:6px;background:#fff;
+                    border:1px solid #fecaca;border-radius:6px;padding:6px">
+          <label style="display:block;font-weight:700;margin-bottom:4px;cursor:pointer">
+            <input type="checkbox" onchange="marcarTodasTags(this.checked)"
+                   ${_incluirTags.size && _incluirTags.size === semCadastro.length ? 'checked' : ''}>
+            Marcar todas
+          </label>
+          ${semCadastro.map(d => `
+            <label style="display:block;cursor:pointer;padding:1px 0">
+              <input type="checkbox" ${_incluirTags.has(d.tag) ? 'checked' : ''}
+                     onchange="alternarTagSemCadastro('${jsAttrOrc(d.tag)}', this.checked)">
+              ${esc(d.tag)}
+            </label>`).join('')}
+        </div>
       </div>` : ''}
       <div style="font-size:11px;color:var(--text-2);margin-top:6px">
-        Você pode gerar assim mesmo — o aviso é para conferência, não bloqueio.
+        As divergências de estabelecimento são aviso, não bloqueio.
       </div>
     </div>`;
 
@@ -934,7 +966,21 @@ function impRecomecar() {
 // ── Gerar os orçamentos ───────────────────────────────────────────
 function impGerar() {
   const contrato = document.getElementById('imp-contrato').value;
-  const validos = impDados.equipamentos.filter(e => e.servicos.length);
+  // TAG sem cadastro só entra se o usuário marcou. É a decisão dele, e o
+  // padrão é NÃO incluir — equipamento inexistente no parque costuma ser
+  // erro de digitação no pedido.
+  const semCadastro = new Set((impDados.divergencias || [])
+    .filter(d => d.tipo === 'nao_cadastrada').map(d => d.tag));
+  const validos = impDados.equipamentos.filter(e =>
+    e.servicos.length && (!semCadastro.has(e.tag) || _incluirTags.has(e.tag)));
+
+  const descartadas = impDados.equipamentos.filter(e =>
+    e.servicos.length && semCadastro.has(e.tag) && !_incluirTags.has(e.tag));
+  if (descartadas.length && !confirm(
+      `${descartadas.length} TAG(s) sem cadastro NÃO serão incluídas:\n` +
+      descartadas.slice(0, 10).map(e => '• ' + e.tag).join('\n') +
+      (descartadas.length > 10 ? `\n… e mais ${descartadas.length - 10}` : '') +
+      '\n\nContinuar assim?')) return;
   if (!validos.length) { showToast('Nenhum equipamento com serviço para gerar'); return; }
 
   // ── UM pedido = UM orçamento ──────────────────────────────────
@@ -2042,18 +2088,56 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   });
 
   // ── Tabela ──────────────────────────────────────────────────────
+  // A versão anterior tinha três defeitos, todos visíveis no PDF gerado:
+  //
+  //   1. TRUNCAGEM. Usava splitTextToSize(...)[0] — só a PRIMEIRA linha.
+  //      "Limpeza química da evaporadora" virava "LIMPEZA QUIMICA DA", e
+  //      duas linhas diferentes ficavam com o mesmo texto e preços
+  //      distintos. Num orçamento, isso é erro grave: o cliente não sabe
+  //      o que está pagando.
+  //   2. TRANSBORDO. O texto era desenhado sem respeitar a borda da
+  //      célula, escapando para fora da tabela.
+  //   3. ALTURA FIXA. Linha de altura fixa não comporta texto que quebra.
+  //
+  // Agora a altura da linha é calculada a partir do texto: quebra em
+  // quantas linhas precisar, e a célula cresce junto.
   y += MOD.paragrafo;
+  const LARG_SERVICO = MOD.colValor - MOD.colServico - 3;
+  const LARG_PMOC    = MOD.colServico - MOD.colPmoc - 3;
+
   const linhaTabela = (pmoc, servico, valor, negrito) => {
-    cabe(MOD.alturaLinha);
     doc.setFont(MOD.fonte, negrito ? 'bold' : 'normal');
+    // Quebra ANTES de decidir a altura — é a quebra que determina o tamanho.
+    const lServ = doc.splitTextToSize(String(servico ?? ''), LARG_SERVICO);
+    const lPmoc = doc.splitTextToSize(String(pmoc ?? ''), LARG_PMOC);
+    const nLinhas = Math.max(lServ.length, lPmoc.length, 1);
+    const altura = Math.max(MOD.alturaLinha, nLinhas * MOD.linha + 4);
+
+    // Se não couber na página, a linha inteira vai para a próxima — nunca
+    // partida ao meio, que deixaria metade do serviço órfão.
+    if (y + altura > MOD.base) {
+      novaPagina();
+      doc.setFont(MOD.fonte, 'bold');
+      const hCab = MOD.alturaLinha;
+      doc.rect(MOD.tabX, y, MOD.tabFim - MOD.tabX, hCab);
+      const yc = y + hCab / 2 + 1.5;
+      doc.text('PMOC', MOD.colPmoc, yc);
+      doc.text('Serviço', MOD.colServico, yc);
+      doc.text('Valor total', MOD.colValor, yc);
+      y += hCab;
+      doc.setFont(MOD.fonte, negrito ? 'bold' : 'normal');
+    }
+
     doc.setDrawColor(0, 0, 0); doc.setLineWidth(0.2);
-    doc.rect(MOD.tabX, y, MOD.tabFim - MOD.tabX, MOD.alturaLinha);
-    const yt = y + MOD.alturaLinha / 2 + 1.5;
-    doc.text(String(pmoc), MOD.colPmoc, yt);
-    doc.text(doc.splitTextToSize(String(servico), MOD.colValor - MOD.colServico - 4)[0] || '',
-             MOD.colServico, yt);
-    doc.text(String(valor), MOD.colValor, yt);
-    y += MOD.alturaLinha;
+    doc.rect(MOD.tabX, y, MOD.tabFim - MOD.tabX, altura);
+
+    // Centraliza verticalmente o bloco de linhas dentro da célula.
+    const alturaTexto = nLinhas * MOD.linha;
+    const yBase = y + (altura - alturaTexto) / 2 + MOD.linha - 1.4;
+    lPmoc.forEach((t, i) => doc.text(t, MOD.colPmoc, yBase + i * MOD.linha));
+    lServ.forEach((t, i) => doc.text(t, MOD.colServico, yBase + i * MOD.linha));
+    doc.text(String(valor ?? ''), MOD.colValor, yBase);
+    y += altura;
   };
 
   linhaTabela('PMOC', 'Serviço', 'Valor total', true);
@@ -2092,7 +2176,9 @@ function printConsolidatedPDF(unitName, unitQuotes) {
     exclusoes.forEach(t => {
       const linhas = doc.splitTextToSize(t, MOD.LARG - 12.7);
       cabe(linhas.length * MOD.linha);
-      doc.text('\u25CF', MOD.ML + 6.35, y);          // bullet a 108 pt
+      // \u2022 (•) e não \u25CF: BLACK CIRCLE não existe na codificação
+      // WinAnsi das fontes padrão do PDF, e saía como "%Ï" no documento.
+      doc.text('\u2022', MOD.ML + 6.35, y);          // bullet a 108 pt
       doc.text(linhas, MOD.ML + 12.7, y);            // texto a 126 pt
       y += linhas.length * MOD.linha + 1.5;
     });
