@@ -61,6 +61,12 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 .qc-unidade { font-size:12px; font-weight:600; color:var(--text-2); margin-top:1px;
               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .quote-card .qc-meta { font-size:11px; }
+
+/* Parcial: cor própria, para não se confundir com aprovado integral na
+   leitura rápida da lista. */
+.badge-partial { background:#fef3c7; color:#92400e; }
+.item-aprovado { background:#f0fdf4; }
+.item-recusado { opacity:.5; text-decoration:line-through; }
 </style>
 </head>
 <body>
@@ -253,6 +259,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         <div id="imp-numero-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
       </div>
       <div id="imp-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
+      <div id="imp-divergencias"></div>
+      <div id="imp-conferencia"></div>
       <div id="imp-pendencias"></div>
       <div id="imp-tabela"></div>
       <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="impGerar()">
@@ -751,6 +759,27 @@ function impAplicarRespostas() {
     });
   });
 
+  // ── (a) Grava a decisão no contrato ───────────────────────────────
+  // A resposta não vale só para esta leitura: "limpeza geral do
+  // equipamento = evaporadora + condensadora" é uma regra DESTE contrato.
+  // Gravada, a IA recebe a equivalência pronta na próxima importação e não
+  // pergunta de novo — que era o incômodo real de responder toda semana.
+  const contrato = document.getElementById('imp-contrato')?.value;
+  const novasEquiv = {};
+  (impDados.duvidas || []).forEach(d => {
+    const escolhas = impRespostas[d.id];
+    // Só grava quando o termo é genérico o bastante para se repetir. Uma
+    // dúvida amarrada a uma TAG específica não vira regra do contrato.
+    if (escolhas && escolhas.length && d.textoOriginal && !d.tag) {
+      novasEquiv[d.textoOriginal] = escolhas;
+    }
+  });
+  if (contrato && Object.keys(novasEquiv).length) {
+    DB.saveEquivalencias(contrato, novasEquiv)
+      .then(() => showToast('✅ Decisão salva no contrato — não será perguntada de novo', 4000))
+      .catch(() => {});   // falhar aqui não pode travar a importação
+  }
+
   impDados.duvidas = [];
   document.getElementById('imp-passo2').style.display = 'none';
   impMostrarRevisao();
@@ -789,6 +818,60 @@ function impMostrarRevisao() {
     ${impDados.estabelecimento ? '🏢 ' + esc(impDados.estabelecimento) + '<br>' : ''}
     <strong>${comServico.length}</strong> equipamento(s) · <strong>${totalServ}</strong> serviço(s) ·
     será gerado <strong>1 orçamento</strong> com todas as TAGs.`;
+
+  // ── (b) Conferência: TODO termo do pedido × catálogo do contrato ──
+  // Mostrar só o que falhou não padroniza nada. Ver os pares lado a lado
+  // é o que permite perceber que o pedido diz "recarga de gás" e o
+  // contrato tem "Recarga de gás R410" — e decidir de uma vez.
+  const conf = impDados.conferencia || [];
+  const elConf = document.getElementById('imp-conferencia');
+  if (elConf) elConf.innerHTML = !conf.length ? '' : `
+    <details style="margin-bottom:10px;border:1px solid var(--border);border-radius:8px;padding:8px">
+      <summary style="font-size:12px;font-weight:700;cursor:pointer">
+        🔍 Conferência com o catálogo — ${conf.filter(c=>c.ok).length}/${conf.length} termos correspondidos
+      </summary>
+      <table style="width:100%;font-size:11px;margin-top:8px;border-collapse:collapse">
+        <tr style="color:var(--text-2)">
+          <th style="text-align:left;padding:4px">Termo no pedido</th>
+          <th style="text-align:left;padding:4px">Serviço do contrato</th>
+          <th style="padding:4px">Un.</th>
+        </tr>
+        ${conf.map(c => `
+          <tr style="border-top:1px solid var(--border)">
+            <td style="padding:4px">${esc(c.termoPedido)}${c.deGeral ? ' <span style="color:var(--text-3)">(geral)</span>' : ''}</td>
+            <td style="padding:4px;${c.ok ? '' : 'color:var(--danger);font-weight:700'}">
+              ${c.ok ? esc(c.catalogo) : '✗ sem correspondência'}</td>
+            <td style="padding:4px;text-align:center">${esc(c.unit || '—')}</td>
+          </tr>`).join('')}
+      </table>
+    </details>`;
+
+  // ── (c) TAG × estabelecimento ─────────────────────────────────────
+  // Orçar para a unidade errada é erro que só aparece na execução, com o
+  // técnico no local errado. Por isso o aviso é visível, não escondido.
+  const divs = impDados.divergencias || [];
+  const elDiv = document.getElementById('imp-divergencias');
+  const outraUnidade = divs.filter(d => d.tipo === 'estabelecimento');
+  const semCadastro  = divs.filter(d => d.tipo === 'nao_cadastrada');
+  if (elDiv) elDiv.innerHTML = !divs.length ? '' : `
+    <div style="background:#fee2e2;border:1px solid #fecaca;border-radius:8px;padding:10px;margin-bottom:10px">
+      <div style="font-size:12px;font-weight:700;color:#991b1b;margin-bottom:6px">
+        ⚠️ Divergências entre o pedido e o banco de equipamentos
+      </div>
+      ${outraUnidade.length ? `<div style="font-size:11px;color:#991b1b;margin-bottom:6px">
+        <strong>${outraUnidade.length} TAG(s) cadastradas em OUTRO estabelecimento:</strong><br>
+        ${outraUnidade.slice(0,8).map(d =>
+          `• ${esc(d.tag)} — pedido: ${esc(d.noPedido)} · cadastro: ${esc(d.noCadastro)}`).join('<br>')}
+        ${outraUnidade.length>8 ? `<br>… e mais ${outraUnidade.length-8}` : ''}
+      </div>` : ''}
+      ${semCadastro.length ? `<div style="font-size:11px;color:#92400e">
+        ${semCadastro.length} TAG(s) não encontradas no banco deste contrato:
+        ${semCadastro.slice(0,12).map(d => esc(d.tag)).join(', ')}${semCadastro.length>12 ? '…' : ''}
+      </div>` : ''}
+      <div style="font-size:11px;color:var(--text-2);margin-top:6px">
+        Você pode gerar assim mesmo — o aviso é para conferência, não bloqueio.
+      </div>
+    </div>`;
 
   // O que a IA não conseguiu mapear aparece em destaque, não escondido.
   // Um pedido lido pela metade sem aviso é pior que um pedido não lido.
@@ -956,8 +1039,10 @@ function renderQuoteList() {
       pending:  ['Pendente',  'badge-pending'],
       sent:     ['Enviado',   'badge-sent'],
       approved: ['Aprovado',  'badge-approved'],
+      approved_partial: ['Aprovado parcial', 'badge-partial'],
       rejected: ['Reprovado', 'badge-rejected'],
       executed: ['Executado', 'badge-executed'],
+      executed_partial: ['Executado parcial', 'badge-partial'],
     };
     const [sLabel, sCls] = statusMap[q.status] || statusMap.pending;
     const month = q.date ? q.date.slice(0,7) : '';
@@ -1402,7 +1487,9 @@ function openDetail(id) {
     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:12px">
       ${q.items.map(it => `
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
-          <span>${it.tag ? `<strong style="font-size:12px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
+          <span class="${it.aprovado === false ? 'item-recusado' : ''}">${
+            it.aprovado === true ? '✅ ' : it.aprovado === false ? '✕ ' : ''
+          }${it.tag ? `<strong style="font-size:12px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
           ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>`}
         </div>`).join('')}
     </div>
@@ -1417,15 +1504,129 @@ function openDetail(id) {
   document.getElementById('detail-modal').classList.remove('hidden');
 }
 function closeDetailModal() { document.getElementById('detail-modal').classList.add('hidden'); }
-function updateStatus(id, status) {
+// ── Seleção dos itens aprovados (aprovação parcial) ───────────────
+// O cliente autoriza parte dos serviços; aqui se registra exatamente
+// quais. O que fica de fora não entra na O.S. nem no faturamento.
+function abrirSelecaoItens(id) {
   const q = quotes.find(x => x.id === id);
   if (!q) return;
+  let m = document.getElementById('sel-itens-modal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'sel-itens-modal';
+    m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1100;' +
+      'display:flex;align-items:center;justify-content:center;padding:16px';
+    m.addEventListener('click', ev => { if (ev.target === m) fecharSelecaoItens(); });
+    document.body.appendChild(m);
+  }
+  m.style.display = 'flex';
+
+  // Pré-marca o que já estava aprovado; num orçamento novo, marca tudo,
+  // porque desmarcar o que o cliente cortou costuma ser o caminho curto.
+  const linhas = (q.items || []).map((it, i) => {
+    const marcado = it.aprovado === undefined ? true : it.aprovado;
+    const val = (Number(it.price) || 0) * (it.qty || 1);
+    return `
+      <label style="display:flex;gap:10px;align-items:flex-start;padding:9px 8px;
+                    border-bottom:1px solid var(--border);cursor:pointer">
+        <input type="checkbox" data-idx="${i}" ${marcado ? 'checked' : ''}
+               onchange="recalcularSelecao()" style="margin-top:3px;width:18px;height:18px">
+        <span style="flex:1;min-width:0;font-size:13px">
+          ${it.tag ? `<strong style="font-size:11px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}
+          ${esc(it.name)}${(it.qty || 1) > 1 ? ` × ${it.qty}` : ''}
+        </span>
+        <span style="font-size:13px;white-space:nowrap" data-val="${val}">
+          ${window.HIDE_PRICES ? '' : fmt(val)}</span>
+      </label>`;
+  }).join('');
+
+  m.innerHTML = `
+    <div style="background:var(--surface);border-radius:12px;padding:18px;max-width:640px;
+                width:100%;max-height:88vh;overflow:auto">
+      <div style="font-size:16px;font-weight:700;margin-bottom:4px">Aprovação parcial</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">
+        Marque os itens que o cliente aprovou. Os desmarcados não entram na
+        Ordem de Serviço nem no faturamento.
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:8px">
+        <button class="btn btn-secondary btn-sm" onclick="marcarTodosItens(true)">Marcar todos</button>
+        <button class="btn btn-secondary btn-sm" onclick="marcarTodosItens(false)">Desmarcar todos</button>
+      </div>
+      <div id="sel-itens-lista">${linhas}</div>
+      <div id="sel-itens-resumo" style="font-size:13px;font-weight:700;margin:12px 0;text-align:right"></div>
+      <button class="btn btn-primary" style="width:100%"
+              onclick="confirmarSelecaoItens('${jsAttrOrc(id)}')">✅ Confirmar aprovação parcial</button>
+      <button class="btn btn-secondary" style="width:100%;margin-top:8px"
+              onclick="fecharSelecaoItens()">Cancelar</button>
+    </div>`;
+  recalcularSelecao();
+}
+
+function jsAttrOrc(v) {
+  return String(v ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fecharSelecaoItens() {
+  const m = document.getElementById('sel-itens-modal');
+  if (m) m.style.display = 'none';
+}
+
+function marcarTodosItens(v) {
+  document.querySelectorAll('#sel-itens-lista input[type=checkbox]').forEach(c => { c.checked = v; });
+  recalcularSelecao();
+}
+
+// Mostra quanto vale o que está marcado — a decisão é sobre dinheiro, e
+// somar de cabeça 83 linhas não é razoável.
+function recalcularSelecao() {
+  const cbs = [...document.querySelectorAll('#sel-itens-lista input[type=checkbox]')];
+  const marcados = cbs.filter(c => c.checked);
+  let soma = 0;
+  marcados.forEach(c => {
+    const v = c.closest('label')?.querySelector('[data-val]')?.getAttribute('data-val');
+    soma += Number(v) || 0;
+  });
+  const el = document.getElementById('sel-itens-resumo');
+  if (el) el.innerHTML = `${marcados.length} de ${cbs.length} itens` +
+    (window.HIDE_PRICES ? '' : ` · aprovado: ${fmt(soma)}`);
+}
+
+function confirmarSelecaoItens(id) {
+  const idx = [...document.querySelectorAll('#sel-itens-lista input[type=checkbox]')]
+    .filter(c => c.checked).map(c => parseInt(c.getAttribute('data-idx'), 10));
+  if (!idx.length) { showToast('Marque ao menos um item aprovado'); return; }
+  fecharSelecaoItens();
+  updateStatus(id, 'approved_partial', idx);
+}
+
+function updateStatus(id, status, itensAprovados) {
+  const q = quotes.find(x => x.id === id);
+  if (!q) return;
+
+  // Aprovação parcial exige dizer QUAIS itens. Sem isso a O.S. não sabe o
+  // que mandar executar, e o faturamento não sabe o que cobrar. A tela de
+  // seleção abre aqui e chama de volta com os índices.
+  if (status === 'approved_partial' && !itensAprovados) {
+    abrirSelecaoItens(id);
+    if (currentDetailId === id) openDetail(id);   // desfaz o seletor visualmente
+    return;
+  }
+
   const prev = q.status;
   q.status = status; // otimista
   try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
   renderQuoteList();
-  DB.updateOrcamentoStatus(id, status).then(r => {
-    if (status === 'approved' && r?.ordem) {
+  DB.updateOrcamentoStatus(id, status, itensAprovados).then(r => {
+    // O servidor pode ter convertido "parcial" em "completo" (quando todos
+    // os itens foram marcados). A tela segue o que ele decidiu.
+    if (r?.orcamento?.status && r.orcamento.status !== status) {
+      q.status = r.orcamento.status;
+      showToast('Todos os itens marcados — registrado como Aprovado completo');
+    }
+    if (r?.orcamento?.items) q.items = r.orcamento.items;
+    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+    if ((status === 'approved' || status === 'approved_partial') && r?.ordem) {
       showToast(`✅ Orçamento aprovado — O.S. ${r.ordem.numero} disponível em Registro → O.S. Pendentes`);
     }
     if (currentDetailId === id) openDetail(id);
@@ -1589,7 +1790,13 @@ function gerarDocx(q) {
   const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
           AlignmentType, WidthType, VerticalAlign, BorderStyle, HeadingLevel } = docx;
 
-  const items = (q.items || []).filter(i => !i.inviavel);
+  // Numa aprovação parcial, o documento de execução precisa refletir o que
+  // foi APROVADO. Manter os itens recusados faria o técnico executar e o
+  // cliente receber cobrança do que não autorizou.
+  const parcial = q.status === 'approved_partial' || q.status === 'executed_partial';
+  const items = (q.items || [])
+    .filter(i => !i.inviavel)
+    .filter(i => !parcial || i.aprovado !== false);
   if (!items.length) { showToast('Este orçamento não tem serviços para gerar'); return; }
 
   const marcadas = _tagsComCustoElevado(items, q.valoresMercado);
@@ -1853,8 +2060,10 @@ function printConsolidatedPDF(unitName, unitQuotes) {
 
   let total = 0;
   unitQuotes.forEach(q => {
+    const parcial = q.status === 'approved_partial' || q.status === 'executed_partial';
     (q.items || []).forEach(it => {
       if (it.inviavel) return;
+      if (parcial && it.aprovado === false) return;   // só o aprovado sai no documento
       const qtd = it.qty || 1;
       const sub = (Number(it.price) || 0) * qtd;
       total += sub;

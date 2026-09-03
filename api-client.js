@@ -189,6 +189,52 @@ async function guardaDeModulo(modulo, destino = 'index.html') {
 }
 window.guardaDeModulo = guardaDeModulo;
 
+
+async function refreshCurrentUser() {
+  try {
+    const fresh = await API.get('/auth/me');
+    if (fresh && _currentUser) {
+      _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active };
+    }
+    return _currentUser;
+  } catch(e) { return _currentUser; }
+}
+
+// V20: o logout removia APENAS o token. Ficavam no localStorage os
+// contratos (com preços e documentos), os registros com fotos, a lista de
+// chamados, o cache de usuários e a whitelist inteira — com e-mails e
+// papéis de toda a equipe. Em tablet compartilhado entre técnicos, cenário
+// comum em campo, o próximo usuário lia tudo pelo DevTools.
+//
+// `smm_api_url` e `smm_client_id` são preservados: são configuração do
+// dispositivo, não dado de usuário.
+const CACHES_DE_SESSAO = [
+  'smm_contracts', 'chamados_list', 'registro_records', 'prev_plans',
+  'orcamento_quotes', 'smm_movimentacoes', 'smm_ordens_servico',
+  'smm_users_cache', 'smm_whitelist_cache', 'smm_custom_db', 'smm_user_cid',
+  'smm_responsaveis', 'smm_laudos', 'smm_prestadora',
+];
+function limparCachesLocais() {
+  CACHES_DE_SESSAO.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });
+  try {
+    Object.keys(localStorage)
+      .filter(k => k.endsWith('_settings') || k.startsWith('smm_cache_'))
+      .forEach(k => localStorage.removeItem(k));
+  } catch(e) {}
+}
+window.limparCachesLocais = limparCachesLocais;
+
+async function logout() {
+  try { await DB.logout(); } catch(e) {}
+  sessionStorage.removeItem(SESSION_KEY);
+  limparCachesLocais();                 // V20
+  _currentUser = null;
+  window.location.href = 'index.html';
+}
+
+function can(p)         { const u=getCurrentUser(); return u ? !!(ROLES[u.role]||{})[p] : false; }
+function hasModule(mod) { const u=getCurrentUser(); return u ? (ROLES[u.role]?.modules||[]).includes(mod) : false; }
+
 // ── Google OAuth ──────────────────────────────────────────────────
 // Client ID é configurado pelo admin e salvo no localStorage
 const CLIENT_ID_KEY = 'smm_client_id';
@@ -334,7 +380,17 @@ const DB = {
   // é gravado nesta chamada.
   importarPedidoPdf: (contrato, pdf, respostas) =>
     API.post('/orcamentos/importar-pdf', { contrato, pdf, respostas }),
-  updateOrcamentoStatus: (id, status) => API.patch(`/orcamentos/${id}/status`, { status }),
+  // `itensAprovados` são os ÍNDICES dos itens aprovados, usados apenas na
+  // aprovação parcial. Quem marca quais itens ficaram aprovados é o
+  // servidor, a partir desses índices.
+  updateOrcamentoStatus: (id, status, itensAprovados) =>
+    API.patch(`/orcamentos/${id}/status`, { status, itensAprovados }),
+
+  // Equivalências de termo → serviço(s) do catálogo, por contrato.
+  // Gravam a decisão do usuário para a IA não repetir a pergunta.
+  getEquivalencias:    (c)      => API.get(`/contratos/${encodeURIComponent(c)}/equivalencias`),
+  saveEquivalencias:   (c, eq)  => API.post(`/contratos/${encodeURIComponent(c)}/equivalencias`, { equivalencias: eq }),
+  removeEquivalencia:  (c, t)   => API.delete(`/contratos/${encodeURIComponent(c)}/equivalencias/${encodeURIComponent(t)}`),
   delete:    (col, id) => API.delete(`/${col}/${id}`),
 
   // Usuários e whitelist
