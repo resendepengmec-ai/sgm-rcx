@@ -171,10 +171,14 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       </div>
     </div>
 
-    <div class="field" id="campo-estab" style="display:none">
+    <div class="field" id="campo-estab" style="display:none;position:relative">
       <label>Estabelecimento</label>
       <input type="text" id="f-estab" autocomplete="off"
-             placeholder="Ex: ESCOLA MUNICIPAL OLENTINO XAVIER">
+             placeholder="Digite parte do nome…" oninput="onEstabInput()"
+             onfocus="onEstabInput()">
+      <div id="estab-suggestions" style="display:none;position:absolute;left:0;right:0;top:100%;
+           z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+           box-shadow:var(--shadow-md);max-height:220px;overflow:auto"></div>
       <div style="font-size:11px;color:var(--text-2);margin-top:4px">
         Nomeia o arquivo gerado, junto do número do orçamento.
       </div>
@@ -524,6 +528,87 @@ function onTagInput() {
   if (!val) { document.getElementById('tag-suggestions').style.display = 'none'; return; }
   tagTimeout = setTimeout(() => showTagSuggestions(val), 150);
 }
+
+// ── Autocompletar de estabelecimento ──────────────────────────────
+// Os nomes vêm do banco de equipamentos do contrato — a mesma fonte que
+// já alimenta a busca de TAG. Digitar à mão convidava a erro de grafia,
+// e nome divergente quebra o agrupamento por unidade e a comparação
+// TAG × estabelecimento.
+function estabelecimentosDoContrato() {
+  const contrato = document.getElementById('f-client')?.value;
+  if (!contrato) return [];
+  const lista = getEffDB()[contrato] || [];
+  const mapa = new Map();
+  lista.forEach(m => {
+    const e = (m.estabelecimento || '').trim();
+    if (!e) return;
+    mapa.set(e, (mapa.get(e) || 0) + 1);   // conta os equipamentos de cada um
+  });
+  return [...mapa.entries()]
+    .map(([nome, qtd]) => ({ nome, qtd }))
+    .sort((a, b) => b.qtd - a.qtd);
+}
+
+let estabTimeout = null;
+function onEstabInput() {
+  clearTimeout(estabTimeout);
+  estabTimeout = setTimeout(mostrarEstabs, 120);
+}
+
+function mostrarEstabs() {
+  const box = document.getElementById('estab-suggestions');
+  const campo = document.getElementById('f-estab');
+  if (!box || !campo) return;
+
+  const contrato = document.getElementById('f-client')?.value;
+  if (!contrato) {
+    box.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:var(--text-3)">
+      Selecione o contrato primeiro.</div>`;
+    box.style.display = 'block';
+    return;
+  }
+
+  // Busca por trecho em qualquer posição, ignorando acento e caixa —
+  // "olentino" acha "ESCOLA MUNICIPAL OLENTINO XAVIER".
+  const norm = t => String(t || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const q = norm(campo.value.trim());
+  const todos = estabelecimentosDoContrato();
+  const achados = (q ? todos.filter(e => norm(e.nome).includes(q)) : todos).slice(0, 15);
+
+  if (!achados.length) {
+    box.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:var(--text-3)">
+      ${todos.length ? 'Nenhum estabelecimento com esse trecho.'
+                     : 'Este contrato não tem equipamentos cadastrados.'}
+      <br>Você pode digitar o nome mesmo assim.</div>`;
+    box.style.display = 'block';
+    return;
+  }
+
+  box.innerHTML = achados.map(e => `
+    <div onclick="selecionarEstab('${jsAttrOrc(e.nome)}')"
+         style="padding:9px 14px;cursor:pointer;border-bottom:0.5px solid var(--border)"
+         onmouseover="this.style.background='var(--primary-light)'"
+         onmouseout="this.style.background=''">
+      <div style="font-weight:600;font-size:13px">${esc(e.nome)}</div>
+      <div style="font-size:11px;color:var(--text-2)">${e.qtd} equipamento(s)</div>
+    </div>`).join('');
+  box.style.display = 'block';
+}
+
+function selecionarEstab(nome) {
+  const campo = document.getElementById('f-estab');
+  if (campo) campo.value = nome;
+  const box = document.getElementById('estab-suggestions');
+  if (box) box.style.display = 'none';
+}
+
+// Fecha a lista ao clicar fora — sem isto ela cobriria o formulário.
+document.addEventListener('click', ev => {
+  const box = document.getElementById('estab-suggestions');
+  const campo = document.getElementById('f-estab');
+  if (box && campo && ev.target !== campo && !box.contains(ev.target)) box.style.display = 'none';
+});
 
 function showTagSuggestions(q) {
   const contract = document.getElementById('f-client').value;
@@ -1620,6 +1705,46 @@ function _getAvailableServices(contratoExplicito) {
   return [...custom, ...SERVICES];
 }
 
+// Ajusta a quantidade de um serviço direto no catálogo. Chegar a zero
+// remove o item — é o caminho natural de desfazer, sem precisar procurar
+// a linha na lista de baixo.
+function changeSvcQtyOrc(idx, delta) {
+  const svcs = window._currentServices || [];
+  const s = svcs[idx];
+  if (!s) return;
+  if (s.inviavel) { addService(idx); return; }   // "inviável" substitui tudo
+
+  // No modo "vários", opera sobre os itens da TAG ainda em edição.
+  const daTagAtual = x => x.name === s.name && (escopoNovo !== 'varias' || !x.tag);
+  let item = newItems.find(daTagAtual);
+  const cur  = item ? (item.qty || 1) : 0;
+  const next = Math.max(0, cur + delta);
+  if (next === cur) return;
+
+  if (next === 0) {
+    if (item) { newItems.splice(newItems.indexOf(item), 1); showToast(`${s.name} removido`); }
+  } else if (!item) {
+    newItems.push({ name: s.name, qty: next, price: s.price || 0,
+                    taxRate: s.taxRate || 0, unit: s.unit || 'un',
+                    labor: 0, obs: '', _fromContract: !!s._custom });
+    showToast(`✅ ${s.name} adicionado`);
+  } else {
+    item.qty = next;
+  }
+
+  const span = document.getElementById('orc-qtyval-' + idx);
+  if (span) { span.textContent = next; span.style.color = next > 0 ? '#166534' : '#94a3b8'; }
+  const minus = document.getElementById('orc-minus-' + idx);
+  if (minus) {
+    minus.disabled = next <= 0;
+    minus.style.opacity = next <= 0 ? '.4' : '1';
+    minus.style.cursor = next <= 0 ? 'default' : 'pointer';
+  }
+  const card = span?.closest('.service-item');
+  if (card) card.style.borderColor = next > 0 ? '#86efac' : '';
+  renderNewItems();
+}
+
 function filterServices() {
   const q = document.getElementById('svc-search').value.toLowerCase();
   const el = document.getElementById('svc-list');
@@ -1639,12 +1764,35 @@ function filterServices() {
         <button class="svc-add" style="background:#dc2626" onclick="addService(${idx});event.stopPropagation()">+</button>
       </div>`;
     }
-    return `<div class="service-item" onclick="addService(${idx})">
+    // Seletor − 0 + , igual ao do módulo Registros. Antes cada clique no
+    // "+" empilhava uma linha nova do mesmo serviço; para lançar 3 de um
+    // item, ficavam 3 linhas repetidas no orçamento. Com o contador, a
+    // quantidade fica no próprio item — e dá para diminuir sem apagar e
+    // recomeçar.
+    //
+    // No modo "vários", a contagem é da TAG em edição (itens sem tag):
+    // cada equipamento tem a sua quantidade do mesmo serviço.
+    const _it = newItems.find(x => x.name === s.name &&
+      (escopoNovo !== 'varias' ? true : !x.tag));
+    const _q = _it ? (_it.qty || 1) : 0;
+    const _on = _q > 0;
+    return `<div class="service-item" style="border-color:${_on ? '#86efac' : ''}">
       <div class="svc-info">
         <div class="svc-name">${esc(s.name)}${customBadge}</div>
         <div class="svc-price">${window.HIDE_PRICES ? '' : fmt(s.price)+(s.unit?' / '+s.unit:'')}</div>
       </div>
-      <button class="svc-add" onclick="addService(${idx});event.stopPropagation()">+</button>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        <button type="button" id="orc-minus-${idx}" onclick="changeSvcQtyOrc(${idx},-1);event.stopPropagation()"
+          ${_on ? '' : 'disabled'}
+          style="width:32px;height:32px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;
+                 color:#64748b;font-size:20px;font-weight:700;line-height:1;
+                 cursor:${_on ? 'pointer' : 'default'};opacity:${_on ? '1' : '.4'}">−</button>
+        <span id="orc-qtyval-${idx}" style="min-width:22px;text-align:center;font-weight:700;
+              font-size:15px;color:${_on ? '#166534' : '#94a3b8'}">${_q}</span>
+        <button type="button" onclick="changeSvcQtyOrc(${idx},1);event.stopPropagation()"
+          style="width:32px;height:32px;border-radius:8px;border:1px solid var(--primary);background:#fff;
+                 color:var(--primary);font-size:20px;font-weight:700;line-height:1;cursor:pointer">+</button>
+      </div>
     </div>`;
   }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum serviço encontrado</p>';
 }
