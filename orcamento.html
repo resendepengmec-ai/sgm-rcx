@@ -154,8 +154,34 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       </div>
     </div>
 
+    <!-- ══ Escopo do orçamento ══════════════════════════════════════
+         Um orçamento pode cobrir UM equipamento (o caso simples, de
+         sempre) ou VÁRIOS de um mesmo estabelecimento — que é como os
+         pedidos costumam chegar. A importação de PDF já gerava
+         multi-TAG; faltava poder fazer o mesmo à mão.
+         O modelo de dados é o mesmo nos dois casos: cada item carrega a
+         sua TAG em items[].tag. -->
     <div class="field">
-      <label>TAG do equipamento *</label>
+      <label>Escopo</label>
+      <div style="display:flex;gap:8px">
+        <button type="button" id="esc-uma" class="btn btn-secondary btn-sm"
+                style="flex:1" onclick="setEscopo('uma')">🔧 Um equipamento</button>
+        <button type="button" id="esc-varias" class="btn btn-secondary btn-sm"
+                style="flex:1" onclick="setEscopo('varias')">🏢 Vários (estabelecimento)</button>
+      </div>
+    </div>
+
+    <div class="field" id="campo-estab" style="display:none">
+      <label>Estabelecimento</label>
+      <input type="text" id="f-estab" autocomplete="off"
+             placeholder="Ex: ESCOLA MUNICIPAL OLENTINO XAVIER">
+      <div style="font-size:11px;color:var(--text-2);margin-top:4px">
+        Nomeia o arquivo gerado, junto do número do orçamento.
+      </div>
+    </div>
+
+    <div class="field">
+      <label id="lbl-equip">TAG do equipamento *</label>
       <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
@@ -176,6 +202,11 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <label>Itens do orçamento *</label>
       <div id="new-items-list" style="margin-bottom:8px"></div>
       <button class="btn btn-secondary" onclick="openServiceModal()" style="width:100%;font-size:13px">+ Adicionar item</button>
+      <!-- No modo "vários", fecha os itens da TAG atual e libera o campo
+           para a próxima. Sem isto o usuário teria de salvar um orçamento
+           por equipamento, que é justamente o que se quer evitar. -->
+      <button class="btn btn-secondary" id="btn-prox-tag" style="width:100%;font-size:13px;margin-top:6px;display:none"
+              onclick="proximaTag()">➕ Concluir esta TAG e adicionar outra</button>
       <button class="btn btn-secondary" onclick="ponderarMaoDeObra()" style="width:100%;font-size:13px;margin-top:6px" title="Cobra a mão de obra apenas uma vez, mesmo com vários itens">⚖️ Ponderar mão de obra</button>
     </div>
 
@@ -868,6 +899,11 @@ function marcarTodasTags(v) {
   // técnico no local errado. Por isso o aviso é visível, não escondido.
   const divs = impDados.divergencias || [];
   const elDiv = document.getElementById('imp-divergencias');
+  // Mesma regra da geração: parque inteiro ausente é ausência de cadastro,
+  // não divergência — e aí não faz sentido pedir para marcar uma a uma.
+  const _comServ = impDados.equipamentos.filter(e => e.servicos.length);
+  const parqueVazioRev = _comServ.length > 0 &&
+    divs.filter(d => d.tipo === 'nao_cadastrada').length >= _comServ.length;
   const outraUnidade = divs.filter(d => d.tipo === 'estabelecimento');
   const semCadastro  = divs.filter(d => d.tipo === 'nao_cadastrada');
   if (elDiv) elDiv.innerHTML = !divs.length ? '' : `
@@ -881,7 +917,13 @@ function marcarTodasTags(v) {
           `• ${esc(d.tag)} — pedido: ${esc(d.noPedido)} · cadastro: ${esc(d.noCadastro)}`).join('<br>')}
         ${outraUnidade.length>8 ? `<br>… e mais ${outraUnidade.length-8}` : ''}
       </div>` : ''}
-      ${semCadastro.length ? `<div style="font-size:11px;color:#92400e;margin-top:4px">
+      ${semCadastro.length && parqueVazioRev ? `<div style="font-size:11px;color:#92400e;margin-top:4px">
+        <strong>Nenhuma TAG deste pedido está no banco de equipamentos do contrato.</strong>
+        Provavelmente o parque ainda não foi cadastrado — nesse caso não há o
+        que conferir, e <strong>todas serão incluídas</strong>.
+        Se você esperava encontrá-las, confira se o contrato selecionado é o certo.
+      </div>` : ''}
+      ${semCadastro.length && !parqueVazioRev ? `<div style="font-size:11px;color:#92400e;margin-top:4px">
         <strong>${semCadastro.length} TAG(s) não encontradas no banco deste contrato.</strong>
         Marque as que devem entrar assim mesmo — pode ser equipamento novo
         ainda não cadastrado, ou TAG digitada errada no pedido.
@@ -969,19 +1011,39 @@ function impGerar() {
   // TAG sem cadastro só entra se o usuário marcou. É a decisão dele, e o
   // padrão é NÃO incluir — equipamento inexistente no parque costuma ser
   // erro de digitação no pedido.
+  const comServicoTodos = impDados.equipamentos.filter(e => e.servicos.length);
   const semCadastro = new Set((impDados.divergencias || [])
     .filter(d => d.tipo === 'nao_cadastrada').map(d => d.tag));
-  const validos = impDados.equipamentos.filter(e =>
-    e.servicos.length && (!semCadastro.has(e.tag) || _incluirTags.has(e.tag)));
 
-  const descartadas = impDados.equipamentos.filter(e =>
-    e.servicos.length && semCadastro.has(e.tag) && !_incluirTags.has(e.tag));
+  // ── Quando o opt-in NÃO se aplica ─────────────────────────────
+  // Excluir por padrão a TAG sem cadastro faz sentido quando o parque
+  // existe e faltam algumas: aí a ausência é sinal de erro de digitação.
+  //
+  // Se NENHUMA TAG está no banco, o sinal é outro: o parque daquele
+  // contrato simplesmente não foi cadastrado. Excluir tudo deixaria o
+  // usuário sem conseguir gerar nada, sem entender por quê — que foi
+  // exatamente o que aconteceu.
+  const parqueVazio = comServicoTodos.length > 0 &&
+                      semCadastro.size >= comServicoTodos.length;
+
+  const validos = parqueVazio ? comServicoTodos : comServicoTodos.filter(e =>
+    !semCadastro.has(e.tag) || _incluirTags.has(e.tag));
+
+  if (!validos.length) {
+    // Mensagem que diz o que fazer, não só que falhou.
+    showToast(semCadastro.size
+      ? 'Todas as TAGs foram excluídas. Marque as que devem entrar no aviso de divergências.'
+      : 'Nenhum equipamento com serviço para gerar.', 6000);
+    return;
+  }
+
+  const descartadas = parqueVazio ? [] : comServicoTodos.filter(e =>
+    semCadastro.has(e.tag) && !_incluirTags.has(e.tag));
   if (descartadas.length && !confirm(
       `${descartadas.length} TAG(s) sem cadastro NÃO serão incluídas:\n` +
       descartadas.slice(0, 10).map(e => '• ' + e.tag).join('\n') +
       (descartadas.length > 10 ? `\n… e mais ${descartadas.length - 10}` : '') +
       '\n\nContinuar assim?')) return;
-  if (!validos.length) { showToast('Nenhum equipamento com serviço para gerar'); return; }
 
   // ── UM pedido = UM orçamento ──────────────────────────────────
   // A versão anterior criava um orçamento por TAG. Estava errado: o
@@ -1056,7 +1118,15 @@ function impGerar() {
       impRecomecar();
       showToast(`✅ Orçamento ${numero} gerado com ${validos.length} equipamento(s)`, 5000);
     })
-    .catch(e => showToast('Erro ao gravar: ' + e.message));
+    .catch(e => {
+      // Tira o registro da lista: mantê-lo daria a impressão de que foi
+      // salvo, e ele sumiria no próximo carregamento vindo do servidor.
+      const i = quotes.findIndex(x => x.id === q.id);
+      if (i >= 0) quotes.splice(i, 1);
+      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(_) {}
+      renderQuoteList();
+      showToast('❌ O orçamento NÃO foi salvo: ' + (e.message || 'erro desconhecido'), 9000);
+    });
 }
 
 // ── Quotes list ──
@@ -1168,6 +1238,64 @@ function podeMudarStatus() {
     .includes(getCurrentUser()?.role);
 }
 
+// ══════════════════════════════════════════════════════════════════
+// ESCOPO DO ORÇAMENTO: um equipamento ou um estabelecimento
+// ══════════════════════════════════════════════════════════════════
+// A importação de PDF já produzia orçamento multi-TAG (items[].tag). A
+// aba "Novo" só fazia TAG única — quem lançava à mão um pedido de
+// estabelecimento precisava criar um orçamento por máquina, que é o
+// oposto do que o documento entregue ao cliente deve ser.
+//
+// O modelo de dados NÃO muda: em ambos os modos cada item carrega a sua
+// TAG. No modo "uma", todas as TAGs dos itens são a mesma.
+let escopoNovo = 'uma';       // 'uma' | 'varias'
+
+function setEscopo(modo) {
+  // Trocar de modo com itens já lançados apagaria trabalho sem avisar.
+  if (newItems.length && modo !== escopoNovo &&
+      !confirm('Trocar o escopo vai limpar os itens já adicionados. Continuar?')) return;
+  if (modo !== escopoNovo) { newItems = []; renderNewItems(); }
+
+  escopoNovo = modo;
+  const varias = modo === 'varias';
+  document.getElementById('campo-estab').style.display = varias ? '' : 'none';
+  document.getElementById('btn-prox-tag').style.display = varias ? '' : 'none';
+  document.getElementById('lbl-equip').textContent =
+    varias ? 'TAG do equipamento (adicione uma de cada vez)' : 'TAG do equipamento *';
+
+  // Destaca o modo ativo sem depender de classe nova no CSS compartilhado.
+  const a = document.getElementById('esc-uma'), b = document.getElementById('esc-varias');
+  [[a, !varias], [b, varias]].forEach(([el, on]) => {
+    if (!el) return;
+    el.style.background = on ? 'var(--primary)' : '';
+    el.style.color = on ? '#fff' : '';
+    el.style.fontWeight = on ? '700' : '';
+  });
+}
+
+// Fecha a TAG corrente: os itens sem TAG recebem a do campo, e o campo é
+// liberado para a próxima. É o passo que transforma vários lançamentos
+// num único orçamento.
+function proximaTag() {
+  const tag = (document.getElementById('f-equip')?.value || '').trim();
+  if (!tag) { showToast('Informe a TAG antes de concluir'); return; }
+  const soltos = newItems.filter(i => !i.tag);
+  if (!soltos.length) { showToast('Adicione ao menos um serviço para esta TAG'); return; }
+
+  const m = (getEffDB()[document.getElementById('f-client').value] || [])
+    .find(x => x.tag === tag);
+  soltos.forEach(i => {
+    i.tag = tag;
+    // Patrimônio e local vêm do cadastro: são colunas do documento final.
+    if (m) { i.patrimonio = m.patrimonio || ''; i.local = m.recinto || ''; i.marca = m.marca || ''; }
+  });
+
+  document.getElementById('f-equip').value = '';
+  hideMachineInfo();
+  renderNewItems();
+  showToast(`✅ ${soltos.length} serviço(s) atribuídos à TAG ${tag}`);
+}
+
 // ── Numeração do orçamento ────────────────────────────────────────
 // O número identifica o documento na conversa com o cliente e nomeia o
 // PDF. Vem de duas origens:
@@ -1212,6 +1340,9 @@ function startNew() {
   editingId = null;
   const cn = document.getElementById('f-numero');
   if (cn) { cn.value = ''; cn.style.borderColor = ''; }
+  const ce = document.getElementById('f-estab');
+  if (ce) ce.value = '';
+  setEscopo('uma');          // todo lançamento novo começa no caso simples
   hideMachineInfo();
   document.getElementById('tag-suggestions').style.display = 'none';
   newItems = [];
@@ -1241,6 +1372,16 @@ function editQuote(id) {
   const cn = document.getElementById('f-numero');
   if (cn) { cn.value = numeroDoOrcamento(q); cn.style.borderColor = ''; }
   conferirNumero();
+
+  // Reabre no escopo em que foi criado. Sem isto, editar um orçamento de
+  // estabelecimento o converteria em TAG única ao salvar — perdendo as
+  // demais TAGs sem nenhum aviso.
+  const tagsDoOrc = new Set((q.items || []).map(i => i.tag).filter(Boolean));
+  const ehVarias = tagsDoOrc.size > 1 || (!q.equip && tagsDoOrc.size >= 1);
+  escopoNovo = ehVarias ? 'varias' : 'uma';
+  setEscopo(escopoNovo);
+  const ce = document.getElementById('f-estab');
+  if (ce) ce.value = q.unidade || '';
   // Try to reload machine info
   if (q.equip && q.client && getEffDB()[q.client]) {
     const m = getEffDB()[q.client].find(x => x.tag === q.equip);
@@ -1264,6 +1405,17 @@ function saveQuote() {
   // repetido no mesmo contrato geraria dois PDFs com o mesmo nome.
   const numero = (document.getElementById('f-numero')?.value || '').trim();
   if (!numero) { showToast('Informe o nº ou nome do orçamento'); return; }
+
+  // No modo "vários", itens sem TAG são os da última em edição — atribui
+  // antes de salvar, para que nenhum serviço fique órfão na tabela.
+  if (escopoNovo === 'varias' && newItems.some(i => !i.tag)) {
+    const tagAtual = (document.getElementById('f-equip')?.value || '').trim();
+    if (!tagAtual) {
+      showToast('Há serviços sem TAG. Informe a TAG e use “Concluir esta TAG”.', 6000);
+      return;
+    }
+    proximaTag();
+  }
   if (numeroEmUso(numero, client, editingId)) {
     showToast(`O número "${numero}" já existe no contrato ${client}. ` +
               `Sugestão livre: ${proximoNumeroLivre(client)}`);
@@ -1275,13 +1427,23 @@ function saveQuote() {
     client,
     phone: '',
     address: '',
-    equip: document.getElementById('f-equip').value,
-    machine: selectedMachine || null,
+    // No modo "vários", `equip` fica vazio: o orçamento não é de uma TAG,
+    // e a informação real vive em items[].tag. No modo "uma", todos os
+    // itens recebem a TAG do campo — o documento sai igual nos dois casos.
+    equip: escopoNovo === 'varias' ? '' : document.getElementById('f-equip').value,
+    unidade: escopoNovo === 'varias'
+      ? (document.getElementById('f-estab')?.value || '').trim() : '',
+    machine: escopoNovo === 'varias' ? null : (selectedMachine || null),
     date: document.getElementById('f-date').value,
     validity: '',
     payment: '',
     notes: document.getElementById('f-notes').value,
-    items: newItems,
+    items: escopoNovo === 'varias' ? newItems : newItems.map(i => ({
+      ...i,
+      tag: document.getElementById('f-equip').value,
+      patrimonio: selectedMachine?.patrimonio || i.patrimonio || '',
+      local: selectedMachine?.recinto || i.local || '',
+    })),
     numeroOrcamento: numero,      // identifica o documento e nomeia o PDF
     status: 'sent',        // nasce como Enviado
     createdAt: editingId ? (quotes.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
@@ -1323,11 +1485,24 @@ function deleteQuote(id) {
   DB.delete('orcamentos', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
 }
 
+// Grava local e no servidor. Devolve uma promessa que REJEITA quando o
+// servidor recusa.
+//
+// Antes o erro do servidor virava um console.warn: o orçamento aparecia na
+// tela, ficava no cache local e nunca chegava ao banco. Para quem usa, o
+// sintoma é "salvei e sumiu" no próximo dispositivo — ou "não consegui
+// salvar" sem nenhuma explicação na tela. Falha de gravação precisa ser
+// visível.
 function persist(record) {
   localStorage.setItem('orcamento_quotes', JSON.stringify(quotes));
   renderQuoteList();
   const last = record || quotes[0];
-  if (last) DB.save('orcamentos', last).catch(e => console.warn('Sync orçamento:', e.message));
+  if (!last) return Promise.resolve();
+  return DB.save('orcamentos', last).catch(e => {
+    console.warn('Sync orçamento:', e.message);
+    showToast('⚠️ Não foi possível gravar no servidor: ' + e.message, 8000);
+    throw e;
+  });
 }
 
 // ── Items ──
@@ -1340,12 +1515,21 @@ function renderNewItems() {
   }
   tc.style.display = '';
   let sub = 0, tax = 0, labor = 0;
+  // No modo "vários", mostra a que TAG cada item pertence. Sem isso, com
+  // 20 serviços na tela, não há como saber o que já foi atribuído.
+  let tagAnterior = null;
   el.innerHTML = newItems.map((it, i) => {
+    const cabecalhoTag = (escopoNovo === 'varias' && it.tag !== tagAnterior)
+      ? `<div style="font-size:11px;font-weight:700;color:var(--text-2);
+                     margin:8px 0 2px;padding-top:6px;border-top:1px solid var(--border)">
+           ${it.tag ? '🏷️ ' + esc(it.tag) : '⏳ sem TAG — use “Concluir esta TAG”'}
+         </div>` : '';
+    tagAnterior = it.tag;
     const line = it.price * it.qty;
     const t = line * it.taxRate;
     sub += line; tax += t; labor += (it.labor || 0);
     if (it.inviavel) {
-      return `<div class="quote-item" style="background:#fef2f2;border-radius:8px;padding:10px 12px;margin:4px 0">
+      return cabecalhoTag + `<div class="quote-item" style="background:#fef2f2;border-radius:8px;padding:10px 12px;margin:4px 0">
         <div class="qi-info" style="flex:1">
           <div class="qi-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
           <div class="qi-price" style="color:#dc2626;font-size:12px;margin-top:4px">Sem custo de reparo</div>
@@ -1353,7 +1537,7 @@ function renderNewItems() {
         <button class="btn-del" onclick="removeItem(${i})">×</button>
       </div>`;
     }
-    return `<div class="quote-item" style="flex-wrap:wrap">
+    return cabecalhoTag + `<div class="quote-item" style="flex-wrap:wrap">
       <div class="qi-info">
         <div class="qi-name">${esc(it.name)}</div>
         <div class="qi-price">${window.HIDE_PRICES ? '' : `${fmt(it.price)} × ${it.qty} = <strong>${fmt(line)}</strong>`}</div>
