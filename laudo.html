@@ -179,8 +179,12 @@ function renderForm(){
 
     <div class="card">
       <div class="card-title">Registro fotográfico</div>
+      <!-- O limite depende de quantos equipamentos o laudo cobre, então
+           precisa estar visível: sem isso o usuário só descobre o teto
+           quando esbarra nele. -->
+      <div id="l-fotos-limite" style="font-size:12px;color:var(--text-2);margin-bottom:8px"></div>
       <input type="file" id="l-foto-input" accept="image/*" capture="environment" style="display:none" onchange="addFoto(event)">
-      <button class="btn btn-secondary" onclick="document.getElementById('l-foto-input').click()" style="width:100%">📷 Adicionar foto</button>
+      <button class="btn btn-secondary" id="l-btn-foto" onclick="document.getElementById('l-foto-input').click()" style="width:100%">📷 Adicionar foto</button>
       <div class="foto-grid" id="l-fotos"></div>
     </div>
 
@@ -249,6 +253,9 @@ function addTag(){
 }
 function removeItemLaudo(i){ itensLaudo.splice(i,1); renderItens(); }
 function renderItens(){
+  // O limite de fotos é 2 × equipamentos: mudar a lista muda o teto, e o
+  // contador precisa refletir isso na hora.
+  if (typeof atualizarLimiteFotos === 'function') atualizarLimiteFotos();
   const box = document.getElementById('l-itens'); if(!box) return;
   if(!itensLaudo.length){ box.innerHTML = '<div style="font-size:12px;color:var(--text-3)">Nenhum equipamento adicionado.</div>'; return; }
   box.innerHTML = itensLaudo.map((e,i)=>`
@@ -288,12 +295,85 @@ async function gerarTexto(btn){
   finally{ btn.disabled=false; btn.textContent=txt0; }
 }
 
+// ── Limite de fotos: 2 por equipamento, piso de 3 ─────────────────
+// O laudo pode cobrir VÁRIOS equipamentos, mas o limite era o mesmo de um
+// registro de TAG única — 3 fotos no total. Isso impedia laudo com mais de
+// 3 máquinas, mesmo com uma foto cada.
+//
+// O piso de 3 existe porque o laudo tem um escopo SEM equipamentos: nele,
+// 2 × 0 = 0 bloquearia qualquer foto.
+function limiteDeFotos() {
+  return Math.max(3, 2 * (itensLaudo || []).length);
+}
+
+// ── Compressão no envio ───────────────────────────────────────────
+// A foto ia CRUA do FileReader: um arquivo de iPhone tem 2–4 MB, e o
+// servidor recusa acima de 3 MB por foto. Com vários equipamentos, o
+// laudo estourava o limite do corpo da requisição antes de chegar ao
+// limite de contagem.
+//
+// 1600 px e qualidade 0,82 — mais alto que os 800 px / 0,75 dos outros
+// módulos, porque o laudo tem pretensão probatória e a imagem precisa
+// suportar ampliação. Reduz de ~3 MB para ~400 KB.
+const LAUDO_MAX_PX = 1600, LAUDO_QUALIDADE = 0.82;
+
+function comprimirFoto(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Não foi possível ler o arquivo'));
+    r.onload = ev => {
+      const img = new Image();
+      img.onerror = () => {
+        // Formato que o navegador não decodifica (HEIC em alguns
+        // desktops): manda o original em vez de perder a foto.
+        console.warn('Sem suporte para pré-visualizar; enviando original');
+        resolve(ev.target.result);
+      };
+      img.onload = () => {
+        try {
+          let w = img.width, h = img.height;
+          if (w > LAUDO_MAX_PX || h > LAUDO_MAX_PX) {
+            if (w > h) { h = Math.round(h * LAUDO_MAX_PX / w); w = LAUDO_MAX_PX; }
+            else       { w = Math.round(w * LAUDO_MAX_PX / h); h = LAUDO_MAX_PX; }
+          }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', LAUDO_QUALIDADE));
+        } catch (e) { resolve(ev.target.result); }
+      };
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+
 function addFoto(ev){
   const file = ev.target.files && ev.target.files[0]; ev.target.value='';
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    const foto = { dataUrl: reader.result, geo: null, capturedAt: Date.now() };
+
+  const limite = limiteDeFotos();
+  if (fotos.length >= limite) {
+    showToast((itensLaudo || []).length
+      ? `Limite de ${limite} fotos (2 por equipamento). Adicione mais equipamentos para ampliar.`
+      : `Limite de ${limite} fotos. Adicione equipamentos ao laudo para ampliar.`, 7000);
+    return;
+  }
+
+  comprimirFoto(file).then(dataUrl => {
+    // ── Teto de tamanho, além do teto de contagem ────────────────
+    // Medido: cada foto comprimida ocupa ~377 KB em base64. O corpo da
+    // requisição tem limite de 12 MB, então por volta de 30 fotos o
+    // laudo passaria a falhar no envio — e a falha apareceria só ao
+    // salvar, depois de todo o trabalho feito.
+    const LIMITE_PAYLOAD = 10 * 1024 * 1024;   // margem sobre os 12 MB
+    const totalAtual = fotos.reduce((a, f) => a + (f.dataUrl || '').length, 0);
+    if (totalAtual + dataUrl.length > LIMITE_PAYLOAD) {
+      showToast('As fotos deste laudo já somam o máximo que o servidor aceita. ' +
+                'Remova alguma antes de adicionar outra.', 8000);
+      return;
+    }
+    const foto = { dataUrl, geo: null, capturedAt: Date.now() };
     fotos.push(foto); renderFotos();
     showToast('Foto adicionada'+(navigator.geolocation?' — localizando…':''));
     if(navigator.geolocation){
@@ -311,10 +391,29 @@ function addFoto(ev){
         if(foto.geo && foto.geo.shortAddress) showToast('Localização capturada');
       }, ()=>{}, {enableHighAccuracy:false, timeout:8000, maximumAge:0});
     }
-  };
-  reader.readAsDataURL(file);
+  }).catch(e => showToast('Erro ao processar a foto: ' + e.message));
 }
+function atualizarLimiteFotos() {
+  const el = document.getElementById('l-fotos-limite');
+  const btn = document.getElementById('l-btn-foto');
+  if (!el) return;
+  const lim = limiteDeFotos(), n = (fotos || []).length;
+  const nEq = (itensLaudo || []).length;
+  const mb = (fotos || []).reduce((a, f) => a + (f.dataUrl || '').length, 0) / 1048576;
+  el.innerHTML = `${n} de ${lim} foto(s)` +
+    (nEq ? ` — 2 por equipamento (${nEq} ${nEq > 1 ? 'equipamentos' : 'equipamento'})`
+         : ' — adicione equipamentos para ampliar o limite') +
+    (mb >= 1 ? ` · ${mb.toFixed(1)} MB` : '');
+  el.style.color = n >= lim ? 'var(--danger)' : 'var(--text-2)';
+  if (btn) {
+    btn.disabled = n >= lim;
+    btn.style.opacity = n >= lim ? '.5' : '';
+    btn.textContent = n >= lim ? '📷 Limite atingido' : '📷 Adicionar foto';
+  }
+}
+
 function renderFotos(){
+  atualizarLimiteFotos();
   document.getElementById('l-fotos').innerHTML = fotos.map((f,i)=>`
     <div class="foto-thumb">
       <img src="${imgSrc(f.dataUrl)}">
