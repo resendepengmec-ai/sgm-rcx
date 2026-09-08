@@ -174,7 +174,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="field" id="campo-estab" style="display:none;position:relative">
       <label>Estabelecimento</label>
       <input type="text" id="f-estab" autocomplete="off"
-             placeholder="Digite parte do nome…" oninput="onEstabInput()"
+             placeholder="Digite parte do nome…"
+             oninput="onEstabInput(); conferirTagEstab()"
              onfocus="onEstabInput()">
       <div id="estab-suggestions" style="display:none;position:absolute;left:0;right:0;top:100%;
            z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;
@@ -187,6 +188,11 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="field">
       <label id="lbl-equip">TAG do equipamento *</label>
       <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
+      <!-- Aviso de TAG que não pertence ao estabelecimento informado. É a
+           mesma conferência que a importação de PDF já fazia; faltava no
+           lançamento manual. -->
+      <div id="aviso-tag-estab" style="display:none;margin-top:6px;font-size:12px;
+           border-radius:8px;padding:8px 10px;line-height:1.45"></div>
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -211,21 +217,18 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
            por equipamento, que é justamente o que se quer evitar. -->
       <button class="btn btn-secondary" id="btn-prox-tag" style="width:100%;font-size:13px;margin-top:6px;display:none"
               onclick="proximaTag()">➕ Concluir esta TAG e adicionar outra</button>
-      <button class="btn btn-secondary" onclick="ponderarMaoDeObra()" style="width:100%;font-size:13px;margin-top:6px" title="Cobra a mão de obra apenas uma vez, mesmo com vários itens">⚖️ Ponderar mão de obra</button>
     </div>
 
     <div class="field" id="totals-card" style="display:none;background:var(--primary-light);border-radius:8px;padding:12px">
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
-        <span>Subtotal</span><span id="t-sub">R$ 0,00</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--text-2)">
-        <span>Impostos</span><span id="t-tax">R$ 0,00</span>
-      </div>
-      <div id="t-labor-row" style="display:none;justify-content:space-between;font-size:13px;margin-bottom:4px;color:var(--text-2)">
-        <span>Mão de obra</span><span id="t-labor">R$ 0,00</span>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700;margin-top:6px;border-top:1px solid var(--border);padding-top:6px">
+      <!-- O valor do orçamento é a soma dos preços do CONTRATO. Imposto e
+           mão de obra saíram: o preço cadastrado em cada serviço já é o
+           valor acordado, e somar algo por cima produzia total diferente
+           do que o contrato prevê — e do documento enviado ao cliente. -->
+      <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:700">
         <span>Total</span><span id="t-total">R$ 0,00</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-2);margin-top:4px">
+        Soma dos preços cadastrados nos serviços do contrato.
       </div>
     </div>
 
@@ -316,7 +319,15 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <div class="modal-bg hidden" id="service-modal">
   <div class="modal">
     <div class="modal-handle"></div>
-    <div class="modal-title">Adicionar serviço</div>
+    <!-- Fechar sem precisar rolar até o fim da lista: com catálogo longo,
+         o botão do rodapé fica a dezenas de itens de distância. -->
+    <div style="display:flex;align-items:center;gap:8px">
+      <div class="modal-title" style="flex:1;margin:0">Adicionar serviço</div>
+      <button type="button" onclick="closeServiceModal()" aria-label="Fechar"
+        style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);
+               background:var(--surface);color:var(--text-2);font-size:20px;line-height:1;
+               cursor:pointer;flex-shrink:0">×</button>
+    </div>
     <div class="search-bar">
       <span class="search-icon">🔍</span>
       <input type="search" id="svc-search" placeholder="Pesquisar serviço..." oninput="filterServices()">
@@ -526,7 +537,7 @@ function onTagInput() {
   clearTimeout(tagTimeout);
   hideMachineInfo();
   if (!val) { document.getElementById('tag-suggestions').style.display = 'none'; return; }
-  tagTimeout = setTimeout(() => showTagSuggestions(val), 150);
+  tagTimeout = setTimeout(() => { showTagSuggestions(val); conferirTagEstab(); }, 150);
 }
 
 // ── Autocompletar de estabelecimento ──────────────────────────────
@@ -601,6 +612,7 @@ function selecionarEstab(nome) {
   if (campo) campo.value = nome;
   const box = document.getElementById('estab-suggestions');
   if (box) box.style.display = 'none';
+  conferirTagEstab();   // trocar a unidade pode criar ou resolver divergencia
 }
 
 // Fecha a lista ao clicar fora — sem isto ela cobriria o formulário.
@@ -626,6 +638,94 @@ function showTagSuggestions(q) {
   box.style.display = 'block';
 }
 
+// ── TAG × estabelecimento, no lançamento manual ───────────────────
+// Mesma regra da importação de PDF: a TAG informada precisa pertencer ao
+// estabelecimento digitado. Divergência costuma ser TAG errada ou
+// equipamento que mudou de lugar sem movimentação registrada — e orçar
+// para a unidade errada só aparece na execução, com o técnico no local
+// errado.
+//
+// As abreviações são expandidas antes de comparar: sem isso, "E.M. Fulano"
+// contra "ESCOLA MUNICIPAL FULANO" acusaria divergência em todo pedido que
+// usasse a forma curta, e o aviso viraria ruído que se aprende a ignorar.
+const _ABREV_UN = [
+  [/\bE\.?\s?M\.?\s?E\.?\s?F\.?\b/g, 'ESCOLA MUNICIPAL DE ENSINO FUNDAMENTAL'],
+  [/\bE\.?\s?M\.?\s?E\.?\s?I\.?\b/g, 'ESCOLA MUNICIPAL DE EDUCACAO INFANTIL'],
+  [/\bC\.?\s?M\.?\s?E\.?\s?I\.?\b/g, 'CENTRO MUNICIPAL DE EDUCACAO INFANTIL'],
+  [/\bE\.?\s?E\.?\b/g, 'ESCOLA ESTADUAL'],
+  [/\bE\.?\s?M\.?\b/g, 'ESCOLA MUNICIPAL'],
+  [/\bC\.?\s?E\.?\b/g, 'COLEGIO ESTADUAL'],
+  [/\bU\.?\s?B\.?\s?S\.?\b/g, 'UNIDADE BASICA DE SAUDE'],
+  [/\bPROF\.?[ªAO]?\b/g, 'PROFESSOR'],
+  [/\bDR\.?[ªA]?\b/g, 'DOUTOR'],
+  [/\bSTA?\.?\b/g, 'SANTA'],
+];
+const _VAZIAS_UN = new Set(['de','da','do','das','dos','e','em','a','o','municipal','escola']);
+
+function _chaveUnidadeFront(nome) {
+  let t = String(nome || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  _ABREV_UN.forEach(([re, exp]) => { t = t.replace(re, exp); });
+  t = t.replace(/[^A-Z0-9]+/g, ' ').trim().toLowerCase();
+  return t.split(' ').filter(p => p && !_VAZIAS_UN.has(p)).sort().join(' ');
+}
+
+function _mesmaUnidadeFront(a, b) {
+  const ka = _chaveUnidadeFront(a), kb = _chaveUnidadeFront(b);
+  if (!ka || !kb) return true;          // sem dado dos dois lados, não acusa
+  if (ka === kb) return true;
+  const A = new Set(ka.split(' ')), B = new Set(kb.split(' '));
+  const menor = A.size <= B.size ? A : B, maior = A.size <= B.size ? B : A;
+  if (menor.size < 2) return false;     // uma palavra só não basta para afirmar
+  return [...menor].every(p => maior.has(p));
+}
+
+function conferirTagEstab() {
+  const el = document.getElementById('aviso-tag-estab');
+  if (!el) return;
+  const esconder = () => { el.style.display = 'none'; el.innerHTML = ''; };
+
+  // Só faz sentido no modo "vários": é lá que existe estabelecimento
+  // digitado para comparar.
+  if (escopoNovo !== 'varias') return esconder();
+
+  const tag = (document.getElementById('f-equip')?.value || '').trim();
+  const estab = (document.getElementById('f-estab')?.value || '').trim();
+  const contrato = document.getElementById('f-client')?.value;
+  if (!tag || !contrato) return esconder();
+
+  const maq = (getEffDB()[contrato] || []).find(x => String(x.tag) === tag);
+
+  if (!maq) {
+    el.style.cssText += ';background:#fef3c7;border:1px solid #fde68a;color:#92400e';
+    el.innerHTML = `⚠️ A TAG <strong>${esc(tag)}</strong> não está no banco de
+      equipamentos deste contrato. Pode ser equipamento novo ainda não
+      cadastrado — ou TAG digitada errada.`;
+    el.style.display = 'block';
+    return;
+  }
+
+  if (estab && !_mesmaUnidadeFront(estab, maq.estabelecimento)) {
+    el.style.cssText += ';background:#fee2e2;border:1px solid #fecaca;color:#991b1b';
+    el.innerHTML = `🚫 A TAG <strong>${esc(tag)}</strong> está cadastrada em
+      <strong>${esc(maq.estabelecimento)}</strong>, e não em
+      <strong>${esc(estab)}</strong>.<br>
+      <span style="font-weight:400">Confira a TAG ou o estabelecimento. Você pode
+      lançar assim mesmo — o aviso é para conferência.</span>`;
+    el.style.display = 'block';
+    return;
+  }
+
+  // Confirmação positiva: saber que bateu vale tanto quanto saber que não.
+  if (estab) {
+    el.style.cssText += ';background:#f0fdf4;border:1px solid #bbf7d0;color:#166534';
+    el.innerHTML = `✓ TAG confere com ${esc(maq.estabelecimento)}` +
+      (maq.recinto ? ` · ${esc(maq.recinto)}` : '');
+    el.style.display = 'block';
+    return;
+  }
+  esconder();
+}
+
 function selectTag(tag) {
   const contract = document.getElementById('f-client').value;
   const list = getEffDB()[contract] || [];
@@ -635,6 +735,7 @@ function selectTag(tag) {
   document.getElementById('f-equip').value = tag;
   document.getElementById('tag-suggestions').style.display = 'none';
   showMachineInfo(m);
+  conferirTagEstab();
 }
 
 function showMachineInfo(m) {
@@ -1169,7 +1270,6 @@ function impGerar() {
         marca: e.marca || '', potencia: e.potencia || '',
         name: sv.name, qty: sv.qty || 1,
         price: doCat?.price || 0, unit: doCat?.unit || sv.unit || 'un',
-        taxRate: doCat?.taxRate || 0, labor: 0,
       });
     });
   });
@@ -1233,7 +1333,7 @@ function renderQuoteList() {
 
   let lastMonth = '';
   list.innerHTML = filtered.map(q => {
-    const total = q.items.reduce((s,i) => s + i.price * i.qty + (i.labor||0), 0);
+    const total = q.items.reduce((s,i) => s + i.price * i.qty, 0);
     // 'pending' fica só por compatibilidade: orçamentos criados antes desta
     // versão têm esse status e precisam continuar abrindo normalmente.
     const statusMap = {
@@ -1347,6 +1447,7 @@ function setEscopo(modo) {
   document.getElementById('btn-prox-tag').style.display = varias ? '' : 'none';
   document.getElementById('lbl-equip').textContent =
     varias ? 'TAG do equipamento (adicione uma de cada vez)' : 'TAG do equipamento *';
+  conferirTagEstab();   // o aviso so existe no modo varios
 
   // Destaca o modo ativo sem depender de classe nova no CSS compartilhado.
   const a = document.getElementById('esc-uma'), b = document.getElementById('esc-varias');
@@ -1364,12 +1465,17 @@ function setEscopo(modo) {
 function proximaTag() {
   const tag = (document.getElementById('f-equip')?.value || '').trim();
   if (!tag) { showToast('Informe a TAG antes de concluir'); return; }
+  // Itens já nascem com a TAG (ver changeSvcQtyOrc); aqui só se confirma
+  // que há algo lançado para ela e se libera o campo para a próxima.
+  const daTag = newItems.filter(i => (i.tag || '') === tag);
   const soltos = newItems.filter(i => !i.tag);
-  if (!soltos.length) { showToast('Adicione ao menos um serviço para esta TAG'); return; }
+  if (!daTag.length && !soltos.length) {
+    showToast('Adicione ao menos um serviço para esta TAG'); return;
+  }
 
   const m = (getEffDB()[document.getElementById('f-client').value] || [])
     .find(x => x.tag === tag);
-  soltos.forEach(i => {
+  soltos.forEach(i => {     // itens antigos, sem TAG, herdam a atual
     i.tag = tag;
     // Patrimônio e local vêm do cadastro: são colunas do documento final.
     if (m) { i.patrimonio = m.patrimonio || ''; i.local = m.recinto || ''; i.marca = m.marca || ''; }
@@ -1378,7 +1484,7 @@ function proximaTag() {
   document.getElementById('f-equip').value = '';
   hideMachineInfo();
   renderNewItems();
-  showToast(`✅ ${soltos.length} serviço(s) atribuídos à TAG ${tag}`);
+  showToast(`✅ TAG ${tag} concluída — ${daTag.length + soltos.length} serviço(s)`);
 }
 
 // ── Numeração do orçamento ────────────────────────────────────────
@@ -1599,7 +1705,7 @@ function renderNewItems() {
     tc.style.display = 'none'; return;
   }
   tc.style.display = '';
-  let sub = 0, tax = 0, labor = 0;
+  let sub = 0;   // só a soma dos preços do contrato
   // No modo "vários", mostra a que TAG cada item pertence. Sem isso, com
   // 20 serviços na tela, não há como saber o que já foi atribuído.
   let tagAnterior = null;
@@ -1610,9 +1716,7 @@ function renderNewItems() {
            ${it.tag ? '🏷️ ' + esc(it.tag) : '⏳ sem TAG — use “Concluir esta TAG”'}
          </div>` : '';
     tagAnterior = it.tag;
-    const line = it.price * it.qty;
-    const t = line * it.taxRate;
-    sub += line; tax += t; labor += (it.labor || 0);
+    sub += it.price * it.qty;
     if (it.inviavel) {
       return cabecalhoTag + `<div class="quote-item" style="background:#fef2f2;border-radius:8px;padding:10px 12px;margin:4px 0">
         <div class="qi-info" style="flex:1">
@@ -1633,44 +1737,17 @@ function renderNewItems() {
         <button class="qty-btn" onclick="chgQty(${i},1)">+</button>
       </div>
       <button class="btn-del" onclick="removeItem(${i})">×</button>
-      ${window.HIDE_PRICES ? '' : `
-      <div style="flex-basis:100%;display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-2)">
-        <span>Mão de obra (R$):</span>
-        <input type="number" min="0" step="0.01" value="${it.labor || 0}" onchange="setItemLabor(${i}, this.value)"
-          style="width:90px;padding:4px 6px;font-size:12px;border:1px solid var(--border);border-radius:6px">
-      </div>`}
     </div>`;
   }).join('');
   if (window.HIDE_PRICES) {
     tc.style.display = 'none';
   } else {
-    document.getElementById('t-sub').textContent = fmt(sub);
-    document.getElementById('t-tax').textContent = fmt(tax);
-    const laborRow = document.getElementById('t-labor-row');
-    if (laborRow) laborRow.style.display = labor > 0 ? '' : 'none';
-    const laborEl = document.getElementById('t-labor');
-    if (laborEl) laborEl.textContent = fmt(labor);
-    document.getElementById('t-total').textContent = fmt(sub + tax + labor);
+    // O total é a soma dos preços do contrato, e só.
+    document.getElementById('t-total').textContent = fmt(sub);
   }
 }
 
-function setItemLabor(i, val) {
-  const n = parseFloat(val);
-  newItems[i].labor = isNaN(n) || n < 0 ? 0 : n;
-  renderNewItems();
-}
 
-// "Ponderar mão de obra": em orçamentos com vários itens, a mão de obra é
-// cobrada uma única vez — concentra o total já lançado no primeiro item e
-// zera os demais, em vez de exigir digitar tudo de novo manualmente.
-function ponderarMaoDeObra() {
-  if (newItems.length < 2) { showToast('Adicione pelo menos 2 itens para ponderar'); return; }
-  const total = newItems.reduce((s, it) => s + (it.labor || 0), 0);
-  if (total <= 0) { showToast('Informe o valor da mão de obra em algum item primeiro'); return; }
-  newItems.forEach((it, i) => { it.labor = i === 0 ? total : 0; });
-  renderNewItems();
-  showToast(`Mão de obra ponderada: ${fmt(total)} cobrado uma única vez`);
-}
 
 function chgQty(i, d) { newItems[i].qty = Math.max(1, newItems[i].qty + d); renderNewItems(); }
 function removeItem(i) { newItems.splice(i, 1); renderNewItems(); }
@@ -1698,7 +1775,6 @@ function _getAvailableServices(contratoExplicito) {
   const custom = (c?.servicos || []).map(s => ({
     name: s.name,
     price: s.price || 0,
-    taxRate: 0,
     unit: s.unit,
     _custom: true,
   }));
@@ -1715,7 +1791,13 @@ function changeSvcQtyOrc(idx, delta) {
   if (s.inviavel) { addService(idx); return; }   // "inviável" substitui tudo
 
   // No modo "vários", opera sobre os itens da TAG ainda em edição.
-  const daTagAtual = x => x.name === s.name && (escopoNovo !== 'varias' || !x.tag);
+  // O item da TAG que está sendo editada agora. Como a TAG é carimbada na
+  // adição, comparar por "sem tag" deixaria de encontrá-lo — e o contador
+  // voltaria a zero ao reabrir o catálogo.
+  const tagAtual = escopoNovo === 'varias'
+    ? (document.getElementById('f-equip')?.value || '').trim() : '';
+  const daTagAtual = x => x.name === s.name &&
+    (escopoNovo !== 'varias' || (x.tag || '') === tagAtual);
   let item = newItems.find(daTagAtual);
   const cur  = item ? (item.qty || 1) : 0;
   const next = Math.max(0, cur + delta);
@@ -1724,9 +1806,23 @@ function changeSvcQtyOrc(idx, delta) {
   if (next === 0) {
     if (item) { newItems.splice(newItems.indexOf(item), 1); showToast(`${s.name} removido`); }
   } else if (!item) {
+    // No modo "vários", carimba já a TAG do campo: antes o item ficava
+    // sem identificação até você clicar em "Concluir esta TAG", e a lista
+    // mostrava "⏳ sem TAG" mesmo com a TAG preenchida na tela — parecia
+    // que o serviço não tinha sido associado a nada.
+    const tagAtual = escopoNovo === 'varias'
+      ? (document.getElementById('f-equip')?.value || '').trim() : '';
+    const maq = tagAtual
+      ? (getEffDB()[document.getElementById('f-client')?.value] || [])
+          .find(x => x.tag === tagAtual)
+      : null;
     newItems.push({ name: s.name, qty: next, price: s.price || 0,
-                    taxRate: s.taxRate || 0, unit: s.unit || 'un',
-                    labor: 0, obs: '', _fromContract: !!s._custom });
+                    unit: s.unit || 'un',
+                    tag: tagAtual || undefined,
+                    patrimonio: maq?.patrimonio || '',
+                    local: maq?.recinto || '',
+                    marca: maq?.marca || '',
+                    obs: '', _fromContract: !!s._custom });
     showToast(`✅ ${s.name} adicionado`);
   } else {
     item.qty = next;
@@ -1772,8 +1868,10 @@ function filterServices() {
     //
     // No modo "vários", a contagem é da TAG em edição (itens sem tag):
     // cada equipamento tem a sua quantidade do mesmo serviço.
+    const _tagAtual = escopoNovo === 'varias'
+      ? (document.getElementById('f-equip')?.value || '').trim() : '';
     const _it = newItems.find(x => x.name === s.name &&
-      (escopoNovo !== 'varias' ? true : !x.tag));
+      (escopoNovo !== 'varias' || (x.tag || '') === _tagAtual));
     const _q = _it ? (_it.qty || 1) : 0;
     const _on = _q > 0;
     return `<div class="service-item" style="border-color:${_on ? '#86efac' : ''}">
@@ -1811,7 +1909,7 @@ function addService(i) {
   }
   const ex = newItems.findIndex(x => x.name === s.name);
   if (ex >= 0) { newItems[ex].qty++; }
-  else { newItems.push({ name: s.name, price: s.price, taxRate: s.taxRate, qty: 1, labor: 0 }); }
+  else { newItems.push({ name: s.name, price: s.price, qty: 1 }); }
   renderNewItems();
   showToast(s.name + ' adicionado');
 }
@@ -1822,8 +1920,6 @@ function openDetail(id) {
   const q = quotes.find(x => x.id === id);
   if (!q) return;
   const sub = q.items.reduce((s,i) => s + i.price*i.qty, 0);
-  const laborTotal = q.items.reduce((s,i) => s + (i.labor||0), 0);
-  const tax = q.items.reduce((s,i) => s + i.price*i.qty*i.taxRate, 0);
   // Ordem do ciclo: enviado → aprovado/reprovado → executado.
   const _rot = { sent:'Enviado', approved:'Aprovado', rejected:'Reprovado',
                  executed:'Executado', pending:'Pendente (antigo)' };
@@ -1867,15 +1963,12 @@ function openDetail(id) {
         <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:14px;border-bottom:0.5px solid var(--border)">
           <span class="${it.aprovado === false ? 'item-recusado' : ''}">${
             it.aprovado === true ? '✅ ' : it.aprovado === false ? '✕ ' : ''
-          }${it.tag ? `<strong style="font-size:12px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}${esc(it.name)} × ${it.qty}${(!window.HIDE_PRICES && it.labor) ? ` <span style="color:var(--text-3);font-size:12px">(+ mão de obra ${fmt(it.labor)})</span>` : ''}</span>
-          ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty + (it.labor||0))}</span>`}
+          }${it.tag ? `<strong style="font-size:12px;color:var(--text-2)">${esc(it.tag)}</strong> · ` : ''}${esc(it.name)} × ${it.qty}</span>
+          ${window.HIDE_PRICES ? '' : `<span style="font-weight:600">${fmt(it.price*it.qty)}</span>`}
         </div>`).join('')}
     </div>
     ${window.HIDE_PRICES ? '' : `
-    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Subtotal</span><span>${fmt(sub)}</span></div>
-    <div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:4px"><span>Impostos</span><span>${fmt(tax)}</span></div>
-    ${laborTotal ? `<div style="display:flex;justify-content:space-between;font-size:14px;color:var(--text-2);margin-bottom:8px"><span>Mão de obra</span><span>${fmt(laborTotal)}</span></div>` : ''}
-    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub + laborTotal)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:700;color:var(--primary)"><span>Total</span><span>${fmt(sub)}</span></div>
     `}
     ${q.notes ? `<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:10px;margin-top:10px">${esc(q.notes)}</div>` : ''}
   `;
@@ -2043,7 +2136,7 @@ function openConsolidatedModal() {
     <div style="max-height:240px;overflow-y:auto;margin-bottom:14px">
       ${unitNames.map(u => {
         const qs = groups[u];
-        const total = qs.reduce((s,q) => s + q.items.reduce((s2,i)=>s2+i.price*i.qty+(i.labor||0),0), 0);
+        const total = qs.reduce((s,q) => s + q.items.reduce((s2,i)=>s2+i.price*i.qty,0), 0);
         return `<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">
           <div>
             <div style="font-size:14px;font-weight:600">${u}</div>
@@ -2580,11 +2673,10 @@ function printPDF(id) {
   doc.text('TOTAL', M+CW-3, y+5.5, {align:'right'});
   y += 8;
 
-  let sub = 0, tax = 0, labor = 0;
+  let sub = 0;   // só a soma dos preços do contrato
   q.items.forEach((it, idx) => {
-    const line = it.price * it.qty + (it.labor || 0);
-    const t = (it.price * it.qty) * it.taxRate;
-    sub += it.price * it.qty; tax += t; labor += (it.labor || 0);
+    const line = it.price * it.qty;
+    sub += line;
     if (idx % 2 === 0) { doc.setFillColor(248,250,255); doc.rect(M, y, CW, 8, 'F'); }
     if (it.inviavel) {
       doc.setFillColor(254,242,242); doc.rect(M, y, CW, 8, 'F');
@@ -2595,7 +2687,7 @@ function printPDF(id) {
       doc.text('—', M+CW-3, y+5.5, {align:'right'});
     } else {
       doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(10);
-      const nameStr = doc.splitTextToSize(it.name + (it.labor ? ` (+ M.O. ${fmt(it.labor)})` : ''), CW*0.52);
+      const nameStr = doc.splitTextToSize(it.name, CW*0.52);
       doc.text(nameStr, M+3, y+5.5);
       doc.text(String(it.qty), M+CW*0.58, y+5.5, {align:'center'});
       doc.text(fmt(it.price), M+CW*0.75, y+5.5, {align:'center'});
@@ -2613,32 +2705,7 @@ function printPDF(id) {
   doc.text(fmt(sub), M+CW-3, y, {align:'right'});
   y += 7;
   doc.text('Impostos (~20%):', M+CW*0.55, y);
-  doc.text(fmt(tax), M+CW-3, y, {align:'right'});
   y += 7;
-  if (labor > 0) {
-    doc.text('Mão de obra:', M+CW*0.55, y);
-    doc.text(fmt(labor), M+CW-3, y, {align:'right'});
-    y += 4;
-  } else { y -= 3; }
-  doc.setFillColor(37,99,235);
-  doc.rect(M+CW*0.5, y, CW*0.5, 10, 'F');
-  doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-  doc.text('TOTAL:', M+CW*0.54, y+7);
-  doc.text(fmt(sub + labor), M+CW-3, y+7, {align:'right'});
-  y += 16;
-
-  // Notes
-  if (q.notes) {
-    doc.setFillColor(255,251,235);
-    const noteLines = doc.splitTextToSize(q.notes, CW-8);
-    const noteH = noteLines.length * 5 + 10;
-    doc.rect(M, y, CW, noteH, 'F');
-    doc.setTextColor(146,64,14); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-    doc.text('OBSERVAÇÕES', M+4, y+6);
-    doc.setFont('helvetica','normal'); doc.setTextColor(50,50,50); doc.setFontSize(12);
-    doc.text(noteLines, M+4, y+12);
-    y += noteH + 8;
-  }
 
   drawPdfFooters(doc, cont);
 
@@ -2714,7 +2781,7 @@ openDetail = function(id) {
     document.querySelectorAll('[onclick*="deleteQuote"]').forEach(b => b.style.display='none');
   }
   if (!role.canViewPrices) {
-    document.querySelectorAll('.qc-total, #t-sub, #t-tax, #t-total').forEach(el => el.textContent = '—');
+    document.querySelectorAll('.qc-total, #t-total').forEach(el => el.textContent = '—');
   }
 };
 
