@@ -302,8 +302,14 @@ async function gerarTexto(btn){
 //
 // O piso de 3 existe porque o laudo tem um escopo SEM equipamentos: nele,
 // 2 × 0 = 0 bloquearia qualquer foto.
+// Teto absoluto de 60 espelha o do servidor (validate.js:
+// MAX_FOTOS_LAUDO_ABS). Sem ele, com 40 equipamentos a tela deixaria
+// adicionar 80 fotos e o servidor recusaria o laudo inteiro na hora de
+// salvar — depois de todo o trabalho feito.
+const LAUDO_MAX_FOTOS_ABS = 60;
+
 function limiteDeFotos() {
-  return Math.max(3, 2 * (itensLaudo || []).length);
+  return Math.min(LAUDO_MAX_FOTOS_ABS, Math.max(3, 2 * (itensLaudo || []).length));
 }
 
 // ── Compressão no envio ───────────────────────────────────────────
