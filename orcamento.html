@@ -1754,6 +1754,10 @@ function removeItem(i) { newItems.splice(i, 1); renderNewItems(); }
 
 // ── Service modal ──
 function openServiceModal() {
+  // Sem contrato não há catálogo, e a lista abriria vazia sem explicação.
+  const contrato = document.getElementById('f-client')?.value;
+  if (!contrato) { showToast('Selecione o contrato antes de adicionar serviços'); return; }
+
   document.getElementById('svc-search').value = '';
   filterServices();
   document.getElementById('service-modal').classList.remove('hidden');
@@ -1766,10 +1770,20 @@ function closeServiceModal() { document.getElementById('service-modal').classLis
 // SEMPRE o campo #f-client, que é o da aba "Novo". Chamada a partir da
 // aba "Importar" — onde o contrato está em #imp-contrato — ela devolvia
 // o catálogo VAZIO, e os itens saíam sem preço e sem unidade.
+// O contrato vem de QUEM CHAMA. A versão anterior tentava adivinhar
+// lendo #imp-contrato antes de #f-client — e como o campo da aba
+// Importar continua no DOM mesmo com a aba fechada, um contrato ali
+// selecionado fazia a aba Novo carregar o catálogo do contrato errado,
+// ou nenhum. O sintoma era não conseguir adicionar serviço.
+//
+// Sem parâmetro, usa a aba que está ATIVA — nunca a outra.
 function _getAvailableServices(contratoExplicito) {
+  const abaImportarAtiva = document.getElementById('screen-import')
+    ?.classList.contains('active');
   const contract = contratoExplicito
-    || document.getElementById('imp-contrato')?.value
-    || document.getElementById('f-client')?.value;
+    || (abaImportarAtiva
+        ? document.getElementById('imp-contrato')?.value
+        : document.getElementById('f-client')?.value);
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const c = contracts.find(x => x.numero === contract);
   const custom = (c?.servicos || []).map(s => ({
@@ -1844,7 +1858,10 @@ function changeSvcQtyOrc(idx, delta) {
 function filterServices() {
   const q = document.getElementById('svc-search').value.toLowerCase();
   const el = document.getElementById('svc-list');
-  const allServices = _getAvailableServices();
+  // Passa o contrato da aba Novo explicitamente: não depender de
+  // inferência é o que garante o catálogo certo.
+  const allServices = _getAvailableServices(
+    document.getElementById('f-client')?.value || undefined);
   window._currentServices = allServices;
   el.innerHTML = allServices.filter(s => s.name.toLowerCase().includes(q)).map((s, i) => {
     const idx = allServices.indexOf(s);
@@ -1892,7 +1909,15 @@ function filterServices() {
                  color:var(--primary);font-size:20px;font-weight:700;line-height:1;cursor:pointer">+</button>
       </div>
     </div>`;
-  }).join('') || '<p style="color:var(--text-3);font-size:14px;padding:8px 0">Nenhum serviço encontrado</p>';
+  }).join('') || `<div style="padding:16px 4px;font-size:13px;color:var(--text-2);line-height:1.6">
+      <strong>Nenhum serviço encontrado.</strong><br>
+      ${allServices.filter(x => x._custom).length === 0
+        ? `O contrato selecionado não tem serviços cadastrados — ou nenhum
+           contrato foi escolhido. Volte, selecione o contrato e tente de novo.
+           <br><span style="font-size:12px;color:var(--text-3)">
+           Os serviços e preços vêm do catálogo do contrato.</span>`
+        : 'Nenhum serviço corresponde à busca. Limpe o campo de pesquisa.'}
+    </div>`;
 }
 function addService(i) {
   const services = window._currentServices || SERVICES;
