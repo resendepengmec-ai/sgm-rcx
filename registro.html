@@ -428,6 +428,49 @@ function loadPrestadoraConfig() {
 
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
 const PDF_M = 20, PDF_W = 210;
+
+// ── Formato da imagem, deduzido da data-URL ───────────────────────
+// Antes toda chamada passava 'JPEG' fixo. O sistema aceita PNG, WebP,
+// HEIC e outros (o laudo envia o arquivo cru do FileReader), e uma foto
+// que não fosse JPEG falhava — caindo num catch vazio e sumindo do PDF
+// sem aviso nenhum.
+//
+// Também testei que o jsPDF ACEITA base64 inválido sem lançar exceção:
+// confiar no try/catch deixaria passar imagem quebrada como se tivesse
+// entrado. Por isso a data-URL é validada ANTES de desenhar.
+function fmtImagemPdf(dataUrl) {
+  const m = /^data:image\/([a-z0-9.+-]+);/i.exec(String(dataUrl || ''));
+  const t = (m ? m[1] : 'jpeg').toLowerCase();
+  if (t === 'png')  return 'PNG';
+  if (t === 'webp') return 'WEBP';
+  if (t === 'gif')  return 'GIF';
+  if (t === 'bmp')  return 'BMP';
+  return 'JPEG';
+}
+
+const _RE_IMG_PDF = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
+function fotoUtilizavelPdf(dataUrl) {
+  if (typeof dataUrl !== 'string') return false;
+  const m = _RE_IMG_PDF.exec(dataUrl.trim());
+  if (!m) return false;
+  return m[2].length >= 64 && m[2].length % 4 === 0;
+}
+
+let _fotosFalhadasPdf = 0;
+
+function desenharFotoPdf(doc, dataUrl, x, y, w, h) {
+  if (!fotoUtilizavelPdf(dataUrl)) {
+    _fotosFalhadasPdf++;
+    console.warn('Foto ignorada: data-URL inválida ou vazia');
+    return false;
+  }
+  try { doc.addImage(dataUrl, fmtImagemPdf(dataUrl), x, y, w, h); return true; }
+  catch (e) {
+    try { doc.addImage(dataUrl, x, y, w, h); return true; }
+    catch (e2) { _fotosFalhadasPdf++; console.warn('Foto não incluída:', e2.message); return false; }
+  }
+}
+
 function drawPdfHeader(doc, { title, metaLines }) {
   let y = 14, textX = PDF_M;
   if (prestadoraConfig.logo) {
@@ -855,7 +898,7 @@ function printFilteredPDF() {
         rowItems.forEach((it, c) => {
           const cellX = M + c*(cellW+gap);
           const px = cellX + (cellW - it.w)/2;   // centraliza na coluna
-          try { doc.addImage(it.p.dataUrl,'JPEG',px,y,it.w,it.h); } catch(e){}
+          desenharFotoPdf(doc, it.p.dataUrl, px, y, it.w, it.h);
           if (it.p.geo) {
             doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
             const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
@@ -879,6 +922,14 @@ function printFilteredPDF() {
     filterEstab ? filterEstab.slice(0,20).replace(/\s+/g,'-') : null,
     filterMonth || null,
   ].filter(Boolean).join('-') + '.pdf';
+
+  // Falha de foto não pode continuar invisível — era o que escondia o
+  // problema do formato fixo 'JPEG'.
+  if (_fotosFalhadasPdf > 0) {
+    showToast(`⚠️ ${_fotosFalhadasPdf} foto(s) não puderam ser incluídas ` +
+              `(formato não suportado ou arquivo corrompido).`, 9000);
+    _fotosFalhadasPdf = 0;
+  }
   try { doc.save(fn); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('Relatório PDF gerado!');
@@ -1737,7 +1788,7 @@ function printPDF(id){
       rowItems.forEach((it, c) => {
         const cellX = M + c*(cellW+gap);
         const px = cellX + (cellW - it.w)/2;
-        try { doc.addImage(it.p.dataUrl,'JPEG',px,y,it.w,it.h); } catch(e){}
+        desenharFotoPdf(doc, it.p.dataUrl, px, y, it.w, it.h);
         if (it.p.geo) {
           doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
           const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
@@ -1755,6 +1806,14 @@ function printPDF(id){
 
   drawPdfFooters(doc, cont);
 
+
+  // Falha de foto não pode continuar invisível — era o que escondia o
+  // problema do formato fixo 'JPEG'.
+  if (_fotosFalhadasPdf > 0) {
+    showToast(`⚠️ ${_fotosFalhadasPdf} foto(s) não puderam ser incluídas ` +
+              `(formato não suportado ou arquivo corrompido).`, 9000);
+    _fotosFalhadasPdf = 0;
+  }
   try { doc.save(`OS-${esc(r.client)}-TAG${esc(r.equip||'x')}-${r.id.slice(-6)}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal();

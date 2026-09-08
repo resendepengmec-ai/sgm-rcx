@@ -2,39 +2,10 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-  <!-- ══ V17: Content Security Policy ══════════════════════════════
-       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
-       precisa vir por <meta>. Limitações honestas desta política:
-
-       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
-         do sistema está em blocos de script inline. Com ele, o CSP NAO
-         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
-         servidor + o escape no cliente, já aplicados.
-       • O que este CSP DE FATO entrega: connect-src restringe para onde os
-         dados podem ser enviados, o que impede a exfiltração do token para
-         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
-         bloqueia clickjacking; base-uri e form-action fecham desvios.
-
-       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
-       inline para arquivos externos — projeto de médio prazo. -->
-  <meta http-equiv="Content-Security-Policy" content="
-    default-src 'self';
-    script-src 'self' 'unsafe-inline';
-    style-src 'self' 'unsafe-inline';
-    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
-    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
-    font-src 'self' data:;
-    frame-ancestors 'none';
-    base-uri 'none';
-    form-action 'none';
-    object-src 'none';
-    upgrade-insecure-requests">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
-  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#1d4ed8">
 <title>Relatório Gerencial — Sistema de Manutenção</title>
-<script src="vendor/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#1d4ed8;--primary-dark:#1e3a8a;--primary-light:#eff6ff;
@@ -89,13 +60,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <input id="f-tag" list="f-tag-list" placeholder="Todas as TAGs" onchange="render()" style="width:100%">
         <datalist id="f-tag-list"></datalist>
       </div>
-      <div class="field" style="min-width:150px;margin-bottom:0">
-        <label>Estabelecimento</label>
-        <select id="f-estab" onchange="render()" style="width:100%"><option value="">Todos</option></select>
-      </div>
-      <label id="f-extrato-wrap" style="display:none;align-items:center;gap:6px;font-size:13px;margin-bottom:0;cursor:pointer;white-space:nowrap">
-        <input type="checkbox" id="f-extrato" style="width:16px;height:16px"> 💰 Extrato financeiro no PDF
-      </label>
       <div class="field" style="margin-bottom:0">
         <label>Período (início)</label>
         <input id="f-periodo-ini" type="month" onchange="render()">
@@ -151,11 +115,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="registros-table"></div>
   </div>
 
-  <div id="section-custos" class="section-card" style="display:none">
-    <h3>💰 Valor final</h3>
-    <div id="custos-body"></div>
-  </div>
-
   <!-- Preventiva -->
   <div id="section-preventiva" class="section-card" style="display:none">
     <h3>📋 Manutenção preventiva</h3>
@@ -186,39 +145,14 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <div class="toast" id="toast"></div>
 
-<script src="config.js"></script>
+<script>
+  window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
+</script>
 <script src="api-client.js"></script>
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const CAN_REPORT_ROLES = ['admin','diretor','supervisor','gestor']; // gestor pra cima
-
-// Estabelecimento de um registro: usa o capturado; senão busca pela TAG no
-// banco de equipamentos do contrato (mesma fonte da preventiva).
-function relResolveEstab(r){
-  if (r && r.machine && r.machine.estabelecimento) return r.machine.estabelecimento;
-  try {
-    const db = (typeof getEffDB === 'function' ? getEffDB() : {})[r.contract || r.client] || [];
-    const m = db.find(x => (x.tag||'') === (r.tag || r.equip));
-    if (m && m.estabelecimento) return m.estabelecimento;
-  } catch(e){}
-  return '';
-}
-// Prazo de atendimento (execução − solicitação) em dias; null se faltar data.
-function relPrazoDias(r){
-  if (!r || !r.dateSolic || !r.date) return null;
-  const s = new Date(r.dateSolic+'T00:00:00'), e = new Date(r.date+'T00:00:00');
-  if (isNaN(s)||isNaN(e)) return null;
-  const d = Math.round((e-s)/86400000);
-  return d < 0 ? null : d;
-}
-function relPrazoStats(list){
-  const dias = (list||[]).map(relPrazoDias).filter(d=>d!==null);
-  if (!dias.length) return { n:0, media:null, min:null, max:null };
-  const soma = dias.reduce((a,b)=>a+b,0);
-  return { n:dias.length, media: Math.round((soma/dias.length)*10)/10, min: Math.min(...dias), max: Math.max(...dias) };
-}
-function relFmtDias(n){ return n===1?'1 dia':`${n} dias`; }
 const user = getCurrentUser();
 let _authorized = false;
 if (!user) {
@@ -238,17 +172,6 @@ if (!user) {
 } else {
   document.getElementById('auth-overlay').style.display='none';
   _authorized = true;
-// ── V13: reconfirmação de papel no servidor ───────────────────────
-// A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
-// assinatura) — bastava editar o sessionStorage para desbloquear a tela.
-// guardaDeModulo() confirma o papel REAL com GET /auth/me e fecha a
-// página se não bater.
-//
-// Fica FORA da cadeia if/else acima de propósito: inserir uma instrução
-// entre um `if` e o seu `else` é SyntaxError, e um SyntaxError aqui mata
-// o script inteiro — a tela trava em "Verificando acesso…" para sempre.
-setTimeout(() => { try { guardaDeModulo('relatorios'); } catch (e) {} }, 0);
-
 }
 
 function showToast(msg, dur=2500) {
@@ -275,17 +198,109 @@ function photoFit(doc, dataUrl, W, Hmax){
   return { w, h };
 }
 
+// ── Formato da imagem, deduzido da própria data-URL ───────────────
+// O código antigo passava 'JPEG' fixo em toda chamada de addImage. O
+// sistema aceita PNG, WebP e HEIC (o laudo envia o arquivo cru do
+// FileReader), e uma foto que não fosse JPEG fazia o addImage lançar —
+// caindo num catch vazio e sumindo do relatório sem aviso.
+function fmtImagem(dataUrl) {
+  const m = /^data:image\/([a-z0-9.+-]+);/i.exec(String(dataUrl || ''));
+  const t = (m ? m[1] : 'jpeg').toLowerCase();
+  if (t === 'png') return 'PNG';
+  if (t === 'webp') return 'WEBP';
+  if (t === 'gif') return 'GIF';
+  if (t === 'bmp') return 'BMP';
+  return 'JPEG';                 // jpg, jpeg e o que o jsPDF tratar como tal
+}
+
+// Contador de fotos que o jsPDF não conseguiu desenhar. Falha de imagem
+// não pode continuar invisível: no fim do PDF o usuário é avisado.
+let _fotosFalhadas = 0;
+
+// Uma data-URL de imagem válida tem cabeçalho conhecido e corpo base64
+// bem formado. Vale a pena validar ANTES de desenhar: testei e o jsPDF
+// aceita base64 inválido sem lançar exceção — ou seja, confiar no
+// try/catch deixaria passar imagem quebrada como se tivesse entrado.
+const _RE_DATAURL_IMG = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
+
+function fotoUtilizavel(dataUrl) {
+  if (typeof dataUrl !== 'string') return false;
+  const m = _RE_DATAURL_IMG.exec(dataUrl.trim());
+  if (!m) return false;
+  // Base64 válido tem comprimento múltiplo de 4; corpo minúsculo não é
+  // imagem de verdade.
+  const corpo = m[2];
+  return corpo.length >= 64 && corpo.length % 4 === 0;
+}
+
+function desenharFoto(doc, dataUrl, x, y, w, h) {
+  if (!fotoUtilizavel(dataUrl)) {
+    _fotosFalhadas++;
+    console.warn('Foto ignorada: data-URL inválida ou vazia');
+    return false;
+  }
+  try { doc.addImage(dataUrl, fmtImagem(dataUrl), x, y, w, h); return true; }
+  catch (e) {
+    // Segunda tentativa deixando o jsPDF deduzir o formato sozinho.
+    try { doc.addImage(dataUrl, x, y, w, h); return true; }
+    catch (e2) { _fotosFalhadas++; console.warn('Foto não incluída:', e2.message); return false; }
+  }
+}
+
+// ── Grade com TODAS as fotos ──────────────────────────────────────
+// Antes, chamados e registros inseriam apenas photos[0] e escreviam
+// "+N foto(s)" como TEXTO — as demais nunca entravam no documento.
+// Esta função desenha todas, em grade, quebrando página quando precisa.
+//
+// `contexto` é o rótulo do cabeçalho ao virar a página, para o leitor não
+// perder de vista a que TAG as fotos pertencem.
+function gradeDeFotos(doc, fotos, opts) {
+  const o = opts || {};
+  const M = o.M != null ? o.M : 14;
+  const CW = o.CW != null ? o.CW : (doc.internal.pageSize.getWidth() - M * 2);
+  const cols = o.cols || 3, gap = o.gap || 6, capH = o.capH || 8, maxH = o.maxH || 90;
+  const limiteY = o.limiteY || 272;
+  let y = o.y;
+
+  const cellW = (CW - gap * (cols - 1)) / cols;
+  const sized = (fotos || []).map(p => {
+    const src = p && p.dataUrl ? p.dataUrl : p;
+    return { p, src, ...photoFit(doc, src, cellW, maxH) };
+  });
+
+  for (let i = 0; i < sized.length; i += cols) {
+    const linha = sized.slice(i, i + cols);
+    const rowH = Math.max.apply(null, linha.map(it => it.h));
+    if (y + rowH + capH > limiteY) {
+      doc.addPage(); y = M;
+      if (typeof o.header === 'function') y = o.header(y) || M;
+    }
+    linha.forEach((it, c) => {
+      const cellX = M + c * (cellW + gap);
+      const ix = cellX + (cellW - it.w) / 2;
+      desenharFoto(doc, it.src, ix, y, it.w, it.h);
+      const geo = it.p && it.p.geo;
+      if (geo && typeof geo.lat === 'number') {
+        doc.setFontSize(6); doc.setFont('helvetica', 'normal'); doc.setTextColor(37, 99, 235);
+        const label = geo.shortAddress || `${geo.lat.toFixed(5)}, ${geo.lng.toFixed(5)}`;
+        const lines = doc.splitTextToSize(label, cellW).slice(0, 2);
+        doc.textWithLink(lines[0], cellX, y + rowH + 3,
+          { url: `https://maps.google.com/?q=${geo.lat},${geo.lng}` });
+        if (lines[1]) doc.text(lines[1], cellX, y + rowH + 6);
+        doc.setTextColor(0, 0, 0);
+      }
+    });
+    y += rowH + capH + 4;
+  }
+  return y;
+}
+
 function init() {
   // Default: mês atual pros dois campos
   const now = new Date();
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   document.getElementById('f-periodo-ini').value = mesAtual;
   document.getElementById('f-periodo-fim').value = mesAtual;
-
-  // Extrato financeiro no PDF: opção só para supervisor pra cima
-  if (typeof user !== 'undefined' && ['admin','diretor','supervisor'].includes(user.role)) {
-    const w = document.getElementById('f-extrato-wrap'); if (w) w.style.display='flex';
-  }
 
   // Load contracts (busca fresca do servidor, com os equipamentos —
   // necessário pro filtro de TAG poder sugerir as TAGs do contrato)
@@ -314,64 +329,15 @@ function populateTagList() {
   const contrato = document.getElementById('f-contrato').value;
   const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
   const relevantes = contrato ? contracts.filter(c=>c.numero===contrato) : contracts;
-  const tags = [], estabs = [];
-  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); if (e.estabelecimento) estabs.push(e.estabelecimento); }));
+  const tags = [];
+  relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); }));
   document.getElementById('f-tag-list').innerHTML =
     [...new Set(tags)].sort().map(t=>`<option value="${t}">`).join('');
-  const sel = document.getElementById('f-estab');
-  if (sel) { const cur = sel.value;
-    sel.innerHTML = '<option value="">Todos</option>' + [...new Set(estabs)].sort().map(e=>`<option value="${esc(e)}">${esc(e)}</option>`).join('');
-    if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
-  }
 }
 function onContratoChangeRel() {
   document.getElementById('f-tag').value = '';
   populateTagList();
   render();
-}
-
-// ── Custos por contrato (relatório financeiro, supervisor pra cima) ──
-// Acumula quantidade × preço dos serviços dos registros filtrados. O filtro
-// de estabelecimento age aqui (via TAG no banco de equipamentos).
-function renderCustos(regs) {
-  const sec = document.getElementById('section-custos');
-  if (!sec) return;
-  const isSup = ['admin','diretor','supervisor'].includes(user.role);
-  if (!isSup) { sec.style.display='none'; return; }
-  const estabSel = (document.getElementById('f-estab')||{}).value || '';
-  const finRegs = regs.filter(r => !estabSel || relResolveEstab(r) === estabSel);
-
-  const porContrato = {}, porServico = {}; let total = 0;
-  finRegs.forEach(r => {
-    const c = r.client||r.contract||r.contrato||'—';
-    (r.items||[]).forEach(it => {
-      if (it.inviavel) return;
-      const qt = Number(it.qty||1), val = Number(it.price||0) * qt;
-      porContrato[c] = (porContrato[c]||0) + val;
-      const k = it.name||'—';
-      porServico[k] = porServico[k] || { qtd:0, valor:0, unit:it.unit||'un' };
-      porServico[k].qtd += qt; porServico[k].valor += val;
-      total += val;
-    });
-  });
-
-  sec.style.display='';
-  const body = document.getElementById('custos-body');
-  const fmt = v => 'R$ ' + Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const contratosArr = Object.keys(porContrato).sort();
-  if (!contratosArr.length) {
-    body.innerHTML = '<div style="color:var(--text-3);font-size:13px">Sem serviços com valor no filtro selecionado. Os valores vêm da quantidade × preço do serviço cadastrado no contrato — registros antigos sem quantidade contam como 1.</div>';
-    return;
-  }
-  const tblContratos = tableHTML(['Contrato','Total'], contratosArr.map(c=>[esc(c), fmt(porContrato[c])]));
-  const servArr = Object.keys(porServico).sort((a,b)=>porServico[b].valor-porServico[a].valor);
-  const tblServ = tableHTML(['Serviço','Qtd','Valor'], servArr.map(s=>[esc(s), porServico[s].qtd+' '+esc(porServico[s].unit), fmt(porServico[s].valor)]));
-  body.innerHTML =
-    `<div style="display:flex;justify-content:space-between;align-items:center;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:12px;margin-bottom:14px">
-       <span style="font-weight:700;color:#166534">Total acumulado${estabSel?' · '+esc(estabSel):''}</span>
-       <span style="font-weight:800;font-size:20px;color:#166534">${fmt(total)}</span></div>
-     <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin:2px 0 6px">Por contrato</div>${tblContratos}
-     <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin:16px 0 6px">Por serviço</div>${tblServ}`;
 }
 
 // ── Render ────────────────────────────────────────────────────────
@@ -381,22 +347,71 @@ function renderCustos(regs) {
 // o relatório sair incompleto/vazio se essas telas não tivessem sido
 // abertas nesse mesmo navegador antes.
 let _reportDataLoaded = false;
+
+// ── Dados do relatório, EM MEMÓRIA ────────────────────────────────
+// A versão anterior gravava tudo em localStorage — inclusive as fotos,
+// que são data-URLs base64 dentro de cada registro. A cota do navegador
+// é ~5 MB, e 10 registros com 3 fotos já passam de 11 MB.
+//
+// O setItem lançava QuotaExceededError, o .catch(()=>{}) engolia o erro
+// em silêncio, e o relatório acabava usando o que tivesse sobrado no
+// cache: dados antigos, parciais ou nenhum. Era a causa de sair
+// incompleto sem nenhuma mensagem na tela.
+//
+// Agora os dados ficam em memória (não têm limite de cota) e o
+// localStorage guarda só uma cópia SEM FOTOS, como reserva para quando
+// o servidor estiver fora do ar.
+const _dados = { chamados: [], registros: [], preventiva: [], movimentacoes: [] };
+
+// Remove as fotos para o cache de reserva. Só o que é leve fica no disco.
+function _semFotos(lista) {
+  return (lista || []).map(r => {
+    const { photos, ...resto } = r || {};
+    if (Array.isArray(resto.equipments)) {
+      resto.equipments = resto.equipments.map(e => {
+        const { photos: _p, ...eq } = e || {}; return eq;
+      });
+    }
+    return resto;
+  });
+}
+
+// Guarda a reserva sem fotos. Se ainda assim estourar, avisa — nunca
+// falha em silêncio, que foi o que escondeu este problema.
+function _guardarReserva(chave, lista) {
+  try {
+    localStorage.setItem(chave, JSON.stringify(_semFotos(lista)));
+  } catch (e) {
+    console.warn('Cache de reserva não gravado (' + chave + '):', e.name);
+    try { localStorage.removeItem(chave); } catch (_) {}
+  }
+}
+
 async function loadReportData() {
-  // Só sobrescreve o cache local quando o servidor devolve algo. Um array
-  // vazio é "truthy" em JS: o `if (d)` antigo apagava os planos/registros
-  // guardados no navegador sempre que a resposta vinha vazia (sync ainda
-  // não feito, filtro por contrato/papel, servidor dormindo no Render).
-  // O módulo de preventiva já usava essa mesma guarda (data.length > 0).
-  const keep = (key) => (d) => {
-    if (Array.isArray(d) ? d.length > 0 : !!d) localStorage.setItem(key, JSON.stringify(d));
+  const falhas = [];
+  const carregar = async (rot, chave, promessa, destino) => {
+    try {
+      const d = await promessa;
+      if (d) { _dados[destino] = d; _guardarReserva(chave, d); }
+    } catch (e) {
+      falhas.push(rot);
+      // Sem servidor, usa a reserva local (sem fotos, mas com os dados).
+      try { _dados[destino] = JSON.parse(localStorage.getItem(chave) || '[]'); }
+      catch (_) { _dados[destino] = []; }
+    }
   };
-  const tasks = [
-    DB.getAll('chamados').then(keep('chamados_list')).catch(()=>{}),
-    DB.getAll('registros').then(keep('registro_records')).catch(()=>{}),
-    DB.getAll('preventiva').then(keep('prev_plans')).catch(()=>{}),
-    DB.getMovimentacoes().then(keep('smm_movimentacoes')).catch(()=>{}),
-  ];
-  await Promise.all(tasks);
+
+  await Promise.all([
+    carregar('chamados',      'chamados_list',     DB.getAll('chamados'),     'chamados'),
+    carregar('registros',     'registro_records',  DB.getAll('registros'),    'registros'),
+    carregar('preventiva',    'prev_plans',        DB.getAll('preventiva'),   'preventiva'),
+    carregar('movimentações', 'smm_movimentacoes', DB.getMovimentacoes(),     'movimentacoes'),
+  ]);
+
+  if (falhas.length) {
+    showToast('⚠️ Não foi possível carregar do servidor: ' + falhas.join(', ') +
+              '. O relatório pode sair incompleto e sem fotos.', 8000);
+  }
   _reportDataLoaded = true;
 }
 
@@ -417,10 +432,10 @@ async function render() {
     : `${labelOf(periodoIni, {month:'short', year:'numeric'})} a ${labelOf(periodoFim, {month:'short', year:'numeric'})}`;
 
   // Load data
-  const chamados   = JSON.parse(localStorage.getItem('chamados_list')   ||'[]');
-  const registros  = JSON.parse(localStorage.getItem('registro_records')||'[]');
-  const preventiva = JSON.parse(localStorage.getItem('prev_plans')||'[]');
-  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]');
+  const chamados   = _dados.chamados;      // memória: as fotos vêm junto
+  const registros  = _dados.registros;
+  const preventiva = _dados.preventiva;
+  const movimentos = _dados.movimentacoes;
   const contracts  = JSON.parse(localStorage.getItem('smm_contracts')   ||'[]');
 
   // Filter by period (intervalo início–fim, inclusive) + contract
@@ -443,7 +458,6 @@ async function render() {
     inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
     inContract(r.client||r.contract||r.contrato) &&
     inTag(r.equip||r.tag));
-  renderCustos(filtRegistros);
   // Preventiva: contrato em p.client, mês em p.period, equipamentos em
   // p.equipments[].tag. A execução vem de equip.checks (ver prevProgress),
   // não de um array de execuções — que não existe no módulo.
@@ -515,7 +529,7 @@ async function render() {
     document.getElementById('section-eventos').style.display='';
     document.getElementById('eventos-list').innerHTML = eventos.slice(0,50).map(e=>`
       <div class="event-row">
-        <div class="event-dot ${esc(e.tipo)}"></div>
+        <div class="event-dot ${e.tipo}"></div>
         <div class="event-info">
           <div class="event-tag">${esc(e.tag)} <span class="status-pill" style="${statusColors[e.status]||''}">${e.status}</span></div>
           <div class="event-desc">${esc(e.desc)}</div>
@@ -546,30 +560,15 @@ async function render() {
   // Registros table
   if (filtRegistros.length) {
     document.getElementById('section-registros').style.display='';
-    const pz = relPrazoStats(filtRegistros);
-    const pzHtml = pz.n
-      ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
-           <div class="kpi"><div class="kpi-val">${relFmtDias(pz.media)}</div><div class="kpi-label">Prazo médio</div></div>
-           <div class="kpi"><div class="kpi-val" style="color:var(--success)">${relFmtDias(pz.min)}</div><div class="kpi-label">Prazo mínimo</div></div>
-           <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${relFmtDias(pz.max)}</div><div class="kpi-label">Prazo máximo</div></div>
-           <div class="kpi"><div class="kpi-val">${pz.n}</div><div class="kpi-label">com datas</div></div>
-         </div>`
-      : `<div style="font-size:12px;color:var(--text-3);margin-bottom:10px">Prazo de atendimento: sem datas de solicitação/execução suficientes.</div>`;
-    document.getElementById('registros-table').innerHTML = pzHtml + tableHTML(
-      ['Estabelecimento','Solicitação','Execução','Prazo','TAG','Serviços','Técnico','Fotos'],
-      filtRegistros.map(r=>{
-        const d = relPrazoDias(r);
-        return [
-          esc(relResolveEstab(r))||'—',
-          r.dateSolic||'—',
-          r.date||'—',
-          d===null?'—':relFmtDias(d),
-          esc(r.equip||r.tag)||'—',
-          esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
-          esc(r.tech||r.technician||r.tecnico)||'—',
-          photoCell(r.photos)
-        ];
-      })
+    document.getElementById('registros-table').innerHTML = tableHTML(
+      ['Data','TAG','Serviços','Técnico','Fotos'],
+      filtRegistros.map(r=>[
+        r.date||'—',
+        esc(r.equip||r.tag)||'—',
+        esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
+        esc(r.tech||r.technician||r.tecnico)||'—',
+        photoCell(r.photos)
+      ])
     );
   } else { document.getElementById('section-registros').style.display='none'; }
 
@@ -593,25 +592,7 @@ async function render() {
         ];
       })
     );
-  } else {
-    // Em vez de sumir com a seção (que faz parecer "quebrado"), mostra o
-    // porquê: quantos planos existem no cache e o que está filtrando.
-    const total = preventiva.length;
-    const doContrato = preventiva.filter(p=>inContract(p.client||p.contract||p.contrato)).length;
-    let motivo;
-    if (total === 0) {
-      motivo = 'Nenhum plano de preventiva foi carregado. Abra o módulo Preventiva para sincronizar os planos e gere o relatório novamente.';
-    } else if (doContrato === 0) {
-      motivo = `Existem ${total} plano(s) carregado(s), mas nenhum do contrato selecionado.`;
-    } else {
-      const periodos = [...new Set(preventiva.filter(p=>inContract(p.client||p.contract||p.contrato)).map(p=>prevPeriodOf(p)).filter(Boolean))].sort();
-      motivo = `Existem ${doContrato} plano(s) neste contrato, mas nenhum no período selecionado${tagFilter?' / TAG informada':''}.`
-             + (periodos.length ? ` Períodos disponíveis: ${periodos.join(', ')}.` : '');
-    }
-    document.getElementById('section-preventiva').style.display='';
-    document.getElementById('preventiva-table').innerHTML =
-      `<div style="padding:10px;font-size:13px;color:var(--text-2)">${esc(motivo)}</div>`;
-  }
+  } else { document.getElementById('section-preventiva').style.display='none'; }
 
   // Reincidências por equipamento: TAGs com 2+ chamados no período
   const porEquip = {};
@@ -953,39 +934,10 @@ function renderPreventivaPlanDetail(doc, plan) {
       if (y>240) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
       doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
-      const cols=3, gap=6, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=90;
-      const sized = eq.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
-      for (let i=0; i<sized.length; i+=cols) {
-        const rowItems = sized.slice(i, i+cols);
-        const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
-        if (y + rowH + capH > 272) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
-        rowItems.forEach((it, c) => {
-          const cellX = M + c*(cellW+gap);
-          const ix = cellX + (cellW - it.w)/2;
-          try { doc.addImage(it.p.dataUrl,'JPEG',ix,y,it.w,it.h); } catch(e){}
-          if (it.p.geo) {
-            doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-            const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
-            const lines = doc.splitTextToSize(label, cellW).slice(0,2);
-            doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
-            if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
-            doc.setTextColor(0,0,0);
-          }
-        });
-        y += rowH + capH + 4;
-      }
-      // Assinaturas das fotos (autor, perfil, data/hora, HMAC + keyId)
-      if (eq.photos.some(p=>p&&p.sig)) {
-        if (y > 272) { doc.addPage(); y=M; header(`TAG ${eq.tag||'—'} (cont.)`); }
-        doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
-        eq.photos.forEach((p,idx)=>{
-          if(!p||!p.sig) return;
-          const dt=new Date(p.sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-          doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, M, y);
-          y+=3.6;
-        });
-        doc.setTextColor(0,0,0); y+=2;
-      }
+      // Mesma grade dos demais relatórios — e agora com o formato da
+      // imagem deduzido, em vez de 'JPEG' fixo.
+      y = gradeDeFotos(doc, eq.photos, { y, M, CW, cols: 3, maxH: 90, limiteY: 272,
+            header: (yy) => { header(`TAG ${eq.tag||'—'} (cont.)`); return yy; } });
     }
   });
 }
@@ -1026,19 +978,19 @@ async function generatePDF() {
     return ym >= periodoIni && ym <= periodoFim;
   };
   const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
-  const chamados  = JSON.parse(localStorage.getItem('chamados_list')   ||'[]').filter(c=>
+  const chamados  = _dados.chamados.filter(c=>
     inPeriodPdf(c.date) &&
     (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
     inTagPdf(c.equip||c.tag));
-  const registros = JSON.parse(localStorage.getItem('registro_records')||'[]').filter(r=>
+  const registros = _dados.registros.filter(r=>
     inPeriodPdf(r.date) &&
     (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
     inTagPdf(r.equip||r.tag));
-  const preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]').filter(p=>{
+  const preventiva= _dados.preventiva.filter(p=>{
     const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
     return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
   });
-  const movimentos = JSON.parse(localStorage.getItem('smm_movimentacoes')||'[]').filter(m=>{
+  const movimentos = _dados.movimentacoes.filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
     return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag);
   });
@@ -1058,10 +1010,6 @@ async function generatePDF() {
   doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
   doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
   doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
-  const pzResumo = relPrazoStats(registros);
-  doc.text(pzResumo.n
-    ? `  Prazo de atendimento — média ${relFmtDias(pzResumo.media)} | mín ${relFmtDias(pzResumo.min)} | máx ${relFmtDias(pzResumo.max)} (${pzResumo.n} c/ datas)`
-    : `  Prazo de atendimento: sem datas de solicitação/execução suficientes`, PDF_M+4, y); y+=6;
   const prevDone = preventiva.reduce((s,p)=>s+prevProgress(p).done,0);
   const prevTot  = preventiva.reduce((s,p)=>s+prevProgress(p).total,0);
   doc.text(`Planos de preventiva no período: ${preventiva.length}`,PDF_M,y);y+=6;
@@ -1078,20 +1026,12 @@ async function generatePDF() {
       doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,PDF_M+2,y);y+=5;
       doc.setFontSize(10);
       if (c.photos && c.photos.length) {
-        ensurePage(240);
-        try {
-          const src = c.photos[0].dataUrl || c.photos[0];
-          doc.addImage(src, 'JPEG', PDF_M+2, y, 22, 16);
-          if (c.photos.length > 1) doc.text(`+${c.photos.length-1} foto(s)`, PDF_M+27, y+9);
-          const geo0 = c.photos[0].geo;
-          if (geo0) {
-            doc.setFontSize(7); doc.setTextColor(37,99,235);
-            const label0 = geo0.shortAddress || `${geo0.lat.toFixed(4)}, ${geo0.lng.toFixed(4)}`;
-            doc.textWithLink(fitText(doc, label0, 60), PDF_M+27, y+14, { url: `https://maps.google.com/?q=${geo0.lat},${geo0.lng}` });
-            doc.setTextColor(0,0,0); doc.setFontSize(10);
-          }
-        } catch(e) {}
-        y += 19;
+        // TODAS as fotos, em grade. Antes entrava só a primeira e as
+        // demais viravam o texto "+N foto(s)".
+        y = gradeDeFotos(doc, c.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
+              cols: 3, maxH: 60, limiteY: 272,
+              header: (yy) => { doc.setFontSize(10);
+                doc.text(`Chamado ${c.id||''} — fotos (cont.)`, PDF_M, yy); return yy + 6; } });
       }
     });
     y+=4;
@@ -1104,42 +1044,11 @@ async function generatePDF() {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
       doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
-      const estabR = relResolveEstab(r), pzLinha = relPrazoDias(r);
-      doc.setFontSize(9); doc.setTextColor(90,90,90);
-      doc.text(`   ${estabR||'—'} | Solic.: ${r.dateSolic||'—'} | Exec.: ${r.date||'—'} | Prazo: ${pzLinha===null?'—':relFmtDias(pzLinha)}`, PDF_M+2, y); y+=5;
-      doc.setFontSize(10); doc.setTextColor(0,0,0);
-      const _valid = (r.photos||[]).filter(p => { const s = p && (p.dataUrl || (typeof p==='string'?p:null)); return typeof s==='string' && s.startsWith('data:'); });
-      if (_valid.length) {
-        const cols=3, gap=6, capH=8, PWp=doc.internal.pageSize.getWidth(), CWp=PWp-2*PDF_M, cellW=(CWp-gap*(cols-1))/cols, maxH=70;
-        ensurePage(250);
-        doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
-        doc.text(`Registro fotográfico (${_valid.length})`, PDF_M+2, y); y+=5;
-        doc.setFont('helvetica','normal'); doc.setTextColor(0,0,0);
-        const sized = _valid.map(p => { const src=p.dataUrl||p; return { src, geo:p.geo, sig:p.sig, ...photoFit(doc, src, cellW, maxH) }; });
-        for (let i=0;i<sized.length;i+=cols){
-          const rowItems=sized.slice(i,i+cols);
-          const rowH=Math.max.apply(null,rowItems.map(it=>it.h||0));
-          if (y+rowH+capH>272){ doc.addPage(); y=drawPdfHeader(doc,{full:false}); }
-          rowItems.forEach((it,c)=>{
-            const cellX=PDF_M+c*(cellW+gap), ix=cellX+(cellW-it.w)/2;
-            try{ doc.addImage(it.src,'JPEG',ix,y,it.w,it.h); }catch(e){}
-            if (it.geo){ doc.setFontSize(6); doc.setTextColor(37,99,235);
-              const label=it.geo.shortAddress||`${it.geo.lat.toFixed(5)}, ${it.geo.lng.toFixed(5)}`;
-              doc.textWithLink(fitText(doc,label,cellW), cellX, y+rowH+3, {url:`https://maps.google.com/?q=${it.geo.lat},${it.geo.lng}`});
-              doc.setTextColor(0,0,0); doc.setFontSize(10); }
-          });
-          y += rowH+capH+4;
-        }
-        // Assinaturas das fotos (autor, perfil, data/hora, HMAC + keyId)
-        if (_valid.some(p=>p&&p.sig)) {
-          if (y>272){ doc.addPage(); y=drawPdfHeader(doc,{full:false}); }
-          doc.setFontSize(6.5); doc.setTextColor(120,120,120);
-          _valid.forEach((p,idx)=>{ if(!p||!p.sig) return;
-            const dt=new Date(p.sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-            doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, PDF_M+2, y); y+=3.6;
-          });
-          doc.setTextColor(0,0,0); doc.setFontSize(10); y+=2;
-        }
+      if (r.photos && r.photos.length) {
+        y = gradeDeFotos(doc, r.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
+              cols: 3, maxH: 60, limiteY: 272,
+              header: (yy) => { doc.setFontSize(10);
+                doc.text(`Registro ${r.id||''} — fotos (cont.)`, PDF_M, yy); return yy + 6; } });
       }
     });
     y+=4;
@@ -1168,7 +1077,7 @@ async function generatePDF() {
     addSection(`Reincidências por equipamento (${reincidenciasPdf.length})`);
     reincidenciasPdf.forEach(e=>{
       ensurePage(255);
-      doc.text(`TAG: ${esc(e.tag)} | ${e.estab} | ${e.count} chamados | ${e.datas.sort().join(', ')}`,PDF_M+2,y);y+=5;
+      doc.text(`TAG: ${e.tag} | ${e.estab} | ${e.count} chamados | ${e.datas.sort().join(', ')}`,PDF_M+2,y);y+=5;
     });
     y+=4;
   }
@@ -1187,42 +1096,19 @@ async function generatePDF() {
     });
   }
 
-  // ── Extrato financeiro (opcional; supervisor pra cima) ──
-  const incExtrato = (document.getElementById('f-extrato')||{}).checked;
-  if (incExtrato && ['admin','diretor','supervisor'].includes(user.role)) {
-    const estabSel = (document.getElementById('f-estab')||{}).value || '';
-    const finRegs = registros.filter(r => !estabSel || relResolveEstab(r) === estabSel);
-    const porContrato={}, porServico={}; let total=0;
-    finRegs.forEach(r => (r.items||[]).forEach(it => {
-      if (it.inviavel) return;
-      const qt=Number(it.qty||1), val=Number(it.price||0)*qt;
-      const c=r.client||r.contract||r.contrato||'—';
-      porContrato[c]=(porContrato[c]||0)+val;
-      const k=it.name||'—';
-      porServico[k]=porServico[k]||{qtd:0,valor:0,unit:it.unit||'un'};
-      porServico[k].qtd+=qt; porServico[k].valor+=val; total+=val;
-    }));
-    const fmtBRL = v => 'R$ '+Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-    const colV = doc.internal.pageSize.getWidth() - PDF_M;
-    addSection('Extrato financeiro');
-    doc.setFont('helvetica','bold'); doc.setFontSize(11);
-    doc.text('Total acumulado'+(estabSel?' · '+estabSel:''), PDF_M, y);
-    doc.text(fmtBRL(total), colV, y, {align:'right'}); y+=8;
-    doc.setFontSize(10); doc.text('Por contrato', PDF_M, y); y+=6; doc.setFont('helvetica','normal');
-    Object.keys(porContrato).sort().forEach(c=>{ ensurePage(272);
-      doc.text(fitText(doc, c, 120), PDF_M+2, y); doc.text(fmtBRL(porContrato[c]), colV, y, {align:'right'}); y+=5; });
-    y+=3; doc.setFont('helvetica','bold'); doc.text('Por serviço', PDF_M, y); y+=6; doc.setFont('helvetica','normal');
-    Object.keys(porServico).sort((a,b)=>porServico[b].valor-porServico[a].valor).forEach(s=>{ ensurePage(272);
-      doc.text(fitText(doc, `${s} (${porServico[s].qtd} ${porServico[s].unit})`, 120), PDF_M+2, y);
-      doc.text(fmtBRL(porServico[s].valor), colV, y, {align:'right'}); y+=5; });
-    y+=4;
-    if (!Object.keys(porContrato).length) { doc.setTextColor(120,120,120); doc.text('Sem serviços com valor no filtro selecionado.', PDF_M+2, y); doc.setTextColor(0,0,0); y+=6; }
-  }
-
   drawPdfFooters(doc, cont);
   try { doc.save(`relatorio-${periodoIni}${periodoFim!==periodoIni?'_a_'+periodoFim:''}-${contrato||'geral'}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
-  showToast('PDF gerado!');
+
+  // Falha de foto não pode continuar invisível: era o que escondia o
+  // problema do formato fixo 'JPEG'. Se alguma não entrou, o usuário
+  // fica sabendo em vez de descobrir olhando o documento.
+  if (_fotosFalhadas > 0) {
+    showToast(`⚠️ PDF gerado, mas ${_fotosFalhadas} foto(s) não puderam ser ` +
+              `incluídas (formato não suportado ou arquivo corrompido).`, 9000);
+  } else {
+    showToast('PDF gerado!');
+  }
 }
 
 if (_authorized) init();

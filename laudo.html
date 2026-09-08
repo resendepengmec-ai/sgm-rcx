@@ -386,6 +386,49 @@ function pdfFooters(doc){
 function ensure(doc, yObj, need){
   if(yObj.y + need > PDF_H-22){ doc.addPage(); yObj.y = pdfHeader(doc); }
 }
+
+// ── Formato da imagem, deduzido da data-URL ───────────────────────
+// Antes toda chamada passava 'JPEG' fixo. O sistema aceita PNG, WebP,
+// HEIC e outros (o laudo envia o arquivo cru do FileReader), e uma foto
+// que não fosse JPEG falhava — caindo num catch vazio e sumindo do PDF
+// sem aviso nenhum.
+//
+// Também testei que o jsPDF ACEITA base64 inválido sem lançar exceção:
+// confiar no try/catch deixaria passar imagem quebrada como se tivesse
+// entrado. Por isso a data-URL é validada ANTES de desenhar.
+function fmtImagemPdf(dataUrl) {
+  const m = /^data:image\/([a-z0-9.+-]+);/i.exec(String(dataUrl || ''));
+  const t = (m ? m[1] : 'jpeg').toLowerCase();
+  if (t === 'png')  return 'PNG';
+  if (t === 'webp') return 'WEBP';
+  if (t === 'gif')  return 'GIF';
+  if (t === 'bmp')  return 'BMP';
+  return 'JPEG';
+}
+
+const _RE_IMG_PDF = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
+function fotoUtilizavelPdf(dataUrl) {
+  if (typeof dataUrl !== 'string') return false;
+  const m = _RE_IMG_PDF.exec(dataUrl.trim());
+  if (!m) return false;
+  return m[2].length >= 64 && m[2].length % 4 === 0;
+}
+
+let _fotosFalhadasPdf = 0;
+
+function desenharFotoPdf(doc, dataUrl, x, y, w, h) {
+  if (!fotoUtilizavelPdf(dataUrl)) {
+    _fotosFalhadasPdf++;
+    console.warn('Foto ignorada: data-URL inválida ou vazia');
+    return false;
+  }
+  try { doc.addImage(dataUrl, fmtImagemPdf(dataUrl), x, y, w, h); return true; }
+  catch (e) {
+    try { doc.addImage(dataUrl, x, y, w, h); return true; }
+    catch (e2) { _fotosFalhadasPdf++; console.warn('Foto não incluída:', e2.message); return false; }
+  }
+}
+
 function gerarPDF(d){
   if(!window.jspdf){ showToast('Biblioteca de PDF não carregou.'); return; }
   d = d || coletar();
@@ -454,7 +497,7 @@ function gerarPDF(d){
       const sized=row.map(f=>{ let w=cellW,h=cellW*0.75; try{ const p=doc.getImageProperties(f.dataUrl); h=cellW*(p.height/p.width); if(h>70){h=70;w=70*(p.width/p.height);} }catch(e){} hMax=Math.max(hMax,h); return {f,w,h}; });
       ensure(doc, yO, hMax+10);
       sized.forEach((it,c)=>{ const cx=PDF_M+c*(cellW+gap)+(cellW-it.w)/2;
-        try{ doc.addImage(it.f.dataUrl,'JPEG',cx,yO.y,it.w,it.h); }catch(e){}
+        desenharFotoPdf(doc, it.f.dataUrl, cx, yO.y, it.w, it.h);
         if(it.f.geo){ doc.setFontSize(6); doc.setTextColor(37,99,235);
           const lb=it.f.geo.shortAddress||`${it.f.geo.lat.toFixed(5)}, ${it.f.geo.lng.toFixed(5)}`;
           doc.textWithLink(doc.splitTextToSize(lb, cellW)[0], PDF_M+c*(cellW+gap), yO.y+hMax+3, {url:`https://maps.google.com/?q=${it.f.geo.lat},${it.f.geo.lng}`});
@@ -484,6 +527,14 @@ function gerarPDF(d){
 
   pdfFooters(doc);
   const nome = `laudo-${(d.unidade||'vistoria').replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30)}-${new Date().toISOString().slice(0,10)}.pdf`;
+
+  // Falha de foto não pode continuar invisível — era o que escondia o
+  // problema do formato fixo 'JPEG'.
+  if (_fotosFalhadasPdf > 0) {
+    showToast(`⚠️ ${_fotosFalhadasPdf} foto(s) não puderam ser incluídas ` +
+              `(formato não suportado ou arquivo corrompido).`, 9000);
+    _fotosFalhadasPdf = 0;
+  }
   try{ doc.save(nome); }catch(e){ showToast('Erro ao gerar PDF'); }
 }
 
