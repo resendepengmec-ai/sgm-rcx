@@ -1726,6 +1726,12 @@ function renderNewItems() {
         <button class="btn-del" onclick="removeItem(${i})">×</button>
       </div>`;
     }
+    // `line` era declarada junto com o cálculo de imposto, removido na
+    // v5.15. A referência sobreviveu e lançava ReferenceError AQUI —
+    // dentro do map, o que fazia renderNewItems abortar por inteiro.
+    // Resultado: os itens entravam em newItems (o contador subia), mas a
+    // lista nunca era redesenhada e parecia que nada tinha sido incluído.
+    const line = it.price * it.qty;
     return cabecalhoTag + `<div class="quote-item" style="flex-wrap:wrap">
       <div class="qi-info">
         <div class="qi-name">${esc(it.name)}</div>
