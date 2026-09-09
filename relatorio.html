@@ -2,10 +2,33 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       Esta página estava SEM CSP, ao contrário de todas as outras.
+       Somada ao jsPDF vindo de CDN (abaixo), era a única superfície do
+       sistema em que um comprometimento do cdnjs executaria código com
+       acesso ao token de sessão. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#1d4ed8">
 <title>Relatório Gerencial — Sistema de Manutenção</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- V12/V18: biblioteca AUTO-HOSPEDADA, como nas demais páginas. Vinha do
+     cdnjs, o que reintroduzia a dependência de terceiro que o hardening
+     eliminou — e numa página SEM CSP, que era o pior dos casos.
+     A versão local é a 3.0.1; o CDN servia a 2.5.1. -->
+<script src="vendor/jspdf.umd.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#1d4ed8;--primary-dark:#1e3a8a;--primary-light:#eff6ff;

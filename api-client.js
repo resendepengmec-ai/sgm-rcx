@@ -125,6 +125,27 @@ async function _call(method, path, body) {
     e.status = res.status;
     throw e;
   }
+
+  // ── Avisos do servidor ────────────────────────────────────────────
+  // Canal genérico: qualquer rota pode devolver `data._avisos` e a
+  // mensagem aparece na tela, em QUALQUER módulo, sem que cada um
+  // precise tratar. Hoje serve à detecção de foto repetida; amanhã
+  // serve a outro aviso sem exigir mexer em cinco arquivos.
+  //
+  // É aviso, não erro: a gravação já aconteceu e a promessa resolve
+  // normalmente. Só informa.
+  try {
+    const avisos = json.data && json.data._avisos;
+    if (Array.isArray(avisos) && avisos.length && typeof showToast === 'function') {
+      avisos.forEach((a, i) => {
+        // Espaça as mensagens: dois toasts simultâneos se sobrepõem e o
+        // segundo apaga o primeiro antes de ser lido.
+        setTimeout(() => showToast('⚠️ ' + (a.texto || 'Aviso do servidor'), 9000), i * 600);
+      });
+      if (console && console.info) console.info('Avisos do servidor:', avisos);
+    }
+  } catch (e) { /* aviso nunca pode quebrar a chamada que já deu certo */ }
+
   return json.data;
 }
 const API = {
