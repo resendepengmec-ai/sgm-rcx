@@ -183,8 +183,21 @@ function renderForm(){
            precisa estar visível: sem isso o usuário só descobre o teto
            quando esbarra nele. -->
       <div id="l-fotos-limite" style="font-size:12px;color:var(--text-2);margin-bottom:8px"></div>
-      <input type="file" id="l-foto-input" accept="image/*" capture="environment" style="display:none" onchange="addFoto(event)">
-      <button class="btn btn-secondary" id="l-btn-foto" onclick="document.getElementById('l-foto-input').click()" style="width:100%">📷 Adicionar foto</button>
+      <!-- DOIS inputs, e não um. O atributo capture="environment" não é
+           preferência: no celular ele abre a câmera direto e REMOVE a
+           opção de escolher da galeria. Tirar o atributo liberaria a
+           galeria mas custaria o atalho da câmera, que é o caminho mais
+           usado em campo. Com dois inputs, cada botão faz uma coisa só. -->
+      <input type="file" id="l-foto-input" accept="image/*" capture="environment"
+             style="display:none" onchange="addFoto(event)">
+      <input type="file" id="l-galeria-input" accept="image/*" multiple
+             style="display:none" onchange="addFotos(event)">
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" id="l-btn-foto" style="flex:1"
+                onclick="document.getElementById('l-foto-input').click()">📷 Câmera</button>
+        <button class="btn btn-secondary" id="l-btn-galeria" style="flex:1"
+                onclick="document.getElementById('l-galeria-input').click()">🖼️ Galeria</button>
+      </div>
       <div class="foto-grid" id="l-fotos"></div>
     </div>
 
@@ -354,6 +367,61 @@ function comprimirFoto(file) {
   });
 }
 
+// ── Vários arquivos de uma vez (galeria) ──────────────────────────
+// A câmera devolve uma foto por vez; a galeria permite selecionar
+// várias. Processar em SÉRIE, e não em paralelo: cada foto passa por
+// canvas e uma imagem de 12 MP consome memória de sobra — dez ao mesmo
+// tempo travam o celular.
+//
+// A checagem de limite acontece a cada foto, dentro do laço, e não uma
+// vez no início: sem isso, selecionar 20 imagens com 3 vagas livres
+// aceitaria as 20.
+async function addFotos(ev){
+  const arquivos = Array.from(ev.target.files || []);
+  ev.target.value = '';
+  if (!arquivos.length) return;
+
+  const btn = document.getElementById('l-btn-galeria');
+  const rotulo = btn ? btn.textContent : '';
+  let incluidas = 0, recusadasLimite = 0, comErro = 0;
+
+  for (let i = 0; i < arquivos.length; i++) {
+    if (fotos.length >= limiteDeFotos()) { recusadasLimite++; continue; }
+    if (btn) btn.textContent = `⏳ ${i + 1}/${arquivos.length}`;
+    try {
+      const dataUrl = await comprimirFoto(arquivos[i]);
+      if (!adicionarFotoNaLista(dataUrl)) { recusadasLimite++; continue; }
+      incluidas++;
+    } catch (e) { comErro++; }
+  }
+
+  if (btn) { btn.textContent = rotulo || '🖼️ Galeria'; }
+  renderFotos();
+
+  // Relatório único ao fim: um toast por foto viraria enxurrada.
+  const partes = [];
+  if (incluidas)       partes.push(`${incluidas} foto(s) incluída(s)`);
+  if (recusadasLimite) partes.push(`${recusadasLimite} fora do limite`);
+  if (comErro)         partes.push(`${comErro} com erro de leitura`);
+  showToast(partes.join(' · ') || 'Nenhuma foto incluída',
+            recusadasLimite || comErro ? 8000 : 4000);
+}
+
+// Insere a foto respeitando o teto de tamanho. Devolve false quando não
+// coube — a mensagem fica com quem chamou, que sabe se é uma foto só ou
+// um lote.
+function adicionarFotoNaLista(dataUrl, avisar) {
+  const LIMITE_PAYLOAD = 10 * 1024 * 1024;
+  const totalAtual = fotos.reduce((a, f) => a + (f.dataUrl || '').length, 0);
+  if (totalAtual + dataUrl.length > LIMITE_PAYLOAD) {
+    if (avisar) showToast('As fotos deste laudo já somam o máximo que o servidor aceita. ' +
+                          'Remova alguma antes de adicionar outra.', 8000);
+    return false;
+  }
+  fotos.push({ dataUrl, geo: null, capturedAt: Date.now() });
+  return true;
+}
+
 function addFoto(ev){
   const file = ev.target.files && ev.target.files[0]; ev.target.value='';
   if(!file) return;
@@ -367,20 +435,11 @@ function addFoto(ev){
   }
 
   comprimirFoto(file).then(dataUrl => {
-    // ── Teto de tamanho, além do teto de contagem ────────────────
-    // Medido: cada foto comprimida ocupa ~377 KB em base64. O corpo da
-    // requisição tem limite de 12 MB, então por volta de 30 fotos o
-    // laudo passaria a falhar no envio — e a falha apareceria só ao
-    // salvar, depois de todo o trabalho feito.
-    const LIMITE_PAYLOAD = 10 * 1024 * 1024;   // margem sobre os 12 MB
-    const totalAtual = fotos.reduce((a, f) => a + (f.dataUrl || '').length, 0);
-    if (totalAtual + dataUrl.length > LIMITE_PAYLOAD) {
-      showToast('As fotos deste laudo já somam o máximo que o servidor aceita. ' +
-                'Remova alguma antes de adicionar outra.', 8000);
-      return;
-    }
-    const foto = { dataUrl, geo: null, capturedAt: Date.now() };
-    fotos.push(foto); renderFotos();
+    // Mesma função usada pela galeria: uma só regra de teto de tamanho
+    // para os dois caminhos, em vez de duas cópias que podem divergir.
+    if (!adicionarFotoNaLista(dataUrl, true)) return;
+    const foto = fotos[fotos.length - 1];
+    renderFotos();
     showToast('Foto adicionada'+(navigator.geolocation?' — localizando…':''));
     if(navigator.geolocation){
       navigator.geolocation.getCurrentPosition(async pos=>{
