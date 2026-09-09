@@ -176,34 +176,83 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <div id="tag-info" style="font-size:12px;color:var(--text-2);margin-top:4px;display:none"></div>
     </div>
 
-    <!-- Campos para instalar / adicionar -->
+    <!-- Campos para instalar / adicionar.
+         Os nomes e formatos aqui espelham o banco de equipamentos do
+         contrato (tag, marca, tipo, capacidade, estabelecimento, recinto),
+         porque ao serem aprovados estes dados PASSAM A INTEGRAR aquele
+         banco. Divergir no formato criaria equipamento que a preventiva e
+         o orçamento não reconhecem. -->
     <div id="fields-nova-tag" style="display:none">
+      <div class="field">
+        <label>Nova TAG * <span style="font-weight:400;color:var(--text-2)">(apenas números)</span></label>
+        <input id="f-nova-tag" type="text" inputmode="numeric" autocomplete="off"
+               placeholder="Ex: 1408" oninput="conferirNovaTag()">
+        <div id="f-tag-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
         <div class="field">
-          <label>Nova TAG *</label>
-          <input id="f-nova-tag" type="text" placeholder="Ex: 1020-0001">
-        </div>
-        <div class="field">
           <label>Marca</label>
-          <input id="f-marca" type="text" placeholder="Ex: Carrier">
+          <input id="f-marca" type="text" autocomplete="off" list="marca-sugestoes"
+                 placeholder="Ex: LG">
+          <!-- Sugestões vindas do próprio parque do contrato: a marca
+               digitada de forma diferente vira equipamento "novo" nos
+               filtros e relatórios. -->
+          <datalist id="marca-sugestoes"></datalist>
         </div>
         <div class="field">
-          <label>Tipo / Modelo</label>
-          <input id="f-tipo-equip" type="text" placeholder="Ex: Split 12000 BTU">
+          <label>Tipo</label>
+          <select id="f-tipo-equip">
+            <option value="Split Hi-Wall" selected>Split Hi-Wall</option>
+            <option value="Piso Teto">Piso Teto</option>
+            <option value="Cassete">Cassete</option>
+          </select>
         </div>
-        <div class="field">
-          <label>Capacidade</label>
-          <input id="f-capacidade" type="text" placeholder="Ex: 12.000 BTU">
+      </div>
+
+      <div class="field">
+        <label>Capacidade</label>
+        <input id="f-capacidade" type="text" autocomplete="off" list="capacidade-sugestoes"
+               placeholder="Ex: 12000">
+        <datalist id="capacidade-sugestoes"></datalist>
+      </div>
+
+      <!-- Fotos da instalação.
+           NÃO vão para o banco de equipamentos — ficam na movimentação, e
+           servem ao relatório de instalações. Guardar imagem no cadastro
+           do equipamento inflaria um dado que é consultado o tempo todo
+           pela preventiva e pelo orçamento. -->
+      <div class="field">
+        <label>Fotos da instalação <span style="font-weight:400;color:var(--text-2)">(até 3)</span></label>
+        <div id="f-fotos-info" style="font-size:11px;color:var(--text-2);margin-bottom:6px"></div>
+        <input type="file" id="f-foto-cam" accept="image/*" capture="environment"
+               style="display:none" onchange="addFotoInstal(event)">
+        <input type="file" id="f-foto-gal" accept="image/*" multiple
+               style="display:none" onchange="addFotosInstal(event)">
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn btn-secondary btn-sm" id="f-btn-cam" style="flex:1"
+                  onclick="document.getElementById('f-foto-cam').click()">📷 Câmera</button>
+          <button type="button" class="btn btn-secondary btn-sm" id="f-btn-gal" style="flex:1"
+                  onclick="document.getElementById('f-foto-gal').click()">🖼️ Galeria</button>
         </div>
+        <div id="f-fotos-grid" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
       </div>
     </div>
 
     <!-- Destino (realocar / instalar) -->
     <div id="fields-destino" style="display:none">
-      <div class="field">
+      <div class="field" style="position:relative">
         <label>Estabelecimento destino *</label>
-        <input id="f-estab-destino" type="text" list="estab-suggestions" placeholder="Nome do estabelecimento">
-        <datalist id="estab-suggestions"></datalist>
+        <input id="f-estab-destino" type="text" autocomplete="off"
+               placeholder="Digite parte do nome…"
+               oninput="onEstabPatInput()" onfocus="onEstabPatInput()">
+        <!-- Lista própria em vez de <datalist>: o datalist não mostra
+             quantos equipamentos cada unidade tem, não ordena por
+             relevância e, no celular, alguns navegadores simplesmente o
+             ignoram. -->
+        <div id="estab-pat-sugestoes" style="display:none;position:absolute;left:0;right:0;top:100%;
+             z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:8px;
+             box-shadow:var(--shadow-md);max-height:220px;overflow:auto"></div>
       </div>
       <div class="field">
         <label>Recinto destino</label>
@@ -452,8 +501,260 @@ function openNewMovimento() {
   document.getElementById('f-tipo').value = '';
   document.getElementById('f-motivo').value = '';
   document.getElementById('f-obs-mov').value = '';
+  // Limpa os campos da instalação e as fotos: sem isto, abrir uma nova
+  // movimentação herdaria a TAG e as fotos da anterior — que foi
+  // exatamente o defeito do botão "Novo" dos chamados.
+  ['f-nova-tag','f-marca','f-capacidade','f-estab-destino','f-recinto-destino']
+    .forEach(id => { const el = document.getElementById(id); if (el) { el.value=''; el.style.borderColor=''; } });
+  const selTipo = document.getElementById('f-tipo-equip');
+  if (selTipo) selTipo.value = 'Split Hi-Wall';     // padrão pedido
+  const avisoTag = document.getElementById('f-tag-aviso');
+  if (avisoTag) avisoTag.textContent = '';
+  fotosInstal = [];
+  renderFotosInstal();
+  preencherSugestoesPat();
   updateFormByTipo();
   showScreen('form');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CADASTRO DE INSTALAÇÃO — coerente com o banco de equipamentos
+// ══════════════════════════════════════════════════════════════════
+// Tudo aqui existe para que o equipamento aprovado entre no banco do
+// contrato no MESMO formato dos que já estão lá. Um cadastro divergente
+// (TAG com prefixo, marca escrita de outro jeito, tipo livre) cria
+// equipamento que a preventiva não agrupa e o orçamento não encontra.
+
+// Capacidades usuais em BTU/h. Lista fechada porque capacidade digitada
+// livre vira "12000", "12.000", "12 mil" e "12000 BTU" para o mesmo
+// aparelho — e aí nenhum filtro funciona.
+const CAPACIDADES = [9000, 12000, 18000, 22000, 24000, 30000, 36000, 48000, 60000];
+
+const fmtBtu = n => n.toLocaleString('pt-BR') + ' BTU';
+
+// Equipamentos do contrato selecionado. Fonte única para TAG duplicada,
+// sugestão de marca e lista de estabelecimentos.
+function equipsDoContratoPat() {
+  const c = document.getElementById('f-contrato')?.value;
+  if (!c) return [];
+  return (getEffDB() || {})[c] || [];
+}
+
+// ── TAG: apenas números e inédita no contrato ─────────────────────
+function conferirNovaTag() {
+  const campo = document.getElementById('f-nova-tag');
+  const aviso = document.getElementById('f-tag-aviso');
+  if (!campo || !aviso) return true;
+
+  // Descarta tudo que não é dígito enquanto digita, em vez de reclamar
+  // depois: o teclado numérico do celular ainda deixa passar símbolos.
+  const limpo = campo.value.replace(/\D/g, '');
+  if (limpo !== campo.value) campo.value = limpo;
+
+  const contrato = document.getElementById('f-contrato')?.value;
+  if (!contrato) {
+    aviso.textContent = 'Selecione o contrato primeiro.';
+    aviso.style.color = 'var(--text-2)'; return false;
+  }
+  if (!limpo) { aviso.textContent = 'Informe o número da TAG.';
+                aviso.style.color = 'var(--text-2)'; return false; }
+
+  const existe = equipsDoContratoPat().some(e => String(e.tag).trim() === limpo);
+  if (existe) {
+    aviso.textContent = `⚠️ A TAG ${limpo} já existe neste contrato.`;
+    aviso.style.color = 'var(--danger)';
+    campo.style.borderColor = 'var(--danger)';
+    return false;
+  }
+  aviso.textContent = '✓ Disponível neste contrato.';
+  aviso.style.color = '#166534';
+  campo.style.borderColor = '';
+  return true;
+}
+
+// ── Sugestões vindas do próprio parque ────────────────────────────
+function preencherSugestoesPat() {
+  const eqs = equipsDoContratoPat();
+
+  const marcas = [...new Set(eqs.map(e => (e.marca || '').trim()).filter(Boolean))].sort();
+  const dlMarca = document.getElementById('marca-sugestoes');
+  if (dlMarca) dlMarca.innerHTML = marcas.map(m => `<option value="${esc(m)}">`).join('');
+
+  // Capacidades: a lista fixa mais o que já existir no contrato fora
+  // dela — um equipamento de 7.000 BTU cadastrado antes não pode sumir
+  // da sugestão só porque não está na lista padrão.
+  const doParque = [...new Set(eqs.map(e => (e.capacidade || '').trim()).filter(Boolean))];
+  const padrao = CAPACIDADES.map(fmtBtu);
+  const todas = [...new Set([...padrao, ...doParque])];
+  const dlCap = document.getElementById('capacidade-sugestoes');
+  if (dlCap) dlCap.innerHTML = todas.map(c => `<option value="${esc(c)}">`).join('');
+}
+
+// ── Estabelecimento com autocompletar (mesmo padrão do orçamento) ──
+function estabsDoContratoPat() {
+  const mapa = new Map();
+  equipsDoContratoPat().forEach(e => {
+    const nome = (e.estabelecimento || '').trim();
+    if (!nome) return;
+    mapa.set(nome, (mapa.get(nome) || 0) + 1);
+  });
+  return [...mapa.entries()].map(([nome, qtd]) => ({ nome, qtd }))
+                            .sort((a, b) => b.qtd - a.qtd);
+}
+
+let _estabPatTimer = null;
+function onEstabPatInput() {
+  clearTimeout(_estabPatTimer);
+  _estabPatTimer = setTimeout(mostrarEstabsPat, 120);
+}
+
+function mostrarEstabsPat() {
+  const box = document.getElementById('estab-pat-sugestoes');
+  const campo = document.getElementById('f-estab-destino');
+  if (!box || !campo) return;
+
+  const contrato = document.getElementById('f-contrato')?.value;
+  if (!contrato) {
+    box.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:var(--text-3)">' +
+                    'Selecione o contrato primeiro.</div>';
+    box.style.display = 'block'; return;
+  }
+
+  const norm = t => String(t || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const q = norm(campo.value.trim());
+  const todos = estabsDoContratoPat();
+  const achados = (q ? todos.filter(e => norm(e.nome).includes(q)) : todos).slice(0, 15);
+
+  if (!achados.length) {
+    // Instalação em unidade nova é caso legítimo — nunca bloquear.
+    box.innerHTML = `<div style="padding:10px 14px;font-size:12px;color:var(--text-3)">
+      ${todos.length ? 'Nenhum estabelecimento com esse trecho.'
+                     : 'Este contrato ainda não tem equipamentos cadastrados.'}
+      <br>Pode digitar o nome mesmo assim — é instalação em unidade nova.</div>`;
+    box.style.display = 'block'; return;
+  }
+
+  box.innerHTML = achados.map(e => `
+    <div onclick="selecionarEstabPat('${jsAttrPat(e.nome)}')"
+         style="padding:9px 14px;cursor:pointer;border-bottom:0.5px solid var(--border)"
+         onmouseover="this.style.background='var(--primary-light)'"
+         onmouseout="this.style.background=''">
+      <div style="font-weight:600;font-size:13px">${esc(e.nome)}</div>
+      <div style="font-size:11px;color:var(--text-2)">${e.qtd} equipamento(s)</div>
+    </div>`).join('');
+  box.style.display = 'block';
+}
+
+function jsAttrPat(v) {
+  return String(v ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function selecionarEstabPat(nome) {
+  const c = document.getElementById('f-estab-destino');
+  if (c) c.value = nome;
+  const box = document.getElementById('estab-pat-sugestoes');
+  if (box) box.style.display = 'none';
+}
+
+document.addEventListener('click', ev => {
+  const box = document.getElementById('estab-pat-sugestoes');
+  const campo = document.getElementById('f-estab-destino');
+  if (box && campo && ev.target !== campo && !box.contains(ev.target)) box.style.display = 'none';
+});
+
+// ── Fotos da instalação ───────────────────────────────────────────
+// Ficam na MOVIMENTAÇÃO, não no cadastro do equipamento: o banco de
+// equipamentos é lido a cada plano de preventiva e a cada orçamento, e
+// carregar base64 ali penalizaria o sistema inteiro por um dado que só o
+// relatório de instalações usa.
+let fotosInstal = [];
+const MAX_FOTOS_INSTAL = 3;
+const INSTAL_MAX_PX = 1600, INSTAL_QUALIDADE = 0.82;
+
+function comprimirFotoInstal(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Não foi possível ler o arquivo'));
+    r.onload = ev => {
+      const img = new Image();
+      // Formato que o navegador não decodifica (HEIC em alguns desktops):
+      // envia o original em vez de perder a foto.
+      img.onerror = () => resolve(ev.target.result);
+      img.onload = () => {
+        try {
+          let w = img.width, h = img.height;
+          if (w > INSTAL_MAX_PX || h > INSTAL_MAX_PX) {
+            if (w > h) { h = Math.round(h * INSTAL_MAX_PX / w); w = INSTAL_MAX_PX; }
+            else       { w = Math.round(w * INSTAL_MAX_PX / h); h = INSTAL_MAX_PX; }
+          }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(cv.toDataURL('image/jpeg', INSTAL_QUALIDADE));
+        } catch (e) { resolve(ev.target.result); }
+      };
+      img.src = ev.target.result;
+    };
+    r.readAsDataURL(file);
+  });
+}
+
+function addFotoInstal(ev) {
+  const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+  if (!f) return;
+  if (fotosInstal.length >= MAX_FOTOS_INSTAL) {
+    showToast(`Limite de ${MAX_FOTOS_INSTAL} fotos por instalação`); return;
+  }
+  comprimirFotoInstal(f).then(d => {
+    fotosInstal.push({ dataUrl: d, capturedAt: Date.now() });
+    renderFotosInstal();
+  }).catch(e => showToast('Erro ao processar a foto: ' + e.message));
+}
+
+async function addFotosInstal(ev) {
+  const arquivos = Array.from(ev.target.files || []); ev.target.value = '';
+  if (!arquivos.length) return;
+  let incluidas = 0, fora = 0;
+  for (const a of arquivos) {
+    if (fotosInstal.length >= MAX_FOTOS_INSTAL) { fora++; continue; }
+    try {
+      const d = await comprimirFotoInstal(a);
+      fotosInstal.push({ dataUrl: d, capturedAt: Date.now() });
+      incluidas++;
+    } catch (e) { fora++; }
+  }
+  renderFotosInstal();
+  showToast(`${incluidas} foto(s) incluída(s)` + (fora ? ` · ${fora} fora do limite` : ''));
+}
+
+function removerFotoInstal(i) { fotosInstal.splice(i, 1); renderFotosInstal(); }
+
+function renderFotosInstal() {
+  const grid = document.getElementById('f-fotos-grid');
+  const info = document.getElementById('f-fotos-info');
+  const cheio = fotosInstal.length >= MAX_FOTOS_INSTAL;
+  if (info) {
+    const mb = fotosInstal.reduce((a, f) => a + f.dataUrl.length, 0) / 1048576;
+    info.textContent = `${fotosInstal.length} de ${MAX_FOTOS_INSTAL}` +
+                       (mb >= 0.5 ? ` · ${mb.toFixed(1)} MB` : '');
+    info.style.color = cheio ? 'var(--danger)' : 'var(--text-2)';
+  }
+  ['f-btn-cam', 'f-btn-gal'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.disabled = cheio; b.style.opacity = cheio ? '.5' : ''; }
+  });
+  if (!grid) return;
+  grid.innerHTML = fotosInstal.map((f, i) => `
+    <div style="position:relative">
+      <img src="${imgSrc(f.dataUrl)}" style="width:76px;height:76px;object-fit:cover;
+           border-radius:8px;border:1px solid var(--border)">
+      <button type="button" onclick="removerFotoInstal(${i})"
+        style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;
+               border:none;background:var(--danger);color:#fff;font-size:14px;line-height:1;
+               cursor:pointer">×</button>
+    </div>`).join('');
 }
 
 function updateFormByTipo() {
@@ -467,6 +768,11 @@ function updateFormByTipo() {
 }
 
 function loadTagsByContract() {
+  // Trocar de contrato muda TUDO: as TAGs existentes, as marcas usadas e
+  // os estabelecimentos. Sem recarregar, a validação de TAG duplicada
+  // consultaria o parque do contrato anterior.
+  preencherSugestoesPat();
+  conferirNovaTag();
   const num = document.getElementById('f-contrato').value;
   const db  = getEffDB() || {};
   const equip = (db[num]||[]).filter(e=>!e._inativo);
@@ -540,7 +846,17 @@ function saveMovimento() {
   const tag      = document.getElementById('f-tag')?.value.trim() || '';
   const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
   if (['realocar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
-  if (['instalar','adicionar'].includes(tipo) && !novaTag){ showToast('Informe a nova TAG'); return; }
+  if (['instalar','adicionar'].includes(tipo)) {
+    if (!novaTag) { showToast('Informe a nova TAG'); return; }
+    // O aviso ao vivo orienta; esta checagem é que impede. Duas máquinas
+    // com a mesma TAG no contrato quebram preventiva, orçamento e
+    // qualquer busca por equipamento.
+    if (!/^\d+$/.test(novaTag)) { showToast('A TAG deve conter apenas números'); return; }
+    if (equipsDoContratoPat().some(e => String(e.tag).trim() === novaTag)) {
+      showToast(`A TAG ${novaTag} já existe neste contrato. Escolha outro número.`, 7000);
+      return;
+    }
+  }
 
   const mov = {
     id:               'mov-'+Date.now(),
@@ -553,6 +869,11 @@ function saveMovimento() {
     estabelecimentoDestino: document.getElementById('f-estab-destino')?.value.trim()||'',
     recintoDestino:   document.getElementById('f-recinto-destino')?.value.trim()||'',
     obs:              document.getElementById('f-obs-mov').value.trim(),
+    // Fotos ficam NA MOVIMENTAÇÃO, não no cadastro do equipamento: o
+    // banco de equipamentos é lido a cada plano e a cada orçamento, e
+    // carregar base64 ali penalizaria o sistema por um dado que só o
+    // relatório de instalações consome.
+    fotos:            ['instalar','adicionar'].includes(tipo) ? fotosInstal : [],
     status:           'pendente',
     solicitanteEmail: user.email,
     solicitanteNome:  user.name,
