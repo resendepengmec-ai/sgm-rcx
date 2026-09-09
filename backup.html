@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       Mesma política das demais páginas. Aqui ela importa em especial:
+       esta tela lê TODOS os dados do sistema, e connect-src impede que
+       um XSS eventual envie a cópia para um domínio de terceiro. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backup dos dados — SGM</title>
+<script src="config.js"></script>
+<link rel="stylesheet" href="shared.css">
+<script src="api-client.js"></script>
+<style>
+.bk-card { background:var(--surface); border:1px solid var(--border); border-radius:12px;
+           padding:16px; margin-bottom:14px; }
+.bk-tit  { font-size:14px; font-weight:700; margin-bottom:4px; }
+.bk-sub  { font-size:12px; color:var(--text-2); margin-bottom:12px; line-height:1.5; }
+.bk-linha{ display:flex; align-items:center; gap:10px; padding:7px 0;
+           border-bottom:1px solid var(--border); font-size:13px; }
+.bk-linha:last-child { border-bottom:none; }
+.bk-nome { flex:1; min-width:0; }
+.bk-cont { font-weight:700; font-size:13px; white-space:nowrap; }
+.bk-st   { width:20px; text-align:center; }
+.bk-aviso{ border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.5; margin-bottom:12px; }
+.bk-ok   { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; }
+.bk-alerta{ background:#fef3c7; border:1px solid #fde68a; color:#92400e; }
+.bk-erro { background:#fee2e2; border:1px solid #fecaca; color:#991b1b; }
+.bk-info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+.bk-barra{ height:6px; background:var(--bg); border-radius:3px; overflow:hidden; margin:10px 0; }
+.bk-prog { height:100%; background:var(--primary); width:0; transition:width .2s; }
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<div class="topbar">
+  <button class="back-btn" onclick="window.location.href='index.html'">←</button>
+  <div class="topbar-title">💾 Backup dos dados</div>
+</div>
+
+<div class="container" id="app" style="padding-bottom:80px">
+
+  <div id="bk-lembrete"></div>
+
+  <div class="bk-card">
+    <div class="bk-tit">O que este backup é — e o que não é</div>
+    <div class="bk-sub">
+      Esta ferramenta baixa uma cópia dos dados <strong>para o seu
+      computador</strong>. Serve para você ter um arquivo próprio, fora do
+      servidor, que continua existindo mesmo que a hospedagem seja perdida.
+      <br><br>
+      Ela <strong>não substitui</strong> o backup automático do servidor,
+      que roda diariamente em disco. São proteções contra riscos
+      diferentes: o do servidor cobre falha de gravação; este cobre perda
+      de acesso ao servidor inteiro.
+    </div>
+  </div>
+
+  <div class="bk-card">
+    <div class="bk-tit">Conteúdo</div>
+    <div class="bk-sub">As fotos são a maior parte do volume — escolha conforme o uso.</div>
+
+    <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:8px 0">
+      <input type="radio" name="bk-modo" value="completo" checked style="margin-top:3px">
+      <span style="font-size:13px">
+        <strong>Completo (com fotos)</strong><br>
+        <span style="color:var(--text-2);font-size:12px">
+          Cópia integral. Restaura tudo, inclusive o registro fotográfico.
+          Arquivo grande.</span>
+      </span>
+    </label>
+
+    <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;padding:8px 0">
+      <input type="radio" name="bk-modo" value="leve" style="margin-top:3px">
+      <span style="font-size:13px">
+        <strong>Leve (sem fotos)</strong><br>
+        <span style="color:var(--text-2);font-size:12px">
+          Todos os dados, sem as imagens. Costuma ficar abaixo de 5 MB —
+          bom para backup frequente.</span>
+      </span>
+    </label>
+  </div>
+
+  <div class="bk-card">
+    <div class="bk-tit">Coleções</div>
+    <div class="bk-sub">O que será incluído. Falhas parciais são registradas no arquivo.</div>
+    <div id="bk-lista"></div>
+    <div class="bk-barra" id="bk-barra-wrap" style="display:none"><div class="bk-prog" id="bk-prog"></div></div>
+    <div id="bk-status" style="font-size:12px;color:var(--text-2);margin-top:8px"></div>
+  </div>
+
+  <button class="btn btn-primary" id="bk-btn" style="width:100%" onclick="fazerBackup()">
+    💾 Gerar backup agora
+  </button>
+
+  <div class="bk-card" style="margin-top:14px">
+    <div class="bk-tit">Guardar com cuidado</div>
+    <div class="bk-sub" style="margin:0">
+      O arquivo contém <strong>dados pessoais e contratuais</strong>: nomes,
+      e-mails, preços, endereços e fotos com geolocalização. Trate-o como
+      documento sigiloso — não deixe em pasta compartilhada nem envie por
+      canal aberto.
+    </div>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// BACKUP DOS DADOS — cópia local, sob controle do administrador
+// ══════════════════════════════════════════════════════════════════
+// Por que existe, sendo que o servidor já faz backup diário: são riscos
+// diferentes. O backup do servidor protege contra corrupção do arquivo do
+// banco; ele mora no mesmo disco e some junto se a conta da hospedagem
+// for perdida, encerrada ou comprometida. Este aqui é a cópia que fica
+// COM VOCÊ.
+//
+// Sobre "periodicamente": um navegador não agenda tarefa nenhuma. Não há
+// como esta página rodar sozinha toda semana — seria promessa falsa
+// dizer que sim. O que dá para fazer, e está feito, é registrar a data
+// do último backup e avisar quando estiver velho. A periodicidade
+// depende de você abrir a tela; o sistema se encarrega de lembrar.
+
+// ── Guarda ────────────────────────────────────────────────────────
+// Só o administrador. O backup reúne dados que nenhum outro papel enxerga
+// junto — preços de contrato, e-mails, trilha de auditoria.
+const PODE_BACKUP = ['superadmin', 'admin'];
+const user = getCurrentUser();
+let _autorizado = false;
+
+if (!user) { window.location.href = 'index.html'; }
+else if (!PODE_BACKUP.includes(user.role)) {
+  document.getElementById('auth-overlay').innerHTML =
+    '<p style="text-align:center;padding:24px">Esta área é restrita ao administrador.<br>' +
+    '<a href="index.html" style="color:#fff;text-decoration:underline">Voltar</a></p>';
+} else {
+  document.getElementById('auth-overlay').style.display = 'none';
+  _autorizado = true;
+
+  // V13: reconfirma o papel no servidor. A guarda acima lê o JWT sem
+  // verificar a assinatura — bastava editar o sessionStorage para abrir.
+  setTimeout(() => {
+    try {
+      refreshCurrentUser().then(u => {
+        if (!u || !PODE_BACKUP.includes(u.role)) window.location.href = 'index.html';
+      }).catch(() => {});
+    } catch (e) {}
+  }, 0);
+}
+
+// ── Coleções ──────────────────────────────────────────────────────
+// `obrigatoria: false` marca o que pode faltar sem invalidar o backup —
+// uma rota indisponível por papel ou versão não deve derrubar a cópia
+// inteira.
+const COLECOES = [
+  { chave: 'chamados',       rotulo: 'Chamados',                 carregar: () => DB.getAll('chamados'),   temFotos: true  },
+  { chave: 'registros',      rotulo: 'Registros de serviço',     carregar: () => DB.getAll('registros'),  temFotos: true  },
+  { chave: 'orcamentos',     rotulo: 'Orçamentos',               carregar: () => DB.getAll('orcamentos'), temFotos: false },
+  { chave: 'preventiva',     rotulo: 'Planos de preventiva',     carregar: () => DB.getAll('preventiva'), temFotos: true  },
+  { chave: 'laudos',         rotulo: 'Laudos',                   carregar: () => DB.getLaudos ? DB.getLaudos() : DB.getAll('laudos'), temFotos: true },
+  { chave: 'contratos',      rotulo: 'Contratos e catálogos',    carregar: () => DB.getContratos() },
+  { chave: 'ordensServico',  rotulo: 'Ordens de serviço',        carregar: () => DB.getOrdens() },
+  { chave: 'movimentacoes',  rotulo: 'Movimentações',            carregar: () => DB.getMovimentacoes() },
+  { chave: 'equipamentos',   rotulo: 'Banco de equipamentos',    carregar: () => DB.getMachineDB ? DB.getMachineDB() : null, obrigatoria: false },
+  { chave: 'responsaveis',   rotulo: 'Responsáveis por assinatura', carregar: () => DB.getResponsaveis(), obrigatoria: false },
+  { chave: 'usuarios',       rotulo: 'Usuários',                 carregar: () => DB.getUsers ? DB.getUsers() : null, obrigatoria: false },
+  { chave: 'preAutorizados', rotulo: 'Pré-autorizados',          carregar: () => DB.getWhitelist ? DB.getWhitelist() : null, obrigatoria: false },
+  { chave: 'configuracao',   rotulo: 'Configuração da empresa',  carregar: () => DB.getPrestadoraConfig(), obrigatoria: false },
+];
+
+const CHAVE_ULTIMO = 'sgm_ultimo_backup';
+const DIAS_ALERTA = 7;
+
+// ── Lembrete ──────────────────────────────────────────────────────
+// A única "periodicidade" que um navegador honestamente permite.
+function mostrarLembrete() {
+  const el = document.getElementById('bk-lembrete');
+  if (!el) return;
+  let ultimo = null;
+  try { ultimo = JSON.parse(localStorage.getItem(CHAVE_ULTIMO) || 'null'); } catch (e) {}
+
+  if (!ultimo) {
+    el.innerHTML = `<div class="bk-aviso bk-alerta">
+      ⚠️ <strong>Nenhum backup feito ainda neste navegador.</strong><br>
+      Recomendado: um backup leve por semana e um completo por mês.</div>`;
+    return;
+  }
+  const dias = Math.floor((Date.now() - ultimo.em) / 86400000);
+  const quando = new Date(ultimo.em).toLocaleString('pt-BR');
+  const classe = dias >= DIAS_ALERTA ? 'bk-alerta' : 'bk-ok';
+  const icone  = dias >= DIAS_ALERTA ? '⚠️' : '✓';
+  el.innerHTML = `<div class="bk-aviso ${classe}">
+    ${icone} Último backup: <strong>${quando}</strong>
+    ${dias === 0 ? '(hoje)' : `(há ${dias} dia${dias > 1 ? 's' : ''})`}
+    · modo ${ultimo.modo === 'leve' ? 'leve' : 'completo'} · ${ultimo.tamanho || '—'}
+    ${dias >= DIAS_ALERTA ? '<br>Já passou de uma semana — vale gerar um novo.' : ''}
+  </div>`;
+}
+
+function renderLista(estados) {
+  document.getElementById('bk-lista').innerHTML = COLECOES.map(c => {
+    const e = (estados || {})[c.chave] || {};
+    const icone = e.status === 'ok'   ? '✓'
+                : e.status === 'erro' ? '✗'
+                : e.status === 'lendo'? '⏳' : '·';
+    const cor = e.status === 'ok' ? '#166534' : e.status === 'erro' ? '#991b1b' : 'var(--text-3)';
+    return `<div class="bk-linha">
+      <span class="bk-st" style="color:${cor}">${icone}</span>
+      <span class="bk-nome">${c.rotulo}${c.temFotos ? ' <span style="color:var(--text-3);font-size:11px">(com fotos)</span>' : ''}</span>
+      <span class="bk-cont" style="color:${cor}">${e.texto || ''}</span>
+    </div>`;
+  }).join('');
+}
+
+// ── Remoção de fotos para o modo leve ─────────────────────────────
+// As fotos ficam em base64 dentro dos registros e dominam o volume: um
+// backup completo pode passar de 100 MB, enquanto o leve fica em poucos
+// MB. Manter uma CONTAGEM do que foi removido evita a armadilha de
+// alguém restaurar o leve achando que tinha as imagens.
+function tirarFotos(valor) {
+  if (Array.isArray(valor)) return valor.map(tirarFotos);
+  if (!valor || typeof valor !== 'object') return valor;
+  const out = {};
+  for (const k of Object.keys(valor)) {
+    if (k === 'photos' && Array.isArray(valor[k])) {
+      out._fotosRemovidas = valor[k].length;      // quantas existiam
+      continue;
+    }
+    out[k] = tirarFotos(valor[k]);
+  }
+  return out;
+}
+
+function contarFotos(valor) {
+  if (Array.isArray(valor)) return valor.reduce((a, v) => a + contarFotos(v), 0);
+  if (!valor || typeof valor !== 'object') return 0;
+  let n = 0;
+  for (const k of Object.keys(valor)) {
+    if (k === 'photos' && Array.isArray(valor[k])) n += valor[k].length;
+    else n += contarFotos(valor[k]);
+  }
+  return n;
+}
+
+const formatarTamanho = b =>
+  b > 1048576 ? (b / 1048576).toFixed(1) + ' MB'
+              : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
+
+// ── Geração ───────────────────────────────────────────────────────
+let _rodando = false;
+
+async function fazerBackup() {
+  if (_rodando) return;
+  const modo = document.querySelector('input[name="bk-modo"]:checked')?.value || 'completo';
+  const btn = document.getElementById('bk-btn');
+  const barra = document.getElementById('bk-barra-wrap');
+  const prog = document.getElementById('bk-prog');
+  const status = document.getElementById('bk-status');
+
+  _rodando = true;
+  btn.disabled = true; btn.textContent = '⏳ Lendo dados…';
+  barra.style.display = 'block';
+
+  const estados = {}, dados = {}, falhas = [];
+  let totalFotos = 0;
+
+  for (let i = 0; i < COLECOES.length; i++) {
+    const c = COLECOES[i];
+    estados[c.chave] = { status: 'lendo', texto: '…' };
+    renderLista(estados);
+    status.textContent = `Lendo ${c.rotulo}…`;
+    prog.style.width = Math.round((i / COLECOES.length) * 100) + '%';
+
+    try {
+      const d = await c.carregar();
+      if (d === null || d === undefined) throw new Error('sem dados');
+      const n = Array.isArray(d) ? d.length : Object.keys(d).length;
+      totalFotos += contarFotos(d);
+      dados[c.chave] = (modo === 'leve') ? tirarFotos(d) : d;
+      estados[c.chave] = { status: 'ok', texto: n + (Array.isArray(d) ? ' itens' : ' chaves') };
+    } catch (e) {
+      // Falha parcial não invalida o backup: registra e segue. Um
+      // arquivo com 12 de 13 coleções vale muito mais que nenhum.
+      estados[c.chave] = { status: 'erro', texto: 'falhou' };
+      if (c.obrigatoria !== false) falhas.push(c.rotulo);
+      dados[c.chave] = null;
+    }
+    renderLista(estados);
+  }
+
+  prog.style.width = '100%';
+  status.textContent = 'Montando o arquivo…';
+
+  const pacote = {
+    // Metadados que tornam o arquivo auditável e restaurável no futuro:
+    // sem eles, daqui a um ano ninguém sabe de onde veio nem o que falta.
+    _meta: {
+      sistema: 'SGM-RCX',
+      formatoBackup: 1,
+      geradoEm: new Date().toISOString(),
+      geradoPor: { nome: user?.name || '', email: user?.email || '', papel: user?.role || '' },
+      origem: location.origin,
+      modo,
+      fotosIncluidas: modo !== 'leve',
+      fotosExistentesNaOrigem: totalFotos,
+      colecoesComFalha: falhas,
+    },
+    dados,
+  };
+
+  let texto;
+  try {
+    texto = JSON.stringify(pacote);
+  } catch (e) {
+    // Memória insuficiente para serializar tudo de uma vez.
+    _rodando = false; btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+    status.innerHTML = `<span style="color:var(--danger)">Não foi possível montar o arquivo
+      (volume grande demais para o navegador). Use o modo <strong>leve</strong>.</span>`;
+    showToast('Falha ao montar o backup: ' + e.message, 8000);
+    return;
+  }
+
+  const tamanho = formatarTamanho(texto.length);
+  const nome = `backup-sgm-${new Date().toISOString().slice(0,10)}-${modo}.json`;
+
+  try {
+    const blob = new Blob([texto], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = nome;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  } catch (e) {
+    _rodando = false; btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+    showToast('Falha ao baixar: ' + e.message, 8000);
+    return;
+  }
+
+  // Registra a data só depois do download disparado — marcar antes daria
+  // um "último backup" que talvez nunca tenha chegado ao disco.
+  try {
+    localStorage.setItem(CHAVE_ULTIMO, JSON.stringify({ em: Date.now(), modo, tamanho }));
+  } catch (e) {}
+
+  status.innerHTML = `<strong>${nome}</strong> · ${tamanho}` +
+    (modo === 'leve' && totalFotos
+      ? `<br><span style="color:#92400e">${totalFotos} foto(s) NÃO incluídas (modo leve).</span>` : '') +
+    (falhas.length
+      ? `<br><span style="color:var(--danger)">Falharam: ${falhas.join(', ')}.</span>` : '');
+
+  mostrarLembrete();
+  _rodando = false;
+  btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+  showToast(falhas.length
+    ? `⚠️ Backup gerado (${tamanho}), mas ${falhas.length} coleção(ões) falharam.`
+    : `✅ Backup gerado: ${tamanho}`, 7000);
+}
+
+if (_autorizado) { renderLista({}); mostrarLembrete(); }
+</script>
+</body>
+</html>
