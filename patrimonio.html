@@ -95,6 +95,57 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div class="filter-row" id="mov-tabs" style="margin-bottom:4px">
     <button class="filter-pill active" id="tab-pendentes" onclick="setMovTab('pendentes')">⏳ Pendentes</button>
     <button class="filter-pill" id="tab-historico" onclick="setMovTab('historico')">🕓 Histórico</button>
+    <button class="filter-pill" id="tab-relatorio" onclick="setMovTab('relatorio')">📄 Relatório</button>
+  </div>
+
+  <!-- Relatório de movimentações: PDF por contrato e período, cobrindo
+       TODOS os tipos. As fotos da instalação, que ficam na movimentação e
+       não no cadastro do equipamento, aparecem aqui. -->
+  <div id="rel-mov-box" style="display:none;background:var(--surface);border:1px solid var(--border);
+       border-radius:10px;padding:14px;margin-bottom:12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">📄 Relatório de movimentações</div>
+
+    <div class="field">
+      <label>Contrato</label>
+      <select id="rel-contrato" onchange="previewRelMov()">
+        <option value="">Todos os contratos</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="field">
+        <label>De</label>
+        <input type="date" id="rel-de" onchange="previewRelMov()">
+      </div>
+      <div class="field">
+        <label>Até</label>
+        <input type="date" id="rel-ate" onchange="previewRelMov()">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Tipos incluídos</label>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;font-size:13px">
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
+          <input type="checkbox" class="rel-tipo" value="instalar" checked onchange="previewRelMov()"> 📥 Instalação</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
+          <input type="checkbox" class="rel-tipo" value="realocar" checked onchange="previewRelMov()"> 🔄 Realocação</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
+          <input type="checkbox" class="rel-tipo" value="baixar" checked onchange="previewRelMov()"> 🔴 Baixa</label>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
+          <input type="checkbox" class="rel-tipo" value="adicionar" checked onchange="previewRelMov()"> ➕ Adição</label>
+      </div>
+    </div>
+
+    <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px;margin:6px 0 10px">
+      <input type="checkbox" id="rel-fotos" checked onchange="previewRelMov()" style="margin-top:3px">
+      <span>Incluir fotos da instalação
+        <span style="display:block;font-size:11px;color:var(--text-2)">
+          Aumenta bastante o tamanho do arquivo.</span></span>
+    </label>
+
+    <div id="rel-preview" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
+    <button class="btn btn-primary" style="width:100%" onclick="gerarRelMovPDF()">📄 Gerar PDF</button>
   </div>
 
   <!-- Busca de equipamento (só na aba Histórico) -->
@@ -260,8 +311,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       </div>
     </div>
 
-    <!-- Motivo (sempre) -->
-    <div class="field">
+    <!-- Motivo: NÃO se aplica à instalação.
+         Instalar equipamento novo não precisa de justificativa — o motivo
+         é a própria instalação. Já realocar e dar baixa mexem em
+         patrimônio existente, e aí a justificativa é o que dá sentido à
+         decisão quando alguém revisar meses depois. -->
+    <div class="field" id="field-motivo">
       <label>Motivo / Justificativa *</label>
       <textarea id="f-motivo" rows="3" placeholder="Descreva o motivo da movimentação…"></textarea>
     </div>
@@ -296,6 +351,8 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
+<!-- jsPDF auto-hospedado (V12/V18) — nunca de CDN. -->
+<script src="vendor/jspdf.umd.min.js"></script>
 <script src="api-client.js"></script>
 <script src="db.js"></script>
 <script>
@@ -358,15 +415,210 @@ function showToast(msg, dur=2500) {
 }
 
 // ── Tab (Pendentes / Histórico) ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+// RELATÓRIO DE MOVIMENTAÇÕES — PDF por contrato e período
+// ══════════════════════════════════════════════════════════════════
+// Cobre os quatro tipos. As fotos da instalação aparecem aqui: é o único
+// lugar que as consome, e foi por isso que elas ficaram na movimentação
+// em vez de no cadastro do equipamento.
+
+const REL_M = 14, REL_W = 210, REL_H = 297;
+
+function prepararRelMov() {
+  const sel = document.getElementById('rel-contrato');
+  if (sel && sel.options.length <= 1) {
+    sel.innerHTML = '<option value="">Todos os contratos</option>' +
+      (contracts || []).map(c => `<option value="${esc(c.numero)}">${esc(c.numero)}</option>`).join('');
+  }
+  // Padrão: mês corrente. Período aberto num acervo grande geraria um PDF
+  // de centenas de páginas sem ninguém pedir.
+  const hoje = new Date();
+  const de = document.getElementById('rel-de'), ate = document.getElementById('rel-ate');
+  if (de && !de.value)
+    de.value = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+  if (ate && !ate.value) ate.value = hoje.toISOString().slice(0, 10);
+  previewRelMov();
+}
+
+// Filtra pelos parâmetros da tela. Só movimentações APROVADAS ou
+// EXECUTADAS entram: pendente e rejeitada não são fato consumado, e um
+// relatório que as incluísse informaria coisa que não aconteceu.
+function movimentosDoRelatorio() {
+  const contrato = document.getElementById('rel-contrato')?.value || '';
+  const de  = document.getElementById('rel-de')?.value || '';
+  const ate = document.getElementById('rel-ate')?.value || '';
+  const tipos = [...document.querySelectorAll('.rel-tipo:checked')].map(c => c.value);
+
+  const ini = de  ? new Date(de + 'T00:00:00').getTime()  : 0;
+  const fim = ate ? new Date(ate + 'T23:59:59').getTime() : Infinity;
+
+  return (movimentos || []).filter(m => {
+    if (contrato && String(m.contrato) !== contrato) return false;
+    if (!tipos.includes(m.tipo)) return false;
+    if (!['aprovada', 'executada'].includes(m.status)) return false;
+    const ts = m.executadaEm || m.aprovadaEm || m.criadaEm || m.ts || 0;
+    return ts >= ini && ts <= fim;
+  }).sort((a, b) => (a.executadaEm || a.criadaEm || 0) - (b.executadaEm || b.criadaEm || 0));
+}
+
+function previewRelMov() {
+  const el = document.getElementById('rel-preview');
+  if (!el) return;
+  const lista = movimentosDoRelatorio();
+  const comFotos = document.getElementById('rel-fotos')?.checked;
+  const nFotos = comFotos ? lista.reduce((a, m) => a + (m.fotos?.length || 0), 0) : 0;
+  const porTipo = {};
+  lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
+  const rot = { instalar: 'instalação', realocar: 'realocação', baixar: 'baixa', adicionar: 'adição' };
+
+  el.innerHTML = lista.length
+    ? `<strong>${lista.length}</strong> movimentação(ões): ` +
+      Object.entries(porTipo).map(([t, n]) => `${n} ${rot[t] || t}`).join(' · ') +
+      (nFotos ? ` · ${nFotos} foto(s)` : '')
+    : 'Nenhuma movimentação aprovada ou executada no período.';
+  el.style.color = lista.length ? 'var(--text-2)' : 'var(--danger)';
+}
+
+function gerarRelMovPDF() {
+  if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
+  const lista = movimentosDoRelatorio();
+  if (!lista.length) { showToast('Nada a incluir no período selecionado'); return; }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const comFotos = document.getElementById('rel-fotos')?.checked;
+  const contrato = document.getElementById('rel-contrato')?.value || '';
+  const de  = document.getElementById('rel-de')?.value || '';
+  const ate = document.getElementById('rel-ate')?.value || '';
+  const CW = REL_W - REL_M * 2;
+  let y = REL_M, falhas = 0;
+
+  const cabecalho = () => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text('RELATÓRIO DE MOVIMENTAÇÕES', REL_M, y); y += 7;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    const per = de && ate ? `${de.split('-').reverse().join('/')} a ${ate.split('-').reverse().join('/')}` : 'período completo';
+    doc.text(`Contrato: ${contrato || 'todos'} · Período: ${per}`, REL_M, y); y += 5;
+    doc.text(`Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, REL_M, y); y += 4;
+    doc.setDrawColor(180); doc.setLineWidth(0.3);
+    doc.line(REL_M, y, REL_W - REL_M, y); y += 6;
+  };
+
+  const cabe = h => { if (y + h > REL_H - REL_M) { doc.addPage(); y = REL_M; } };
+
+  cabecalho();
+
+  // Resumo por tipo: quem lê um relatório de patrimônio quer primeiro o
+  // total, e só depois o detalhe.
+  const porTipo = {};
+  lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
+  const rotulo = { instalar: 'Instalações', realocar: 'Realocações', baixar: 'Baixas', adicionar: 'Adições' };
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
+  doc.text(`Resumo — ${lista.length} movimentação(ões)`, REL_M, y); y += 5;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  Object.entries(porTipo).forEach(([t, n]) => {
+    doc.text(`• ${rotulo[t] || t}: ${n}`, REL_M + 3, y); y += 4.5;
+  });
+  y += 4;
+
+  lista.forEach((m, idx) => {
+    cabe(34);
+    const cor = { instalar: [5, 150, 105], realocar: [37, 99, 235],
+                  baixar: [220, 38, 38], adicionar: [124, 58, 237] }[m.tipo] || [80, 80, 80];
+    doc.setFillColor(...cor);
+    doc.rect(REL_M, y - 3.5, 1.6, 12, 'F');      // marca colorida do tipo
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
+    doc.text(`${idx + 1}. ${(rotulo[m.tipo] || m.tipo).replace(/s$/, '')} — TAG ${m.tag || m.novaTag || '—'}`,
+             REL_M + 4, y); y += 5;
+
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    const quando = m.executadaEm || m.aprovadaEm || m.criadaEm;
+    const linhas = [
+      `Contrato ${m.contrato || '—'}` + (quando ? ` · ${new Date(quando).toLocaleDateString('pt-BR')}` : ''),
+    ];
+    if (m.tipo === 'instalar' || m.tipo === 'adicionar') {
+      linhas.push([m.marca, m.tipoEquip, m.capacidade].filter(Boolean).join(' · ') || '—');
+      linhas.push(`Local: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
+    } else if (m.tipo === 'realocar') {
+      linhas.push(`De: ${m.estabelecimentoOrigem || '—'}${m.recintoOrigem ? ' / ' + m.recintoOrigem : ''}`);
+      linhas.push(`Para: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
+    }
+    // Motivo só quando existe: instalação não tem, e imprimir rótulo
+    // vazio poluiria o documento.
+    if (m.motivo) linhas.push(`Motivo: ${m.motivo}`);
+    linhas.push(`Solicitado por ${m.solicitante || m.solicitanteEmail || '—'}` +
+                (m.aprovadaPor ? ` · aprovado por ${m.aprovadaPor}` : ''));
+
+    linhas.forEach(t => {
+      const q = doc.splitTextToSize(t, CW - 4);
+      cabe(q.length * 4);
+      doc.text(q, REL_M + 4, y); y += q.length * 4;
+    });
+
+    // Fotos da instalação, em grade — todas, não só a primeira.
+    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) {
+      y += 2;
+      const cols = 3, gap = 4, cellW = (CW - 4 - gap * (cols - 1)) / cols, maxH = 34;
+      for (let i = 0; i < m.fotos.length; i += cols) {
+        const linha = m.fotos.slice(i, i + cols);
+        cabe(maxH + 4);
+        linha.forEach((f, c) => {
+          const x = REL_M + 4 + c * (cellW + gap);
+          const src = f?.dataUrl || f;
+          // Formato deduzido da data-URL: 'JPEG' fixo perdia PNG e HEIC.
+          const mm = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(String(src || '').trim());
+          if (!mm || mm[2].length < 64) { falhas++; return; }
+          const t = mm[1].toLowerCase();
+          const fmt = t === 'png' ? 'PNG' : t === 'webp' ? 'WEBP' : t === 'gif' ? 'GIF' : 'JPEG';
+          try { doc.addImage(src, fmt, x, y, cellW, maxH); }
+          catch (e) { try { doc.addImage(src, x, y, cellW, maxH); } catch (e2) { falhas++; } }
+        });
+        y += maxH + 3;
+      }
+    }
+
+    y += 3;
+    doc.setDrawColor(225); doc.setLineWidth(0.2);
+    doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
+  });
+
+  // Paginação
+  const tot = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= tot; p++) {
+    doc.setPage(p); doc.setFontSize(8); doc.setTextColor(130);
+    doc.text(`${p}/${tot}`, REL_W - REL_M, REL_H - 8, { align: 'right' });
+  }
+
+  const nome = `movimentacoes-${contrato || 'geral'}-${de || 'inicio'}_a_${ate || 'hoje'}.pdf`;
+  try { doc.save(nome); }
+  catch (e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
+
+  showToast(falhas
+    ? `PDF gerado — ${falhas} foto(s) não puderam ser incluídas.`
+    : `✅ ${nome}`, falhas ? 9000 : 5000);
+}
+
 function setMovTab(tab) {
   currentTab = tab;
   currentFilter = 'todos';
+  const ehRel = tab === 'relatorio';
   document.getElementById('tab-pendentes').classList.toggle('active', tab==='pendentes');
   document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
+  document.getElementById('tab-relatorio').classList.toggle('active', ehRel);
   document.getElementById('filter-pills').style.display = tab==='historico' ? '' : 'none';
   document.getElementById('equip-history-search').style.display = tab==='historico' ? '' : 'none';
   document.getElementById('patrimonio-summary-header').style.display = tab==='historico' ? '' : 'none';
   document.getElementById('patrimonio-summary').style.display = tab==='historico' ? '' : 'none';
+
+  // O relatório é uma tela de parâmetros, não uma lista: esconde a lista
+  // de movimentações para não competir por atenção com o formulário.
+  document.getElementById('rel-mov-box').style.display = ehRel ? '' : 'none';
+  const lista = document.getElementById('mov-list');
+  if (lista) lista.style.display = ehRel ? 'none' : '';
+  const vazio = document.getElementById('mov-empty');
+  if (vazio && ehRel) vazio.style.display = 'none';
+  if (ehRel) { prepararRelMov(); return; }
   document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
     p.classList.toggle('active', i===0);
   });
@@ -765,6 +1017,9 @@ function updateFormByTipo() {
   document.getElementById('field-tag-existente').style.display = showExistente ? '' : 'none';
   document.getElementById('fields-nova-tag').style.display     = showNova      ? '' : 'none';
   document.getElementById('fields-destino').style.display      = showDestino   ? '' : 'none';
+  // Instalação não pede motivo: o motivo é a própria instalação.
+  const campoMotivo = document.getElementById('field-motivo');
+  if (campoMotivo) campoMotivo.style.display = (tipo === 'instalar') ? 'none' : '';
 }
 
 function loadTagsByContract() {
@@ -841,7 +1096,8 @@ function saveMovimento() {
   const motivo   = document.getElementById('f-motivo').value.trim();
   if (!tipo)     { showToast('Selecione o tipo de movimentação'); return; }
   if (!contrato) { showToast('Selecione o contrato'); return; }
-  if (!motivo)   { showToast('Informe o motivo'); return; }
+  // Instalação dispensa motivo; os demais tipos continuam exigindo.
+  if (tipo !== 'instalar' && !motivo) { showToast('Informe o motivo'); return; }
 
   const tag      = document.getElementById('f-tag')?.value.trim() || '';
   const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
@@ -860,7 +1116,8 @@ function saveMovimento() {
 
   const mov = {
     id:               'mov-'+Date.now(),
-    tipo, contrato, motivo,
+    tipo, contrato,
+    motivo: tipo === 'instalar' ? (motivo || 'Instalação de equipamento novo') : motivo,
     tag:              tipo==='realocar'||tipo==='baixar' ? tag : '',
     novaTag:          tipo==='instalar'||tipo==='adicionar' ? novaTag : '',
     marca:            document.getElementById('f-marca')?.value.trim()||'',
