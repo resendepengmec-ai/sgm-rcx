@@ -92,10 +92,10 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <span class="pending-count" id="pending-count">0</span>
   </div>
 
-  <div class="filter-row" id="mov-tabs" style="margin-bottom:4px">
-    <button class="filter-pill active" id="tab-pendentes" onclick="setMovTab('pendentes')">⏳ Pendentes</button>
-    <button class="filter-pill" id="tab-historico" onclick="setMovTab('historico')">🕓 Histórico</button>
-    <button class="filter-pill" id="tab-relatorio" onclick="setMovTab('relatorio')">📄 Relatório</button>
+  <div class="filter-row" id="mov-tabs" role="tablist" style="margin-bottom:4px">
+    <button class="filter-pill active" id="tab-pendentes" role="tab" data-tab="pendentes" aria-selected="true" onclick="setMovTab('pendentes')">⏳ Pendentes</button>
+    <button class="filter-pill" id="tab-historico" role="tab" data-tab="historico" aria-selected="false" onclick="setMovTab('historico')">🕓 Histórico</button>
+    <button class="filter-pill" id="tab-relatorio" role="tab" data-tab="relatorio" aria-selected="false" onclick="setMovTab('relatorio')">📄 Relatório</button>
   </div>
 
   <!-- Relatório de movimentações: PDF por contrato e período, cobrindo
@@ -145,7 +145,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     </label>
 
     <div id="rel-preview" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
-    <button class="btn btn-primary" style="width:100%" onclick="gerarRelMovPDF()">📄 Gerar PDF</button>
+    <button class="btn btn-primary" style="width:100%" onclick="gerarRelMovPDF(this)">📄 Gerar PDF</button>
   </div>
 
   <!-- Busca de equipamento (só na aba Histórico) -->
@@ -166,10 +166,10 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   </div>
 
   <div class="filter-row" id="filter-pills" style="display:none">
-    <button class="filter-pill active" onclick="setFilter('todos')">Todas</button>
-    <button class="filter-pill" onclick="setFilter('aprovada')">✅ Aprovadas</button>
-    <button class="filter-pill" onclick="setFilter('executada')">✔ Executadas</button>
-    <button class="filter-pill" onclick="setFilter('rejeitada')">✕ Rejeitadas</button>
+    <button class="filter-pill active" role="tab" data-tab="todos" aria-selected="true" onclick="setFilter('todos')">Todas</button>
+    <button class="filter-pill" role="tab" data-tab="aprovada" aria-selected="false" onclick="setFilter('aprovada')">✅ Aprovadas</button>
+    <button class="filter-pill" role="tab" data-tab="executada" aria-selected="false" onclick="setFilter('executada')">✔ Executadas</button>
+    <button class="filter-pill" role="tab" data-tab="rejeitada" aria-selected="false" onclick="setFilter('rejeitada')">✕ Rejeitadas</button>
   </div>
 
   <div id="mov-list"></div>
@@ -328,7 +328,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="action-bar" style="margin-top:16px">
       <button class="btn btn-secondary" onclick="cancelForm()">Cancelar</button>
-      <button class="btn btn-primary" id="btn-save-mov" onclick="saveMovimento()">📤 Enviar solicitação</button>
+      <button class="btn btn-primary" id="btn-save-mov" onclick="saveMovimento(this)">📤 Enviar solicitação</button>
     </div>
   </div>
 </div>
@@ -608,13 +608,15 @@ function gerarRelMovPDF() {
     : `✅ ${nome}`, falhas ? 9000 : 5000);
 }
 
+const _gerarRelMovPDFOriginal = gerarRelMovPDF;
+gerarRelMovPDF = function(btn) {
+  return withActionBusy(btn, 'Gerando PDF…', () => _gerarRelMovPDFOriginal());
+};
 function setMovTab(tab) {
   currentTab = tab;
   currentFilter = 'todos';
   const ehRel = tab === 'relatorio';
-  document.getElementById('tab-pendentes').classList.toggle('active', tab==='pendentes');
-  document.getElementById('tab-historico').classList.toggle('active', tab==='historico');
-  document.getElementById('tab-relatorio').classList.toggle('active', ehRel);
+  selectTab('#mov-tabs', tab);
   document.getElementById('filter-pills').style.display = tab==='historico' ? '' : 'none';
   document.getElementById('equip-history-search').style.display = tab==='historico' ? '' : 'none';
   document.getElementById('patrimonio-summary-header').style.display = tab==='historico' ? '' : 'none';
@@ -629,7 +631,7 @@ function setMovTab(tab) {
   if (vazio && ehRel) vazio.style.display = 'none';
   if (ehRel) { prepararRelMov(); return; }
   document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
-    p.classList.toggle('active', i===0);
+    setTabSelected(p, i===0);
   });
   renderList();
 }
@@ -638,7 +640,7 @@ function setMovTab(tab) {
 function setFilter(f) {
   currentFilter = f;
   document.querySelectorAll('#filter-pills .filter-pill').forEach((p,i)=>{
-    p.classList.toggle('active',['todos','aprovada','executada','rejeitada'][i]===f);
+    setTabSelected(p, ['todos','aprovada','executada','rejeitada'][i]===f);
   });
   renderList();
 }
@@ -724,8 +726,8 @@ function renderList() {
             <button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
             <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
           </div>` : ''}
-        ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}')">⚙️ Executar no banco</button>` : ''}
-        ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}')">🗑️ Excluir</button>` : ''}
+        ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}', this)">⚙️ Executar no banco</button>` : ''}
+        ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}', this)">🗑️ Excluir</button>` : ''}
         ${_sigTrail(m._signatures)}
       </div>`;
     }).join('');
@@ -1114,7 +1116,7 @@ function fillEstabDestino(estab) {
 
 function cancelForm() { showScreen('list'); renderList(); }
 
-async function saveMovimento() {
+async function saveMovimento(btn) {
   if (salvandoMovimento) return;
   const tipo     = document.getElementById('f-tipo').value;
   const contrato = document.getElementById('f-contrato').value;
@@ -1159,9 +1161,9 @@ async function saveMovimento() {
     fotos:            ['instalar','adicionar'].includes(tipo) ? fotosInstal : [],
   };
 
-  const botao = document.getElementById('btn-save-mov');
+  const botao = btn || document.getElementById('btn-save-mov');
   salvandoMovimento = true;
-  if (botao) { botao.disabled = true; botao.textContent = 'Enviando…'; }
+  const restore = setActionBusy(botao, true, 'Enviando solicitação…');
   try {
     // Só atualiza a lista e zera o formulário depois que o servidor gravar
     // e devolver o registro canônico. Falhas mantêm o preenchimento intacto
@@ -1181,7 +1183,7 @@ async function saveMovimento() {
     showToast('Não foi possível enviar: ' + e.message, 7000);
   } finally {
     salvandoMovimento = false;
-    if (botao) { botao.disabled = false; botao.textContent = '📤 Enviar solicitação'; }
+    restore();
   }
 }
 
@@ -1206,9 +1208,9 @@ function openReview(id, action) {
 
   const actions = document.getElementById('modal-actions');
   if (action==='approve') {
-    actions.innerHTML = `<button class="btn-approve" onclick="confirmApprove()">✅ Confirmar aprovação</button>`;
+    actions.innerHTML = `<button class="btn-approve" onclick="confirmApprove(this)">✅ Confirmar aprovação</button>`;
   } else {
-    actions.innerHTML = `<button class="btn-reject" style="flex:1" onclick="confirmReject()">✕ Confirmar rejeição</button>`;
+    actions.innerHTML = `<button class="btn-reject" style="flex:1" onclick="confirmReject(this)">✕ Confirmar rejeição</button>`;
   }
 
   document.getElementById('modal-review').style.display = 'flex';
@@ -1219,8 +1221,9 @@ function closeModal() {
   reviewId = null;
 }
 
-async function confirmApprove() {
+async function confirmApprove(btn) {
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
+  const restore = setActionBusy(btn, true, 'Aprovando…');
   try {
     const resposta = await DB.updateMovStatus(m.id, 'aprovada');
     const atualizada = resposta?.movimentacao;
@@ -1232,13 +1235,16 @@ async function confirmApprove() {
     renderList();
   } catch (e) {
     showToast('Não foi possível aprovar: ' + e.message, 7000);
+  } finally {
+    restore();
   }
 }
 
-async function confirmReject() {
+async function confirmReject(btn) {
   const motivo = document.getElementById('f-motivo-rejeicao').value.trim();
   if (!motivo) { showToast('Informe o motivo da rejeição'); return; }
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
+  const restore = setActionBusy(btn, true, 'Rejeitando…');
   try {
     const resposta = await DB.updateMovStatus(m.id, 'rejeitada', motivo);
     const atualizada = resposta?.movimentacao;
@@ -1250,12 +1256,15 @@ async function confirmReject() {
     renderList();
   } catch (e) {
     showToast('Não foi possível rejeitar: ' + e.message, 7000);
+  } finally {
+    restore();
   }
 }
 
 // ── Execute ───────────────────────────────────────────────────────
-async function deleteMovimento(id) {
+async function deleteMovimento(id, btn) {
   if (!confirm('Excluir esta solicitação de movimentação?')) return;
+  const restore = setActionBusy(btn, true, 'Excluindo…');
   try {
     await DB.deleteMovimentacao(id);
     movimentos = movimentos.filter(m=>m.id!==id);
@@ -1264,18 +1273,17 @@ async function deleteMovimento(id) {
     showToast('Solicitação excluída.');
   } catch (e) {
     showToast('Erro ao excluir: ' + e.message);
+  } finally {
+    restore();
   }
 }
 
-async function executeMovimento(id) {
+async function executeMovimento(id, btn) {
   const m = movimentos.find(x=>x.id===id);
   if (!m || m.status!=='aprovada') return;
   if (!confirm(`Executar "${m.tipo}" da TAG ${m.tag||m.novaTag} no banco de dados?\n\nEsta ação atualiza o banco de equipamentos.`)) return;
-
+  const restore = setActionBusy(btn, true, 'Executando…');
   try {
-    // A alteração do banco de equipamentos acontece exclusivamente no
-    // backend. Assim uma falha de rede não deixa o navegador marcado como
-    // "executado" enquanto o servidor continua com a solicitação aprovada.
     const resposta = await DB.updateMovStatus(m.id, 'executada');
     const atualizada = resposta?.movimentacao;
     if (!atualizada) throw new Error('O servidor não confirmou a execução');
@@ -1291,9 +1299,10 @@ async function executeMovimento(id) {
     renderList();
   } catch (e) {
     showToast('Não foi possível executar: ' + e.message, 7000);
+  } finally {
+    restore();
   }
 }
-
 // ── Screen nav ────────────────────────────────────────────────────
 function showScreen(s) {
   document.getElementById('screen-list').style.display = s==='list' ? 'block' : 'none';

@@ -293,7 +293,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <input id="admin-cid-input" type="text"
       style="background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:8px;font-size:var(--fs-xs);padding:9px 12px;margin-bottom:8px"
       placeholder="xxxxx.apps.googleusercontent.com">
-    <button onclick="saveAdminClientId()" style="width:100%;padding:9px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:var(--fs-xs);cursor:pointer;margin-bottom:14px">
+    <button onclick="saveAdminClientId(this)" style="width:100%;padding:9px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:var(--fs-xs);cursor:pointer;margin-bottom:14px">
       &#128190; Salvar Client ID
     </button>
     <div class="admin-login-sep"></div>
@@ -449,13 +449,14 @@ function closeAdminLogin() {
   const overlay = document.getElementById('admin-login-overlay');
   if (overlay) overlay.classList.add('hidden');
 }
-async function saveAdminClientId() {
+async function saveAdminClientId(btn) {
   const id = document.getElementById('admin-cid-input').value.trim();
   if (!id) { showToast('Informe o Client ID'); return; }
   localStorage.setItem('smm_client_id', id);
   localStorage.removeItem('smm_user_cid');
-  const btn = document.getElementById('admin-google-btn');
-  if (btn) btn.disabled = false;
+  const googleBtn = document.getElementById('admin-google-btn');
+  if (googleBtn) googleBtn.disabled = false;
+  const restore = setActionBusy(btn, true, 'Enviando configuração…');
   // Salva no backend para que usuários não precisem configurar nada
   try {
     await fetch(`${window.SMM_API}/api/auth/config/client-id`, {
@@ -466,6 +467,7 @@ async function saveAdminClientId() {
     });
     showToast('Client ID salvo no servidor!');
   } catch(e) { showToast('Client ID salvo localmente.'); }
+  finally { restore(); }
 }
 function doAdminGoogleLogin() {
   localStorage.removeItem('smm_user_cid');
@@ -594,11 +596,11 @@ function showAdminPanel() {
   panel.innerHTML = `
     <div class="section-title" style="margin-top:8px">Administração</div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div class="admin-tabs">
-        <button class="admin-tab ${adminTab==='usuarios'?'active':''}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
-        <button class="admin-tab ${adminTab==='whitelist'?'active':''}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
-        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" onclick="setAdminTab('responsaveis')">🏢 Responsáveis</button>
-        <button class="admin-tab ${adminTab==='config'?'active':''}" onclick="setAdminTab('config')">⚙️ Config</button>
+      <div class="admin-tabs" role="tablist">
+        <button class="admin-tab ${adminTab==='usuarios'?'active':''}" role="tab" aria-selected="${adminTab==='usuarios'}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
+        <button class="admin-tab ${adminTab==='whitelist'?'active':''}" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
+        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">🏢 Responsáveis</button>
+        <button class="admin-tab ${adminTab==='config'?'active':''}" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
     </div>`;
@@ -611,7 +613,7 @@ function setAdminTab(tab) {
   adminTab = tab;
   document.querySelectorAll('.admin-tab').forEach(b => {
     const t = b.textContent.toLowerCase();
-    b.classList.toggle('active',
+    setTabSelected(b,
       (tab==='usuarios' && t.includes('usu')) ||
       (tab==='whitelist' && t.includes('pr')) ||
       (tab==='responsaveis' && t.includes('respons')) ||
@@ -706,12 +708,12 @@ function openRespModal(){
     <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:13px;cursor:pointer"><input id="rf-ativo" type="checkbox" ${r.ativo===false?'':'checked'} style="width:18px;height:18px"> Ativo</label>
     <div style="display:flex;gap:8px">
       <button onclick="closeRespModal()" style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;cursor:pointer">Cancelar</button>
-      <button onclick="saveRespForm()" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer">Salvar</button>
+      <button onclick="saveRespForm(this)" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer">Salvar</button>
     </div>
   </div>`;
 }
 
-async function saveRespForm(){
+async function saveRespForm(btn){
   const base = _editingResp || {};
   const payload = {
     id: base.id, contract: base.contract, establishment: base.establishment,
@@ -725,12 +727,14 @@ async function saveRespForm(){
   if(!payload.nome || !payload.cargo){ showToast('Preencha nome e cargo'); return; }
   if(payload.cpf.length!==11){ showToast('CPF deve ter 11 dígitos'); return; }
   if(payload.celular.length<10 || payload.celular.length>11){ showToast('Celular inválido (DDD + número)'); return; }
+  const restore = setActionBusy(btn, true, 'Salvando responsável…');
   try{
     const saved = await DB.saveResponsavel(payload);
     const i = _responsaveis.findIndex(x=>x.id===saved.id);
     if(i>=0) _responsaveis[i]=saved; else _responsaveis.push(saved);
     closeRespModal(); renderRespEstabs(); showToast('Responsável salvo');
   }catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
+  finally{ restore(); }
 }
 
 async function removeResponsavel(id){
@@ -1435,7 +1439,7 @@ function renderPrestadoraForm(box, cfg) {
       <label>CNPJ</label>
       <input id="cfg-companycnpj" type="text" value="${cfg.cnpj||''}" placeholder="00.000.000/0000-00">
     </div>
-    <button class="btn btn-primary" onclick="savePrestadoraConfig()">💾 Salvar dados da prestadora</button>
+    <button class="btn btn-primary" onclick="savePrestadoraConfig(this)">💾 Salvar dados da prestadora</button>
   `;
 }
 
@@ -1470,14 +1474,16 @@ function removePrestadoraLogo() {
   if (box) DB.getConfig().then(cfg => renderPrestadoraForm(box, cfg)).catch(()=>renderPrestadoraForm(box, {}));
 }
 
-function savePrestadoraConfig() {
+function savePrestadoraConfig(btn) {
   const company = document.getElementById('cfg-company').value.trim();
   const address = document.getElementById('cfg-address').value.trim();
   const cnpj    = document.getElementById('cfg-companycnpj').value.trim();
   if (!company) { showToast('Informe o nome da prestadora'); return; }
+  const restore = setActionBusy(btn, true, 'Salvando dados…');
   DB.saveConfig({ company, address, cnpj, logo:_prestadoraLogo.dataUrl, logoRatio:_prestadoraLogo.ratio })
     .then(() => showToast('✅ Dados da prestadora salvos!'))
-    .catch(e => showToast('Erro ao salvar: ' + e.message));
+    .catch(e => showToast('Erro ao salvar: ' + e.message))
+    .finally(() => restore());
 }
 
 function exportAdminConfig() {

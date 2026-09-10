@@ -61,6 +61,7 @@ select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .tabs { display: flex; background: var(--surface); border-bottom: 1.5px solid var(--border); position: sticky; top: 56px; z-index: 99; }
 .tab { flex: 1; padding: 12px 8px; font-size: 13px; font-weight: 500; color: var(--text-2); border: none; background: none; cursor: pointer; border-bottom: 2.5px solid transparent; transition: all .15s; }
 .tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab[aria-selected="true"] { color: var(--primary); border-bottom-color: var(--primary); }
 .tab-icon { display: block; font-size: 20px; margin-bottom: 2px; }
 
 /* ───── Screens ───── */
@@ -117,6 +118,10 @@ select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .action-bar { display: flex; gap: 10px; margin-top: 16px; }
 .btn { flex: 1; padding: 13px 14px; border-radius: var(--radius-sm); font-size: 15px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: opacity .15s; }
 .btn:active { opacity: .8; }
+.btn:disabled, .btn[aria-busy="true"], button[aria-busy="true"] { cursor: wait; opacity: .72; }
+.is-busy { pointer-events: none; }
+.action-spinner { width: 1em; height: 1em; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: action-spin .7s linear infinite; flex: 0 0 auto; }
+@keyframes action-spin { to { transform: rotate(360deg); } }
 .btn-primary { background: var(--primary); color: #fff; }
 .btn-secondary { background: var(--surface); color: var(--text); border: 1.5px solid var(--border); }
 .btn-success { background: var(--success); color: #fff; }

@@ -294,7 +294,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
   <div class="action-bar">
     <button class="btn btn-secondary" onclick="cancelNew()">Cancelar</button>
-    <button class="btn btn-primary" onclick="saveBatchPlans()">📋 Criar planos</button>
+    <button class="btn btn-primary" onclick="saveBatchPlans(this)">📋 Criar planos</button>
   </div>
 </div>
 
@@ -309,7 +309,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <div id="exec-list"></div>
   <div class="action-bar">
     <button class="btn btn-secondary" onclick="switchTab('list')">← Voltar</button>
-    <button class="btn btn-success" onclick="finalizePlan()">✅ Finalizar</button>
+    <button class="btn btn-success" onclick="finalizePlan(this)">✅ Finalizar</button>
     <button class="btn btn-primary" onclick="printExecPDF()">🖨️ PDF</button>
   </div>
 </div>
@@ -324,15 +324,15 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 <!-- Bottom Nav -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
+  <button class="nav-btn active" role="tab" aria-selected="true" onclick="switchTab('list')" id="nav-list">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
     Planos
   </button>
-  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
   </button>
-  <button class="nav-btn" onclick="switchTab('hist')" id="nav-hist">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('hist')" id="nav-hist">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
     Histórico
   </button>
@@ -732,11 +732,11 @@ try { guardaDeModulo('preventiva'); } catch (e) {}
 // ── Navigation ──
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => setTabSelected(b, false));
   const sid = tab==='list'?'screen-list':tab==='new'?'screen-new':tab==='exec'?'screen-exec':'screen-hist';
   const nid = tab==='list'?'nav-list':tab==='new'?'nav-new':tab==='hist'?'nav-hist':null;
   document.getElementById(sid).classList.add('active');
-  if (nid) document.getElementById(nid).classList.add('active');
+  if (nid) setTabSelected(document.getElementById(nid), true);
   document.getElementById('fab').classList.toggle('hidden', tab !== 'list');
   if (tab === 'list') renderPlansList();
   if (tab === 'hist') renderHistory();
@@ -951,7 +951,7 @@ function setBatchLevel(estab, level) {
   renderBatchPanel();
 }
 
-function saveBatchPlans() {
+function saveBatchPlans(btn) {
   const client = document.getElementById('f-client').value;
   const period = document.getElementById('f-period').value;
   const tech   = document.getElementById('f-tech').value;
@@ -962,6 +962,7 @@ function saveBatchPlans() {
   if (!tech)   { showToast('Selecione o técnico responsável'); return; }
   const entries = Object.entries(batchAssignments).filter(([,l])=>l);
   if (!entries.length) { showToast('Defina o nível para pelo menos um estabelecimento'); return; }
+  const restore = setActionBusy(btn, true, 'Enviando planos…');
 
   const db = getEffDB();
   const equips = (db[client] || []).filter(e=>!e._inativo);
@@ -990,7 +991,7 @@ function saveBatchPlans() {
   Promise.all(newPlans.map(p =>
     signRecord(p.id, 'criado', 'preventiva').then(sig => {
       p._signatures = p._signatures||[]; p._signatures.push(sig);
-      return DB.save('preventiva', p).catch(e => console.warn('Sync preventiva:', e.message));
+      return DB.save('preventiva', p);
     })
   )).then(() => {
     try { saveLocal(); } catch(e) {}
@@ -999,9 +1000,12 @@ function saveBatchPlans() {
     batchAssignments = {};
     batchMode = true;
     switchTab('list');
+    restore();
+  }).catch(e => {
+    showToast('⚠️ Não foi possível enviar os planos: ' + e.message, 7000);
+    restore();
   });
 }
-
 function onContractChange() {
   const contract = document.getElementById('f-client').value;
   if (batchMode) { renderBatchPanel(); return; }
@@ -1046,7 +1050,7 @@ function updateEquipCount() {
 }
 function filterEquipList() { renderEquipList(document.getElementById('equip-search').value); }
 
-function savePlan() {
+function savePlan(btn) {
   const client = document.getElementById('f-client').value;
   const period = document.getElementById('f-period').value;
   if (!client) { showToast('Selecione o contrato'); return; }
@@ -1057,6 +1061,7 @@ function savePlan() {
   if (!_tech) { showToast('Selecione o técnico responsável'); return; }
   if (!selectedLevel) { showToast('Selecione o nível de manutenção'); return; }
   if (!selectedEquip.size) { showToast('Selecione pelo menos um equipamento'); return; }
+  const restore = setActionBusy(btn, true, 'Enviando plano…');
 
   const db = getEffDB();
   const equipList = (db[client]||[]).filter(e => selectedEquip.has(e.tag));
@@ -1083,9 +1088,16 @@ function savePlan() {
   const _sid_plan = plan.id;
   signRecord(_sid_plan, 'criado', 'preventiva').then(sig => {
     plan._signatures = plan._signatures||[]; plan._signatures.push(sig);
-    persist(plan);
+    return persist(plan);
+  }).then(() => {
     showToast('Plano criado! Iniciando execução…');
     openPlan(plan.id);
+    restore();
+  }).catch(e => {
+    plans = plans.filter(p => p.id !== plan.id);
+    saveLocal();
+    showToast('⚠️ Não foi possível enviar o plano: ' + e.message, 7000);
+    restore();
   });
 }
 
@@ -1119,7 +1131,7 @@ function openPlan(id) {
         ${plan.tech?`<div style="font-size:12px;color:var(--text-3)">👷 ${esc(plan.tech)}</div>`:''}
       </div>
       <div style="margin-left:auto;display:flex;gap:6px">
-        ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}')">🗑️</button>` : ''}
+        ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}', this)">🗑️</button>` : ''}
       </div>
     </div>
     ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;
@@ -1483,7 +1495,7 @@ function updatePlanSummary(plan) {
   document.getElementById('exec-pct').textContent = pct+'%';
 }
 
-async function finalizePlan() {
+async function finalizePlan(btn) {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
   const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
@@ -1491,9 +1503,8 @@ async function finalizePlan() {
   if (done < total) {
     if (!confirm(`${total-done} equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?`)) return;
   }
-  const btn = document.querySelector('button[onclick="finalizePlan()"]');
-  const prev = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Enviando…'; }
+  const restore = setActionBusy(btn, true, 'Finalizando…');
+
   plan.finalizedAt = Date.now();
   plan.updatedAt = Date.now();
   plan._dirty = true;
@@ -1513,22 +1524,28 @@ async function finalizePlan() {
     // Não subiu: NÃO marca como finalizada; nada é perdido, dá pra repetir.
     plan.finalizedAt = null;
     saveLocal();
-    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), () => finalizePlan());
+    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), () => finalizePlan(btn));
     showToast('⚠️ Falha ao finalizar — nada foi perdido, tente novamente');
   } finally {
-    if (btn) { btn.disabled = false; btn.innerHTML = prev; }
+    restore();
   }
 }
 
-function deletePlan(id) {
+async function deletePlan(id, btn) {
   if (!confirm('Excluir este plano de preventiva?')) return;
-  plans = plans.filter(p=>p.id!==id);
-  saveLocal();
-  showToast('Plano excluído');
-  switchTab('list');
-  DB.delete('preventiva', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
+  const restore = setActionBusy(btn, true, 'Excluindo…');
+  try {
+    await DB.delete('preventiva', id);
+    plans = plans.filter(p=>p.id!==id);
+    saveLocal();
+    showToast('Plano excluído');
+    switchTab('list');
+  } catch(e) {
+    showToast('Erro ao excluir no servidor: ' + e.message, 7000);
+  } finally {
+    restore();
+  }
 }
-
 // ── History ──
 function renderHistory() {
   const done = plans.filter(p=>getPlanStatus(p)==='done').sort((a,b)=>b.createdAt-a.createdAt);

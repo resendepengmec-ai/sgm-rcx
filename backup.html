@@ -105,7 +105,7 @@
     <div id="bk-status" style="font-size:12px;color:var(--text-2);margin-top:8px"></div>
   </div>
 
-  <button class="btn btn-primary" id="bk-btn" style="width:100%" onclick="fazerBackup()">
+  <button class="btn btn-primary" id="bk-btn" style="width:100%" onclick="fazerBackup(this)">
     💾 Gerar backup agora
   </button>
 
@@ -267,16 +267,16 @@ const formatarTamanho = b =>
 // ── Geração ───────────────────────────────────────────────────────
 let _rodando = false;
 
-async function fazerBackup() {
+async function fazerBackup(btn) {
   if (_rodando) return;
   const modo = document.querySelector('input[name="bk-modo"]:checked')?.value || 'completo';
-  const btn = document.getElementById('bk-btn');
+  btn = btn || document.getElementById('bk-btn');
   const barra = document.getElementById('bk-barra-wrap');
   const prog = document.getElementById('bk-prog');
   const status = document.getElementById('bk-status');
 
   _rodando = true;
-  btn.disabled = true; btn.textContent = '⏳ Lendo dados…';
+  const restore = setActionBusy(btn, true, 'Lendo dados…');
   barra.style.display = 'block';
 
   const estados = {}, dados = {}, falhas = [];
@@ -331,7 +331,7 @@ async function fazerBackup() {
     texto = JSON.stringify(pacote);
   } catch (e) {
     // Memória insuficiente para serializar tudo de uma vez.
-    _rodando = false; btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+    _rodando = false; restore();
     status.innerHTML = `<span style="color:var(--danger)">Não foi possível montar o arquivo
       (volume grande demais para o navegador). Use o modo <strong>leve</strong>.</span>`;
     showToast('Falha ao montar o backup: ' + e.message, 8000);
@@ -349,7 +349,7 @@ async function fazerBackup() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 8000);
   } catch (e) {
-    _rodando = false; btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+    _rodando = false; restore();
     showToast('Falha ao baixar: ' + e.message, 8000);
     return;
   }
@@ -368,7 +368,7 @@ async function fazerBackup() {
 
   mostrarLembrete();
   _rodando = false;
-  btn.disabled = false; btn.textContent = '💾 Gerar backup agora';
+  restore();
   showToast(falhas.length
     ? `⚠️ Backup gerado (${tamanho}), mas ${falhas.length} coleção(ões) falharam.`
     : `✅ Backup gerado: ${tamanho}`, 7000);

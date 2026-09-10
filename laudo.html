@@ -131,8 +131,8 @@ function renderForm(){
   const opts = contratos().map(c=>`<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
   document.getElementById('root').innerHTML = `
     <div style="display:flex;gap:8px;margin-top:14px">
-      <button class="scope-tab active" id="vt-novo" onclick="switchView('novo')" style="flex:1">➕ Novo laudo</button>
-      <button class="scope-tab" id="vt-real" onclick="switchView('realizados')" style="flex:1">✅ Realizados</button>
+      <button class="scope-tab active" id="vt-novo" role="tab" aria-selected="true" onclick="switchView('novo')" style="flex:1">➕ Novo laudo</button>
+      <button class="scope-tab" id="vt-real" role="tab" aria-selected="false" onclick="switchView('realizados')" style="flex:1">✅ Realizados</button>
     </div>
     <div id="view-novo">
       <div class="card">
@@ -141,8 +141,8 @@ function renderForm(){
         <select id="l-contract" onchange="onContractChange()"><option value="">Selecione…</option>${opts}</select>
       </div>
       <div class="scope-tabs" style="margin:10px 0">
-        <div class="scope-tab active" id="tab-equip" onclick="setScope('equipamento')">🔧 Equipamento(s)</div>
-        <div class="scope-tab" id="tab-unidade" onclick="setScope('unidade')">🏢 Unidade inteira</div>
+        <div class="scope-tab active" id="tab-equip" role="tab" aria-selected="true" onclick="setScope('equipamento')">🔧 Equipamento(s)</div>
+        <div class="scope-tab" id="tab-unidade" role="tab" aria-selected="false" onclick="setScope('unidade')">🏢 Unidade inteira</div>
       </div>
       <div class="field" id="l-unidade-box" style="display:none"><label>Estabelecimento *</label>
         <select id="l-estab"><option value="">Selecione o contrato primeiro</option></select>
@@ -232,8 +232,8 @@ function renderForm(){
 
 function setScope(s){
   scope = s;
-  document.getElementById('tab-equip').classList.toggle('active', s==='equipamento');
-  document.getElementById('tab-unidade').classList.toggle('active', s==='unidade');
+  setTabSelected(document.getElementById('tab-equip'), s==='equipamento');
+  setTabSelected(document.getElementById('tab-unidade'), s==='unidade');
   document.getElementById('l-unidade-box').style.display = (s==='unidade') ? '' : 'none';
   document.getElementById('l-equip-scope').style.display = (s==='equipamento') ? '' : 'none';
 }
@@ -299,13 +299,13 @@ async function gerarTexto(btn){
     itens: itensSelecionados().filter(Boolean),
     palavrasChave: kw,
   };
-  const txt0 = btn.textContent; btn.disabled=true; btn.textContent='Gerando…';
+  const restore = setActionBusy(btn, true, 'Gerando…');
   try{
     const res = await laudoTexto(payload);
     document.getElementById('l-texto').value = res.texto || '';
     showToast(res.fonte==='ia' ? 'Texto gerado por IA' : 'Texto gerado (modelo)');
   }catch(e){ showToast('Erro ao gerar: '+(e.message||e)); }
-  finally{ btn.disabled=false; btn.textContent=txt0; }
+  finally{ restore(); }
 }
 
 // ── Limite de fotos: 2 por equipamento, piso de 3 ─────────────────
@@ -709,7 +709,7 @@ async function gerarLaudo(btn){
   if(scope==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
   if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
   if(!d.texto){ showToast('Gere o texto técnico antes de gerar o laudo'); return; }
-  const t0 = btn ? btn.textContent : ''; if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
+  const restore = setActionBusy(btn, true, 'Salvando laudo…');
   showToast('Salvando no acervo…');
   try{
     const saved = await laudoSave(d);      // persiste no servidor e retorna com assinatura HMAC
@@ -768,8 +768,8 @@ function novoLaudo(silent){
 function switchView(v){
   document.getElementById('view-novo').style.display = v==='novo'?'':'none';
   document.getElementById('view-realizados').style.display = v==='realizados'?'':'none';
-  document.getElementById('vt-novo').classList.toggle('active', v==='novo');
-  document.getElementById('vt-real').classList.toggle('active', v==='realizados');
+  setTabSelected(document.getElementById('vt-novo'), v==='novo');
+  setTabSelected(document.getElementById('vt-real'), v==='realizados');
   if(v==='realizados'){ populateRealFilters(); renderRealizados(); }
 }
 
@@ -809,18 +809,20 @@ function renderRealizados(){
         <div style="font-weight:600;font-size:13px">${esc(l.unidade||'—')}</div>
         <div style="font-size:12px;color:var(--text-3)">Contrato ${esc(l.contract||'—')} · ${esc(l.assunto||'')} · ${new Date(l.createdAt).toLocaleDateString('pt-BR')}</div>
       </div>
-      <button onclick="gerarPDFde('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Gerar PDF">🖨️</button>
+      <button onclick="gerarPDFde('${l.id}', this)" style="border:none;background:none;cursor:pointer;font-size:16px" title="Gerar PDF">🖨️</button>
       <button onclick="reabrirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Reabrir para editar">✏️</button>
-      ${podeExcluir?`<button onclick="excluirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>`:''}
+      ${podeExcluir?`<button onclick="excluirLaudo('${l.id}', this)" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>`:''}
     </div>`).join('');
 }
 
-function gerarPDFde(id){ const l=laudosCache.find(x=>x.id===id); if(l) gerarPDF(l); }
-async function excluirLaudo(id){
+function gerarPDFde(id, btn){ const l=laudosCache.find(x=>x.id===id); if(!l) return; const restore=setActionBusy(btn,true,'Gerando PDF…'); try{ gerarPDF(l); } finally{ restore(); } }
+async function excluirLaudo(id, btn){
   const l=laudosCache.find(x=>x.id===id);
   if(!confirm('Excluir o laudo de '+(l?l.unidade:'')+'?')) return;
+  const restore = setActionBusy(btn, true, 'Excluindo…');
   try{ await laudoDel(id); laudosCache=laudosCache.filter(x=>x.id!==id); populateRealFilters(); renderRealizados(); showToast('Laudo excluído'); }
   catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
+  finally{ restore(); }
 }
 function reabrirLaudo(id){
   const l = laudosCache.find(x=>x.id===id); if(!l) return;

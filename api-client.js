@@ -53,6 +53,68 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ── Estado padrão de ações assíncronas ─────────────────────────────
+// Bloqueia cliques duplicados, sinaliza aria-busy e restaura o rótulo original.
+function setActionBusy(button, busy, label = 'Enviando…') {
+  const btn = typeof button === 'string' ? document.querySelector(button) : button;
+  if (!btn) return () => {};
+  if (!busy) {
+    const original = btn.dataset.busyOriginalHtml;
+    if (original !== undefined) btn.innerHTML = original;
+    if (btn.dataset.busyOriginalDisabled !== undefined)
+      btn.disabled = btn.dataset.busyOriginalDisabled === '1';
+    delete btn.dataset.busyOriginalHtml;
+    delete btn.dataset.busyOriginalDisabled;
+    delete btn.dataset.busy;
+    btn.removeAttribute('aria-busy');
+    btn.classList.remove('is-busy');
+    return () => {};
+  }
+  if (btn.dataset.busy === '1') return () => setActionBusy(btn, false);
+  btn.dataset.busy = '1';
+  btn.dataset.busyOriginalHtml = btn.innerHTML;
+  btn.dataset.busyOriginalDisabled = btn.disabled ? '1' : '0';
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  btn.classList.add('is-busy');
+  btn.replaceChildren();
+  const spinner = document.createElement('span');
+  spinner.className = 'action-spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('span');
+  text.textContent = label;
+  btn.append(spinner, text);
+  return () => setActionBusy(btn, false);
+}
+
+async function withActionBusy(button, label, task) {
+  const restore = setActionBusy(button, true, label);
+  try { return await task(); } finally { restore(); }
+}
+
+// Estado visual e semântico de abas; preserva a classe legada active.
+function setTabSelected(button, selected) {
+  const btn = typeof button === 'string' ? document.querySelector(button) : button;
+  if (!btn) return;
+  btn.classList.toggle('active', !!selected);
+  btn.setAttribute('aria-selected', selected ? 'true' : 'false');
+  btn.tabIndex = selected ? 0 : -1;
+}
+window.setActionBusy = setActionBusy;
+window.withActionBusy = withActionBusy;
+window.setTabSelected = setTabSelected;
+function selectTab(container, activeTab) {
+  const root = typeof container === 'string' ? document.querySelector(container) : container;
+  if (!root) return;
+  root.querySelectorAll('[role="tab"], .tab, .stab, .filter-pill, .scope-tab, .admin-tab, .period-pill').forEach(btn => {
+    const key = btn.dataset.tab || btn.dataset.value || btn.getAttribute('data-tab');
+    const selected = key ? key === activeTab : false;
+    // Abas legadas sem data-tab usam o texto/posição; as páginas novas passam
+    // data-tab e obtêm seleção semântica completa.
+    if (key) setTabSelected(btn, selected);
+  });
+}
+window.selectTab = selectTab;
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
                  modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],

@@ -239,7 +239,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div style="display:flex;gap:8px;margin-top:20px">
       <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveQuote()" style="flex:2">💾 Salvar orçamento</button>
+      <button class="btn btn-primary" onclick="saveQuote(this)" style="flex:2">💾 Salvar orçamento</button>
     </div>
   </div>
 </div>
@@ -267,7 +267,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         <input type="file" id="imp-arquivo" accept="application/pdf,.pdf" onchange="impArquivoEscolhido()">
         <div id="imp-arquivo-info" style="font-size:11px;color:var(--text-2);margin-top:4px"></div>
       </div>
-      <button class="btn btn-primary" style="width:100%" id="imp-btn-ler" onclick="impLerPdf()">
+      <button class="btn btn-primary" style="width:100%" id="imp-btn-ler" onclick="impLerPdf(this)">
         ✨ Extrair informações
       </button>
       <div id="imp-status" style="margin-top:10px"></div>
@@ -281,7 +281,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         Escolha o que vale para este contrato.
       </div>
       <div id="imp-duvidas"></div>
-      <button class="btn btn-primary" style="width:100%" onclick="impAplicarRespostas()">
+      <button class="btn btn-primary" style="width:100%" onclick="impAplicarRespostas(this)">
         Aplicar respostas
       </button>
     </div>
@@ -301,7 +301,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <div id="imp-conferencia"></div>
       <div id="imp-pendencias"></div>
       <div id="imp-tabela"></div>
-      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="impGerar()">
+      <button class="btn btn-primary" style="width:100%;margin-top:10px" onclick="impGerar(this)">
         📋 Gerar orçamentos
       </button>
       <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="impRecomecar()">
@@ -348,10 +348,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
            reproduz o mesmo documento, sem o cabeçalho/rodapé dos outros
            módulos. O PDF "com template" é o antigo, mantido para quem
            ainda o usa em outros contextos. -->
-      <button class="btn btn-primary btn-sm" onclick="gerarDocxDoDetalhe()" style="flex:1">📄 .docx</button>
-      <button class="btn btn-secondary btn-sm" onclick="gerarPdfSemTemplate()" style="flex:1">🖨️ PDF</button>
+      <button class="btn btn-primary btn-sm" onclick="gerarDocxDoDetalhe(this)" style="flex:1">📄 .docx</button>
+      <button class="btn btn-secondary btn-sm" onclick="gerarPdfSemTemplate(this)" style="flex:1">🖨️ PDF</button>
       
-      <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger)" onclick="deleteQuote(currentDetailId)">🗑️ Excluir</button>
+      <button class="btn btn-secondary btn-sm" style="flex:1;color:var(--danger)" onclick="deleteQuote(currentDetailId, this)">🗑️ Excluir</button>
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
   </div>
@@ -373,15 +373,15 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- Bottom Nav -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('quotes')" id="nav-quotes">
+  <button class="nav-btn active" role="tab" aria-selected="true" onclick="switchTab('quotes')" id="nav-quotes">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10,9 9,9 8,9"/></svg>
     Orçamentos
   </button>
-  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
   </button>
-  <button class="nav-btn" onclick="switchTab('import')" id="nav-import">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('import')" id="nav-import">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
     Importar PDF
   </button>
@@ -829,9 +829,9 @@ function getFilteredQuotes() {
 
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => setTabSelected(b, false));
   document.getElementById('screen-' + tab).classList.add('active');
-  document.getElementById('nav-' + tab).classList.add('active');
+  setTabSelected(document.getElementById('nav-' + tab), true);
   document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
   if (tab === 'quotes') renderQuoteList();
   if (tab === 'import') impPrepararTela();
@@ -891,15 +891,14 @@ function impArquivoEscolhido() {
   reader.readAsDataURL(f);
 }
 
-function impLerPdf(respostas) {
+function impLerPdf(btn, respostas) {
   const contrato = document.getElementById('imp-contrato').value;
   if (!contrato) { showToast('Selecione o contrato'); return; }
   if (!impPdf)   { showToast('Escolha o PDF do pedido'); return; }
 
   const st  = document.getElementById('imp-status');
-  const btn = document.getElementById('imp-btn-ler');
-  btn.disabled = true;
-  // Leitura de PDF leva alguns segundos; sem este aviso a pessoa clica
+  btn = btn || document.getElementById('imp-btn-ler');
+  const restore = setActionBusy(btn, true, 'Lendo PDF…');  // Leitura de PDF leva alguns segundos; sem este aviso a pessoa clica
   // de novo e dispara uma segunda chamada — que é paga.
   st.innerHTML = `<div style="font-size:12px;color:var(--text-2);padding:8px 0">
     ✨ Lendo o documento… isso pode levar de 10 a 40 segundos.</div>`;
@@ -908,12 +907,12 @@ function impLerPdf(respostas) {
     .then(r => {
       impDados = r;
       st.innerHTML = '';
-      btn.disabled = false;
+      restore();
       if (r.duvidas && r.duvidas.length) impMostrarDuvidas();
       else impMostrarRevisao();
     })
     .catch(e => {
-      btn.disabled = false;
+      restore();
       st.innerHTML = `<div style="font-size:12px;color:var(--danger);padding:8px 0">
         ${esc(e.message)}</div>`;
     });
@@ -950,7 +949,8 @@ function impMostrarDuvidas() {
     </div>`).join('');
 }
 
-function impAplicarRespostas() {
+async function impAplicarRespostas(btn) {
+  const restore = setActionBusy(btn, true, 'Aplicando decisões…');
   impRespostas = {};
   (impDados.duvidas || []).forEach(d => {
     const marcados = [...document.querySelectorAll(`input[data-duvida="${d.id}"]:checked`)]
@@ -1000,6 +1000,7 @@ function impAplicarRespostas() {
   impDados.duvidas = [];
   document.getElementById('imp-passo2').style.display = 'none';
   impMostrarRevisao();
+  restore();
 }
 
 // ── Passo 3: revisão ──────────────────────────────────────────────
@@ -1192,7 +1193,7 @@ function impRecomecar() {
 }
 
 // ── Gerar os orçamentos ───────────────────────────────────────────
-function impGerar() {
+function impGerar(btn) {
   const contrato = document.getElementById('imp-contrato').value;
   // TAG sem cadastro só entra se o usuário marcou. É a decisão dele, e o
   // padrão é NÃO incluir — equipamento inexistente no parque costuma ser
@@ -1292,6 +1293,7 @@ function impGerar() {
     items, status:'sent', createdAt: Date.now(),
   };
 
+  const restore = setActionBusy(btn || document.querySelector('#screen-importar .btn-primary'), true, 'Processando pedido…');
   quotes.unshift(q);
   signRecord(q.id, 'criado', 'orcamentos')
     .then(sig => { q._signatures = [sig]; return persist(q); })
@@ -1302,6 +1304,7 @@ function impGerar() {
       switchTab('quotes');
       impRecomecar();
       showToast(`✅ Orçamento ${numero} gerado com ${validos.length} equipamento(s)`, 5000);
+      restore();
     })
     .catch(e => {
       // Tira o registro da lista: mantê-lo daria a impressão de que foi
@@ -1311,6 +1314,7 @@ function impGerar() {
       try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(_) {}
       renderQuoteList();
       showToast('❌ O orçamento NÃO foi salvo: ' + (e.message || 'erro desconhecido'), 9000);
+      restore();
     });
 }
 
@@ -1587,18 +1591,12 @@ function cancelNew() {
   switchTab('quotes');
 }
 
-function saveQuote() {
+function saveQuote(btn) {
   const client = document.getElementById('f-client').value.trim();
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
-
-  // O aviso ao vivo orienta; esta checagem é que impede de fato. Número
-  // repetido no mesmo contrato geraria dois PDFs com o mesmo nome.
   const numero = (document.getElementById('f-numero')?.value || '').trim();
   if (!numero) { showToast('Informe o nº ou nome do orçamento'); return; }
-
-  // No modo "vários", itens sem TAG são os da última em edição — atribui
-  // antes de salvar, para que nenhum serviço fique órfão na tabela.
   if (escopoNovo === 'varias' && newItems.some(i => !i.tag)) {
     const tagAtual = (document.getElementById('f-equip')?.value || '').trim();
     if (!tagAtual) {
@@ -1608,74 +1606,71 @@ function saveQuote() {
     proximaTag();
   }
   if (numeroEmUso(numero, client, editingId)) {
-    showToast(`O número "${numero}" já existe no contrato ${client}. ` +
-              `Sugestão livre: ${proximoNumeroLivre(client)}`);
+    showToast(`O número "${numero}" já existe no contrato ${client}. Sugestão livre: ${proximoNumeroLivre(client)}`);
     return;
   }
   const isNew = !editingId;
+  const previous = editingId ? quotes.find(x => x.id === editingId) : null;
+  const restore = setActionBusy(btn || document.querySelector('#screen-new .btn-primary'), true,
+    isNew ? 'Enviando orçamento…' : 'Salvando alterações…');
   const q = {
-    id: editingId || genId(),
-    client,
-    phone: '',
-    address: '',
-    // No modo "vários", `equip` fica vazio: o orçamento não é de uma TAG,
-    // e a informação real vive em items[].tag. No modo "uma", todos os
-    // itens recebem a TAG do campo — o documento sai igual nos dois casos.
+    id: editingId || genId(), client, phone:'', address:'',
     equip: escopoNovo === 'varias' ? '' : document.getElementById('f-equip').value,
-    unidade: escopoNovo === 'varias'
-      ? (document.getElementById('f-estab')?.value || '').trim() : '',
+    unidade: escopoNovo === 'varias' ? (document.getElementById('f-estab')?.value || '').trim() : '',
     machine: escopoNovo === 'varias' ? null : (selectedMachine || null),
-    date: document.getElementById('f-date').value,
-    validity: '',
-    payment: '',
+    date: document.getElementById('f-date').value, validity:'', payment:'',
     notes: document.getElementById('f-notes').value,
     items: escopoNovo === 'varias' ? newItems : newItems.map(i => ({
-      ...i,
-      tag: document.getElementById('f-equip').value,
+      ...i, tag: document.getElementById('f-equip').value,
       patrimonio: selectedMachine?.patrimonio || i.patrimonio || '',
       local: selectedMachine?.recinto || i.local || '',
     })),
-    numeroOrcamento: numero,      // identifica o documento e nomeia o PDF
-    status: 'sent',        // nasce como Enviado
-    createdAt: editingId ? (quotes.find(x=>x.id===editingId)?.createdAt || Date.now()) : Date.now(),
+    numeroOrcamento: numero, status:'sent',
+    createdAt: editingId ? (previous?.createdAt || Date.now()) : Date.now(),
   };
   if (editingId) {
     const idx = quotes.findIndex(x => x.id === editingId);
-    quotes[idx] = q;
-  } else {
-    quotes.unshift(q);
-  }
-  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
-  // senão a assinatura só existe localmente e nunca é persistida de fato.
-  const _sid_q = q.id;
-  const _sedit_q = !!editingId;
-  signRecord(_sid_q, _sedit_q ? 'editado' : 'criado', 'orcamentos').then(sig => {
-    q._signatures = q._signatures||[]; q._signatures.push(sig);
-    persist(q);
-    showToast(editingId ? 'Orçamento atualizado!' : 'Orçamento salvo!');
-    if (isNew) {
-      // Confirma no backend a O.S. gerada automaticamente pra esse orçamento
-      DB.getOrdens().then(list => {
+    if (idx >= 0) quotes[idx] = q; else quotes.unshift(q);
+  } else quotes.unshift(q);
+  signRecord(q.id, isNew ? 'criado' : 'editado', 'orcamentos')
+    .then(sig => { q._signatures = [...(previous?._signatures||[]), sig]; return persist(q); })
+    .then(() => {
+      editingId = null; newItems = [];
+      switchTab('quotes');
+      showToast(`✅ Orçamento ${numero} salvo no servidor`, 5000);
+      if (isNew) DB.getOrdens().then(list => {
         const os = (list||[]).find(o => o.orcamentoId === q.id);
         if (os) showToast(`📋 ${os.numero} gerada — disponível em Registro → O.S. Pendentes`);
       }).catch(()=>{});
-    }
-  });
-  editingId = null;
-  newItems = [];
-  switchTab('quotes');
+      restore();
+    })
+    .catch(e => {
+      const idx = quotes.findIndex(x => x.id === q.id);
+      if (idx >= 0) {
+        if (previous) quotes[idx] = previous; else quotes.splice(idx, 1);
+      }
+      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(_) {}
+      renderQuoteList();
+      showToast('❌ O orçamento NÃO foi salvo: ' + (e.message || 'erro desconhecido'), 9000);
+      restore();
+    });
 }
-
-function deleteQuote(id) {
+async function deleteQuote(id, btn) {
   if (!confirm('Excluir este orçamento?')) return;
-  quotes = quotes.filter(q => q.id !== id);
-  try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
-  closeDetailModal();
-  renderQuoteList();
-  showToast('Orçamento excluído');
-  DB.delete('orcamentos', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
+  const restore = setActionBusy(btn, true, 'Excluindo…');
+  try {
+    await DB.delete('orcamentos', id);
+    quotes = quotes.filter(q => q.id !== id);
+    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+    closeDetailModal();
+    renderQuoteList();
+    showToast('Orçamento excluído');
+  } catch(e) {
+    showToast('Erro ao excluir no servidor: ' + e.message, 7000);
+  } finally {
+    restore();
+  }
 }
-
 // Grava local e no servidor. Devolve uma promessa que REJEITA quando o
 // servidor recusa.
 //
@@ -2177,13 +2172,14 @@ function openConsolidatedModal() {
         </div>`;
       }).join('')}
     </div>
-    <button class="btn btn-primary" style="width:100%" onclick="generateConsolidatedPDFs()">📄 Gerar PDF(s) consolidado(s)</button>
+    <button class="btn btn-primary" style="width:100%" onclick="generateConsolidatedPDFs(this)">📄 Gerar PDF(s) consolidado(s)</button>
   `;
   document.getElementById('consolidated-modal').classList.remove('hidden');
   window._consolidatedGroups = groups;
 }
 
-function generateConsolidatedPDFs() {
+function generateConsolidatedPDFs(btn) {
+  const restore = setActionBusy(btn, true, 'Gerando PDF(s)…');
   const groups = window._consolidatedGroups || {};
   const unitNames = Object.keys(groups).sort();
   unitNames.forEach(unit => printConsolidatedPDF(unit, groups[unit]));
@@ -2191,17 +2187,20 @@ function generateConsolidatedPDFs() {
   showToast(`${unitNames.length} PDF(s) gerado(s)!`);
 }
 
-function gerarDocxDoDetalhe() {
+function gerarDocxDoDetalhe(btn) {
   const q = quotes.find(x => x.id === currentDetailId);
-  if (q) gerarDocx(q);
+  if (!q) return;
+  const restore = setActionBusy(btn, true, 'Gerando DOCX…');
+  try { gerarDocx(q); } finally { restore(); }
 }
 
 // PDF sem template: mesmo conteúdo do .docx, sem cabeçalho com logo e sem
 // rodapé com dados da prestadora. O modelo 039 não tem nenhum dos dois.
-function gerarPdfSemTemplate() {
+function gerarPdfSemTemplate(btn) {
   const q = quotes.find(x => x.id === currentDetailId);
   if (!q) return;
-  printConsolidatedPDF(q.unidade || q.client || '', [q]);
+  const restore = setActionBusy(btn, true, 'Gerando PDF…');
+  try { printConsolidatedPDF(q.unidade || q.client || '', [q]); } finally { restore(); }
 }
 
 // ══════════════════════════════════════════════════════════════════

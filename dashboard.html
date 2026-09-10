@@ -148,10 +148,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <!-- Filters -->
 <div class="filters">
   <div class="period-pills">
-    <button class="period-pill active" onclick="setPeriod('day')">Hoje</button>
-    <button class="period-pill" onclick="setPeriod('week')">7 dias</button>
-    <button class="period-pill" onclick="setPeriod('month')">30 dias</button>
-    <button class="period-pill" onclick="setPeriod('quarter')">90 dias</button>
+    <button class="period-pill active" role="tab" aria-selected="true" onclick="setPeriod('day')">Hoje</button>
+    <button class="period-pill" role="tab" aria-selected="false" onclick="setPeriod('week')">7 dias</button>
+    <button class="period-pill" role="tab" aria-selected="false" onclick="setPeriod('month')">30 dias</button>
+    <button class="period-pill" role="tab" aria-selected="false" onclick="setPeriod('quarter')">90 dias</button>
   </div>
   <select id="f-contract" onchange="render()">
     <option value="">Todos os contratos</option>
@@ -212,7 +212,7 @@ const SLA_HOURS = { urgente:4, alta:8, normal:24, baixa:72 };
 function setPeriod(p) {
   period = p;
   document.querySelectorAll('.period-pill').forEach(b =>
-    b.classList.toggle('active', b.textContent.toLowerCase().includes(
+    setTabSelected(b, b.textContent.toLowerCase().includes(
       {day:'hoje',week:'7',month:'30',quarter:'90'}[p]
     ))
   );

@@ -182,7 +182,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <span id="filter-count-label">Carregando…</span>
       <div style="display:flex;gap:8px;align-items:center">
         <button class="btn-clear" onclick="clearFilters()">Limpar</button>
-        <button class="btn-report" onclick="printFilteredPDF()">🖨️ Relatório PDF</button>
+        <button class="btn-report" onclick="printFilteredPDF(this)">🖨️ Relatório PDF</button>
       </div>
     </div>
   </div>
@@ -262,7 +262,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div style="display:flex;gap:8px;margin-top:20px">
       <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveChamado()" style="flex:2">💾 Salvar chamado</button>
+      <button class="btn btn-primary" onclick="saveChamado(this)" style="flex:2">💾 Salvar chamado</button>
     </div>
   </div>
 </div>
@@ -300,9 +300,9 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div id="detail-content"></div>
     <div class="action-bar" style="margin-top:16px;flex-wrap:wrap;gap:8px">
       <button class="btn btn-secondary btn-sm" onclick="editChamado(currentDetailId)" style="flex:1">✏️ Editar</button>
-      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
+      <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId, this)" style="flex:1">🖨️ PDF</button>
       
-      <button class="btn btn-danger btn-sm" onclick="deleteChamado(currentDetailId)" style="flex:1">🗑️ Excluir</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteChamado(currentDetailId, this)" style="flex:1">🗑️ Excluir</button>
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
   </div>
@@ -327,13 +327,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
      uma cópia (ou, pior, editaria o anterior se editingId ainda estivesse
      setado). O (+) sempre chamou startNew() e nunca teve esse problema. -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('list')" id="nav-list">
+  <button class="nav-btn active" role="tab" aria-selected="true" onclick="switchTab('list')" id="nav-list">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
     Chamados
   </button>
   <!-- Aparece só para gestor+; quem não pode avaliar não vê o botão, e o
        servidor recusa a criação de O.S. de qualquer forma. -->
-  <button class="nav-btn hidden" onclick="switchTab('triagem')" id="nav-triagem">
+  <button class="nav-btn hidden" role="tab" aria-selected="false" onclick="switchTab('triagem')" id="nav-triagem">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
     Gerar O.S.
     <span id="triagem-badge" class="nav-badge hidden">0</span>
@@ -499,11 +499,11 @@ const STATUS_MAP = {
 // ── Navigation ──
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => setTabSelected(b, false));
   const tela = tab === 'list' ? 'list' : (tab === 'triagem' ? 'triagem' : 'new');
   document.getElementById('screen-' + tela).classList.add('active');
   const navBtn = document.getElementById('nav-' + tela);   // #nav-new não existe
-  if (navBtn) navBtn.classList.add('active');
+  if (navBtn) setTabSelected(navBtn, true);
   // O (+) só faz sentido na lista: na triagem se avalia o que já existe.
   const mostrarFab = tab === 'list';
   document.getElementById('fab').classList.toggle('hidden', !mostrarFab);
@@ -603,7 +603,7 @@ function renderTriagem() {
         ${alertaRec}
         <div class="tri-desc">${esc(c.desc) || '—'}</div>
         <div class="tri-acoes">
-          <button class="tri-ok"  onclick="triagemGerar('${jsAttrCh(c.id)}')">📋 Gerar O.S.</button>
+          <button class="tri-ok"  onclick="triagemGerar('${jsAttrCh(c.id)}', this)">📋 Gerar O.S.</button>
           <button class="tri-nao" onclick="triagemRecusar('${jsAttrCh(c.id)}')">Não é serviço</button>
         </div>
         <button onclick="openDetail('${jsAttrCh(c.id)}')"
@@ -621,8 +621,8 @@ function jsAttrCh(v) {
     .replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-function triagemGerar(id) {
-  gerarOS(id);            // reaproveita o fluxo que já existia no detalhe
+function triagemGerar(id, btn) {
+  gerarOS(id, btn);        // reaproveita o fluxo que já existia no detalhe
   setTimeout(renderTriagem, 400);
 }
 
@@ -843,7 +843,7 @@ function startNew() {
 }
 function cancelNew() { switchTab('list'); }
 
-function saveChamado() {
+async function saveChamado(btn) {
   const client = document.getElementById('f-client').value.trim();
   const equip  = document.getElementById('f-equip').value.trim();
   const desc   = document.getElementById('f-desc').value.trim();
@@ -865,35 +865,32 @@ function saveChamado() {
   const isNew = !editingId;
   if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
   else { chamados.unshift(c); }
-  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
-  // senão a assinatura só existe localmente e nunca é persistida de fato.
-  const _sid_c = c.id;
-  const _sedit_c = !!editingId;
-  signRecord(_sid_c, _sedit_c ? 'editado' : 'criado', 'chamados').then(sig => {
+  const restore = setActionBusy(btn || document.querySelector('#screen-new .btn-primary'), true,
+    editingId ? 'Salvando alterações…' : 'Enviando chamado…');
+  try {
+    // A assinatura precisa terminar antes do envio ao servidor.
+    const sig = await signRecord(c.id, isNew ? 'criado' : 'editado', 'chamados');
     c._signatures = c._signatures||[]; c._signatures.push(sig);
+    await persist(c);
     showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
-    persist(c).then(() => {
-      if (isNew) {
-        // A O.S. automática depende do PAPEL de quem abriu, e quem decide
-        // isso é o servidor — a tela apenas informa o que aconteceu.
-        // Técnico pra cima: já tem competência para o juízo que a triagem
-        // faria, então o chamado nasce com O.S. Solicitante: relata um
-        // problema, e a avaliação de gestor+ decide se vira O.S.
-        DB.getOrdensByChamado(c.id).then(list => {
-          if (list && list.length) {
-            ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
-            try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
-            showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`, 4000);
-          } else {
-            showToast('📨 Chamado registrado. Aguardando avaliação para gerar a O.S.', 5000);
-          }
-        }).catch(()=>{});
-      }
-    });
-  });
-  editingId=null; newPhotos=[]; switchTab('list');
+    if (isNew) {
+      DB.getOrdensByChamado(c.id).then(list => {
+        if (list && list.length) {
+          ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
+          try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+          showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`, 4000);
+        } else {
+          showToast('📨 Chamado registrado. Aguardando avaliação para gerar a O.S.', 5000);
+        }
+      }).catch(()=>{});
+    }
+    editingId=null; newPhotos=[]; switchTab('list');
+  } catch (e) {
+    showToast('Erro ao enviar chamado: ' + e.message, 5000);
+  } finally {
+    restore();
+  }
 }
-
 function editChamado(id) {
   closeDetailModal();
   const c=chamados.find(x=>x.id===id); if(!c) return;
@@ -909,14 +906,20 @@ function editChamado(id) {
   document.querySelector('#screen-new .btn-primary').innerHTML='💾 Salvar alterações';
 }
 
-function deleteChamado(id) {
+async function deleteChamado(id, btn) {
   if (!confirm('Excluir este chamado?')) return;
-  chamados=chamados.filter(c=>c.id!==id);
-  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
-  renderList(); closeDetailModal(); showToast('Chamado excluído');
-  DB.delete('chamados', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
+  const restore = setActionBusy(btn, true, 'Excluindo…');
+  try {
+    await DB.delete('chamados', id);
+    chamados=chamados.filter(c=>c.id!==id);
+    try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+    renderList(); closeDetailModal(); showToast('Chamado excluído');
+  } catch (e) {
+    showToast('Erro ao excluir no servidor: ' + e.message, 7000);
+  } finally {
+    restore();
+  }
 }
-
 function updateStatus(id, status) {
   const c=chamados.find(x=>x.id===id); if(!c) return;
   const prev = c.status;
@@ -1225,7 +1228,7 @@ function openDetail(id){
     </div>
     ${osSection}
     ${canGerarOS && c.status!=='resolvido' && c.status!=='cancelado' ? `
-    <button onclick="gerarOS('${esc(c.id)}')"
+    <button onclick="gerarOS('${esc(c.id)}', this)"
       style="width:100%;margin-top:12px;padding:13px;border-radius:10px;border:none;background:#059669;color:#fff;font-size:14px;font-weight:700;cursor:pointer">
       📋 Gerar Ordem de Serviço
     </button>` : ''}
@@ -1440,7 +1443,7 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // A O.S. do chamado recém-criado é gerada pelo backend (ver POST /chamados),
 // ficando disponível para qualquer técnico assumir a partir do módulo Registro.
 
-function gerarOS(chamadoId) {
+function gerarOS(chamadoId, btn) {
   const c = chamados.find(x=>x.id===chamadoId); if(!c) return;
   // Número sequencial por chamado
   const existentes = ordensCache.filter(o=>o.chamadoId===chamadoId).length;
@@ -1464,6 +1467,7 @@ function gerarOS(chamadoId) {
     tecnico:    '',   // sem atribuição: qualquer técnico pode assumir
     registroId: null,
   };
+  const restore = setActionBusy(btn, true, 'Enviando O.S.…');
   DB.saveOrdem(os).then(() => {
     ordensCache.unshift(os);
     try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
@@ -1472,10 +1476,15 @@ function gerarOS(chamadoId) {
     showToast(`✅ ${numero} gerada! Disponível em Registros → O.S. Pendentes`);
     closeDetailModal();
     renderList();
-  }).catch(e => showToast('Erro ao gerar O.S.: ' + e.message));
+    restore();
+  }).catch(e => { showToast('Erro ao gerar O.S.: ' + e.message); restore(); });
 }
 
 
+const _printPDFOriginal = printPDF;
+printPDF = function(id, btn) { return withActionBusy(btn, 'Gerando PDF…', () => _printPDFOriginal(id)); };
+const _printFilteredPDFOriginal = printFilteredPDF;
+printFilteredPDF = function(btn) { return withActionBusy(btn, 'Gerando PDF…', () => _printFilteredPDFOriginal()); };
 // ── Init ──
 buildFilterOptions();
 renderList();
@@ -1496,14 +1505,14 @@ getFiltered = function() {
 
 // Patch: tag owner email on save
 const _baseSaveChamado = saveChamado;
-saveChamado = function() {
+saveChamado = async function(btn) {
   // inject owner email before saving
   const user = window._currentUser;
   if (user) {
     const origUnshift = Array.prototype.unshift;
     // will be picked up by saveChamado's chamados.unshift
   }
-  _baseSaveChamado();
+  await _baseSaveChamado(btn);
   // tag the newly created chamado with owner email
   if (window._currentUser && chamados.length) {
     const latest = chamados[0];

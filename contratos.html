@@ -75,9 +75,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <!-- Lista de contratos -->
 <div id="screen-list" class="screen active" style="padding:12px">
-  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px;overflow-x:auto">
-    <button class="stab active" id="cont-tab-lista" onclick="switchContTab('lista')">📑 Contratos</button>
-    <button class="stab" id="cont-tab-banco" onclick="switchContTab('banco')">📦 Banco de dados</button>
+  <div id="cont-tabs" role="tablist" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px;overflow-x:auto">
+    <button class="stab active" id="cont-tab-lista" role="tab" data-tab="lista" aria-selected="true" aria-controls="cont-lista-content" onclick="switchContTab('lista')">📑 Contratos</button>
+    <button class="stab" id="cont-tab-banco" role="tab" data-tab="banco" aria-selected="false" aria-controls="cont-banco-content" onclick="switchContTab('banco')">📦 Banco de dados</button>
   </div>
   <div id="cont-lista-content">
   <div id="contracts-list"></div>
@@ -95,11 +95,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px">
     <h2 style="font-size:17px;font-weight:700;margin-bottom:16px" id="form-title">Novo contrato</h2>
 
-    <div class="section-tabs" id="form-tabs">
-      <button class="stab active" onclick="switchFormTab('dados')">Dados gerais</button>
-      <button class="stab" onclick="switchFormTab('equipamentos')">Equipamentos</button>
-      <button class="stab" onclick="switchFormTab('servicos')">Serviços & Preços</button>
-      <button class="stab" onclick="switchFormTab('documentos')">Documentos</button>
+    <div class="section-tabs" id="form-tabs" role="tablist">
+      <button class="stab active" role="tab" data-tab="dados" aria-selected="true" aria-controls="tab-dados" onclick="switchFormTab('dados')">Dados gerais</button>
+      <button class="stab" role="tab" data-tab="equipamentos" aria-selected="false" aria-controls="tab-equipamentos" onclick="switchFormTab('equipamentos')">Equipamentos</button>
+      <button class="stab" role="tab" data-tab="servicos" aria-selected="false" aria-controls="tab-servicos" onclick="switchFormTab('servicos')">Serviços & Preços</button>
+      <button class="stab" role="tab" data-tab="documentos" aria-selected="false" aria-controls="tab-documentos" onclick="switchFormTab('documentos')">Documentos</button>
     </div>
 
     <!-- Tab: Dados gerais -->
@@ -247,7 +247,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="action-bar" style="margin-top:16px">
       <button class="btn btn-secondary" onclick="cancelForm()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveContract()">💾 Salvar contrato</button>
+      <button class="btn btn-primary" onclick="saveContract(this)">💾 Salvar contrato</button>
     </div>
   </div>
 </div>
@@ -344,7 +344,7 @@ function renderList() {
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <h3>Contrato ${esc(c.numero)} — ${esc(c.razao)}</h3>
         <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
-          <button onclick="generateContractPDF('${esc(c.id)}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
+          <button onclick="generateContractPDF('${esc(c.id)}', this)" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
           ${canEdit ? `<button onclick="openEdit('${esc(c.id)}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
         </div>
       </div>
@@ -517,15 +517,17 @@ async function generateContractPDF(id) {
 }
 
 
+const _generateContractPDFOriginal = generateContractPDF;
+generateContractPDF = function(id, btn) {
+  return withActionBusy(btn, 'Gerando PDF…', () => _generateContractPDFOriginal(id));
+};
 function switchFormTab(tab) {
   const tabs = ['dados','equipamentos','servicos','documentos'];
   tabs.forEach(t => {
     const el = document.getElementById(`tab-${t}`);
     if (el) el.style.display = t===tab ? '' : 'none';
   });
-  document.querySelectorAll('.stab').forEach((b,i) => {
-    b.classList.toggle('active', tabs[i]===tab);
-  });
+  selectTab('#form-tabs', tab);
   if (tab === 'servicos') renderServicosList();
 }
 
@@ -678,12 +680,13 @@ function openEdit(id) {
 
 function cancelForm() { showScreen('list'); }
 
-async function saveContract() {
+async function saveContract(btn) {
   const numero = document.getElementById('f-numero').value.trim();
   const razao  = document.getElementById('f-razao').value.trim();
   const inicio = document.getElementById('f-inicio').value;
   const fim    = document.getElementById('f-fim').value;
   if (!numero || !razao) { showToast('Número e razão social são obrigatórios'); return; }
+  const restore = setActionBusy(btn, true, 'Salvando contrato…');
   load();
   const c = {
     id:          editId || ('c-'+Date.now()),
@@ -712,7 +715,7 @@ async function saveContract() {
   // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
   // senão a assinatura só existe localmente e nunca é persistida de fato.
   const _sedit_c = !!editId;
-  signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos').then(async sig => {
+  try { const sig = await signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos');
     c._signatures = c._signatures||[]; c._signatures.push(sig);
     const _idx = contracts.findIndex(x=>x.id===c.id);
     if (_idx>=0) contracts[_idx] = c;
@@ -728,6 +731,7 @@ async function saveContract() {
       }
     } catch(e) {
       showToast(`Erro ao salvar no servidor: ${e.message}`, 4000);
+      return;
     }
 
     // Sync machine DB com os equipamentos do contrato
@@ -735,12 +739,14 @@ async function saveContract() {
       const mdb = getEffDB() || {};
       mdb[c.numero] = c.equipamentos;
       localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
-      DB.saveMachineDB(mdb).catch(()=>{});
+      await DB.saveMachineDB(mdb).catch(()=>{});
     }
 
     showScreen('list');
     renderList();
-  });
+  } finally {
+    restore();
+  }
 }
 
 // ── File handlers ─────────────────────────────────────────────────
@@ -1087,12 +1093,7 @@ function importFromContract(cid) {
 function switchContTab(tab) {
   document.getElementById('cont-lista-content').style.display = tab==='lista' ? '' : 'none';
   document.getElementById('cont-banco-content').style.display = tab==='banco' ? '' : 'none';
-  document.querySelectorAll('#screen-list .stab').forEach(b => {
-    b.classList.toggle('active',
-      (tab==='lista' && b.textContent.includes('Contrato')) ||
-      (tab==='banco' && b.textContent.includes('Banco'))
-    );
-  });
+  selectTab('#cont-tabs', tab);
   if (tab==='banco') renderBancoTab(document.getElementById('cont-banco-content'));
 }
 </script>

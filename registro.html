@@ -200,7 +200,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div style="display:flex;gap:8px;margin-top:20px">
       <button class="btn btn-secondary" onclick="switchTab('list')" style="flex:1">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveRecord()" style="flex:2">💾 Salvar registro</button>
+      <button class="btn btn-primary" onclick="saveRecord(this)" style="flex:2">💾 Salvar registro</button>
     </div>
   </div>
 </div>
@@ -231,7 +231,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <button class="btn btn-secondary btn-sm" onclick="editRecord(currentDetailId)" style="flex:1">✏️ Editar</button>
       <button class="btn btn-primary btn-sm" onclick="printPDF(currentDetailId)" style="flex:1">🖨️ PDF</button>
       
-      <button class="btn btn-danger btn-sm" onclick="deleteRecord(currentDetailId)" style="flex:1">🗑️ Excluir</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteRecord(currentDetailId, this)" style="flex:1">🗑️ Excluir</button>
     </div>
     <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="closeDetailModal()">Fechar</button>
   </div>
@@ -249,15 +249,15 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <!-- Bottom Nav -->
 <nav class="bottom-nav">
-  <button class="nav-btn active" onclick="switchTab('records')" id="nav-records">
+  <button class="nav-btn active" role="tab" aria-selected="true" onclick="switchTab('records')" id="nav-records">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
     Registros
   </button>
-  <button class="nav-btn" onclick="switchTab('new')" id="nav-new">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
     Novo
   </button>
-  <button class="nav-btn" onclick="switchTab('os')" id="nav-os" style="position:relative">
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('os')" id="nav-os" style="position:relative">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
     O.S.
     <span id="os-badge" style="display:none;position:absolute;top:4px;right:12px;background:#dc2626;color:#fff;border-radius:99px;font-size:10px;font-weight:700;padding:1px 5px;min-width:16px;text-align:center"></span>
@@ -582,7 +582,7 @@ const today = () => new Date().toISOString().slice(0,10);
 // ── Navigation ──
 function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => { s.classList.remove('active'); s.style.display='none'; });
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => setTabSelected(b, false));
   const screenMap = { new:'screen-new', settings:'screen-settings', os:'screen-os', records:'screen-records' };
   const navMap    = { new:'new', settings:'settings', os:'os', records:'records' };
   const screenId  = screenMap[tab] || 'screen-records';
@@ -590,7 +590,7 @@ function switchTab(tab) {
   const el = document.getElementById(screenId);
   if (el) { el.classList.add('active'); el.style.display=''; }
   const nb = document.getElementById('nav-' + navId);
-  if (nb) nb.classList.add('active');
+  if (nb) setTabSelected(nb, true);
   document.getElementById('fab').classList.toggle('hidden', tab !== 'records');
   if (tab === 'records')  renderRecordList();
   if (tab === 'settings') loadSettings();
@@ -1010,7 +1010,7 @@ function onContractChange() {
 
 function cancelNew() { switchTab('records'); }
 
-function saveRecord() {
+function saveRecord(btn) {
   const isAvulso = document.getElementById('f-avulso')?.checked;
   let client, equip, machine;
 
@@ -1036,6 +1036,8 @@ function saveRecord() {
   }
 
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
+  const restore = setActionBusy(btn || document.querySelector('#screen-new .btn-primary'), true,
+    editingId ? 'Salvando alterações…' : 'Enviando registro…');
   const r = {
     id: editingId || genId(),
     client, equip,
@@ -1107,9 +1109,13 @@ function saveRecord() {
       document.getElementById('os-checklist-box')?.remove();
     }
     updateOSBadge();
+    editingId = null; newItems = []; newPhotos = [];
+    switchTab('records');
+    restore();
+  }).catch(e => {
+    showToast('Erro ao enviar registro: ' + e.message, 5000);
+    restore();
   });
-  editingId = null; newItems = []; newPhotos = [];
-  switchTab('records');
 }
 
 function editRecord(id) {
@@ -1132,16 +1138,22 @@ function editRecord(id) {
   switchTab('new');
 }
 
-function deleteRecord(id) {
+async function deleteRecord(id, btn) {
   if (!confirm('Excluir este registro?')) return;
-  records = records.filter(r=>r.id!==id);
-  try { saveRegistrosLocal(); } catch(e) {}
-  renderRecordList();
-  closeDetailModal();
-  showToast('Registro excluído');
-  DB.delete('registros', id).catch(e => showToast('Erro ao excluir no servidor: ' + e.message));
+  const restore = setActionBusy(btn, true, 'Excluindo…');
+  try {
+    await DB.delete('registros', id);
+    records = records.filter(r=>r.id!==id);
+    try { saveRegistrosLocal(); } catch(e) {}
+    renderRecordList();
+    closeDetailModal();
+    showToast('Registro excluído');
+  } catch(e) {
+    showToast('Erro ao excluir no servidor: ' + e.message, 7000);
+  } finally {
+    restore();
+  }
 }
-
 function persist(record) {
   try { saveRegistrosLocal(); } catch(e) {}
   renderRecordList();
