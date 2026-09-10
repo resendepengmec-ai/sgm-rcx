@@ -328,7 +328,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="action-bar" style="margin-top:16px">
       <button class="btn btn-secondary" onclick="cancelForm()">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveMovimento()">📤 Enviar solicitação</button>
+      <button class="btn btn-primary" id="btn-save-mov" onclick="saveMovimento()">📤 Enviar solicitação</button>
     </div>
   </div>
 </div>
@@ -357,34 +357,15 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
-const user = getCurrentUser();
-const canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
+let user = getCurrentUser();
+let canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
 else {
-  document.getElementById('auth-overlay').style.display = 'none';
-  // ── V13: reconfirmação de papel no servidor ─────────────────────
-  // A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
-  // assinatura) — bastava editar o sessionStorage para desbloquear a
-  // tela. guardaDeModulo() confirma o papel REAL com GET /auth/me.
-  setTimeout(() => { try { guardaDeModulo('patrimonio'); } catch (e) {} }, 0);
-
-  DB.getMovimentacoes()
-    .then(data => {
-    if (data) {
-      movimentos = data;
-      localStorage.setItem('smm_movimentacoes', JSON.stringify(data));
-      renderList();
-    }
-  }).catch(e => {
-    console.error('Erro ao buscar movimentações:', e);
-    showToast('Erro ao carregar solicitações: ' + e.message);
-    renderList(); // renderiza com o que tiver em cache local, se houver
-  });
-  // Acesso ao módulo: mesmos papéis que já veem "Patrimônio" no menu inicial
-  if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
-    showToast('Sem permissão para acessar este módulo');
-    setTimeout(()=>window.location.href='index.html',1500);
-  }
+  // A tela só é liberada depois de confirmar no servidor o perfil, os
+  // contratos permitidos e as movimentações. Antes, o cache de um usuário
+  // anterior podia aparecer por alguns instantes e o formulário carregava
+  // contratos fora do escopo atual.
+  iniciarPatrimonio();
 }
 
 // ── Data ──────────────────────────────────────────────────────────
@@ -393,19 +374,45 @@ const CONT_KEY = 'smm_contracts';
 let movimentos = [];
 let contracts  = [];
 let currentFilter = 'todos';
-let currentTab = 'pendentes'; // 'pendentes' | 'historico'
+let currentTab = 'pendentes'; // 'pendentes' | 'historico' | 'relatorio'
 let reviewId = null;
+let salvandoMovimento = false;
 
-function loadData() {
-  movimentos = JSON.parse(localStorage.getItem(MOV_KEY)  || '[]');
-  contracts  = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
+function aplicarContratos(conts) {
+  contracts = Array.isArray(conts) ? conts : [];
+  localStorage.setItem(CONT_KEY, JSON.stringify(contracts));
 }
-function loadContracts() {
-  contracts = JSON.parse(localStorage.getItem(CONT_KEY) || '[]');
-}
-function saveData(mov) {
+function salvarMovimentosNoCache() {
   localStorage.setItem(MOV_KEY, JSON.stringify(movimentos));
-  if (mov) DB.saveMovimentacao(mov).catch(e => console.warn('Sync mov:', e.message));
+}
+
+async function iniciarPatrimonio() {
+  const confirmado = await guardaDeModulo('patrimonio');
+  if (!confirmado) return;
+  user = confirmado;
+  canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user.role);
+  if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
+    showToast('Sem permissão para acessar este módulo');
+    setTimeout(()=>window.location.href='index.html',1500);
+    return;
+  }
+  try {
+    const [conts, movs] = await Promise.all([DB.getContratos(), DB.getMovimentacoes()]);
+    aplicarContratos(conts);
+    movimentos = Array.isArray(movs) ? movs : [];
+    salvarMovimentosNoCache();
+    preencherContratosHistorico();
+    document.getElementById('auth-overlay').style.display = 'none';
+    renderList();
+  } catch (e) {
+    // Não apresentamos dados locais como se fossem atuais. A API é a fonte
+    // de verdade para patrimônio, e uma falha de conexão deve ficar clara.
+    movimentos = [];
+    contracts = [];
+    document.getElementById('auth-overlay').style.display = 'none';
+    renderList();
+    showToast('Não foi possível sincronizar patrimônio: ' + e.message, 7000);
+  }
 }
 
 function showToast(msg, dur=2500) {
@@ -426,9 +433,11 @@ const REL_M = 14, REL_W = 210, REL_H = 297;
 
 function prepararRelMov() {
   const sel = document.getElementById('rel-contrato');
-  if (sel && sel.options.length <= 1) {
+  if (sel) {
+    const selecionado = sel.value;
     sel.innerHTML = '<option value="">Todos os contratos</option>' +
       (contracts || []).map(c => `<option value="${esc(c.numero)}">${esc(c.numero)}</option>`).join('');
+    if ([...sel.options].some(o => o.value === selecionado)) sel.value = selecionado;
   }
   // Padrão: mês corrente. Período aberto num acervo grande geraria um PDF
   // de centenas de páginas sem ninguém pedir.
@@ -440,9 +449,9 @@ function prepararRelMov() {
   previewRelMov();
 }
 
-// Filtra pelos parâmetros da tela. Só movimentações APROVADAS ou
-// EXECUTADAS entram: pendente e rejeitada não são fato consumado, e um
-// relatório que as incluísse informaria coisa que não aconteceu.
+// Filtra pelo contrato, período e tipos selecionados. O relatório é uma
+// trilha patrimonial: inclui também pendentes e rejeitadas, sempre com o
+// respectivo status, para que o período reflita todas as solicitações.
 function movimentosDoRelatorio() {
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
@@ -455,10 +464,9 @@ function movimentosDoRelatorio() {
   return (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
     if (!tipos.includes(m.tipo)) return false;
-    if (!['aprovada', 'executada'].includes(m.status)) return false;
-    const ts = m.executadaEm || m.aprovadaEm || m.criadaEm || m.ts || 0;
+    const ts = m.criadoEm || m.createdAt || m.ts || 0;
     return ts >= ini && ts <= fim;
-  }).sort((a, b) => (a.executadaEm || a.criadaEm || 0) - (b.executadaEm || b.criadaEm || 0));
+  }).sort((a, b) => (a.criadoEm || a.createdAt || 0) - (b.criadoEm || b.createdAt || 0));
 }
 
 function previewRelMov() {
@@ -475,7 +483,7 @@ function previewRelMov() {
     ? `<strong>${lista.length}</strong> movimentação(ões): ` +
       Object.entries(porTipo).map(([t, n]) => `${n} ${rot[t] || t}`).join(' · ') +
       (nFotos ? ` · ${nFotos} foto(s)` : '')
-    : 'Nenhuma movimentação aprovada ou executada no período.';
+    : 'Nenhuma movimentação no período.';
   el.style.color = lista.length ? 'var(--text-2)' : 'var(--danger)';
 }
 
@@ -533,9 +541,10 @@ function gerarRelMovPDF() {
              REL_M + 4, y); y += 5;
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-    const quando = m.executadaEm || m.aprovadaEm || m.criadaEm;
+    const quando = m.criadoEm || m.createdAt;
     const linhas = [
       `Contrato ${m.contrato || '—'}` + (quando ? ` · ${new Date(quando).toLocaleDateString('pt-BR')}` : ''),
+      `Status: ${{pendente:'Pendente', aprovada:'Aprovada', rejeitada:'Rejeitada', executada:'Executada'}[m.status] || m.status || '—'}`,
     ];
     if (m.tipo === 'instalar' || m.tipo === 'adicionar') {
       linhas.push([m.marca, m.tipoEquip, m.capacidade].filter(Boolean).join(' · ') || '—');
@@ -699,9 +708,9 @@ function renderList() {
         <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
           Solicitado por: ${m.solicitanteNome||'—'}
         </div>
-        <div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
+        ${m.motivo ? `<div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
           ${esc(m.motivo)}
-        </div>
+        </div>` : ''}
         ${m.status==='rejeitada' && m.motivoRejeicao ? `
           <div style="font-size:12px;color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 10px;margin-bottom:6px">
             Motivo da rejeição: ${esc(m.motivoRejeicao)}
@@ -730,7 +739,10 @@ function renderSummary() {
   const db = getEffDB() || {};
   let total = 0;
   const byContract = {};
-  Object.entries(db).forEach(([num,equips])=>{
+  // Mesmo que um cache antigo ainda contenha equipamentos de outros
+  // contratos, o resumo só considera os contratos confirmados pela API.
+  const permitidos = new Set((contracts || []).map(c => String(c.numero)));
+  Object.entries(db).filter(([num]) => permitidos.has(String(num))).forEach(([num,equips])=>{
     const active = (equips||[]).filter(e=>!e._inativo);
     total += active.length;
     byContract[num] = active.length;
@@ -745,28 +757,40 @@ function renderSummary() {
 
 // ── Form ──────────────────────────────────────────────────────────
 function openNewMovimento() {
-  loadContracts();
-  // Preenche select de contratos
+  // `contracts` vem de GET /contratos, que já é filtrado pelo servidor de
+  // acordo com o usuário autenticado. Nunca monta o seletor a partir de
+  // todos os contratos que possam ter restado no cache local.
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
-    contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
-  document.getElementById('f-tipo').value = '';
-  document.getElementById('f-motivo').value = '';
-  document.getElementById('f-obs-mov').value = '';
+    contracts.map(c=>`<option value="${esc(c.numero)}">${esc(c.numero)}</option>`).join('');
+  limparFormularioMovimento();
   // Limpa os campos da instalação e as fotos: sem isto, abrir uma nova
   // movimentação herdaria a TAG e as fotos da anterior — que foi
   // exatamente o defeito do botão "Novo" dos chamados.
-  ['f-nova-tag','f-marca','f-capacidade','f-estab-destino','f-recinto-destino']
-    .forEach(id => { const el = document.getElementById(id); if (el) { el.value=''; el.style.borderColor=''; } });
   const selTipo = document.getElementById('f-tipo-equip');
   if (selTipo) selTipo.value = 'Split Hi-Wall';     // padrão pedido
+  showScreen('form');
+}
+
+function limparFormularioMovimento() {
+  ['f-tipo', 'f-motivo', 'f-obs-mov', 'f-tag', 'f-nova-tag', 'f-marca',
+   'f-capacidade', 'f-estab-destino', 'f-recinto-destino']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.value = ''; el.style.borderColor = ''; }
+    });
+  const info = document.getElementById('tag-info');
+  if (info) { info.textContent = ''; info.style.display = 'none'; }
   const avisoTag = document.getElementById('f-tag-aviso');
-  if (avisoTag) avisoTag.textContent = '';
+  if (avisoTag) { avisoTag.textContent = ''; avisoTag.style.color = ''; }
+  const panel = document.getElementById('contract-info-panel');
+  if (panel) panel.style.display = 'none';
+  const sugestoes = document.getElementById('estab-pat-sugestoes');
+  if (sugestoes) sugestoes.style.display = 'none';
   fotosInstal = [];
   renderFotosInstal();
   preencherSugestoesPat();
   updateFormByTipo();
-  showScreen('form');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1071,14 +1095,14 @@ function loadTagsByContract() {
     }
   }
 
-  document.getElementById('f-tag').addEventListener('input', function() {
+  document.getElementById('f-tag').oninput = function() {
     const found = equip.find(e=>(e.tag||e['tag'])===this.value);
     const info  = document.getElementById('tag-info');
     if (found) {
       info.style.display='';
       info.textContent = `${found.tipo||''} ${found.marca||''} — ${found.estabelecimento||''} / ${found.recinto||''}`;
     } else { info.style.display='none'; }
-  });
+  };
 }
 
 // Preenche o campo de estabelecimento destino ao clicar no badge
@@ -1090,7 +1114,8 @@ function fillEstabDestino(estab) {
 
 function cancelForm() { showScreen('list'); renderList(); }
 
-function saveMovimento() {
+async function saveMovimento() {
+  if (salvandoMovimento) return;
   const tipo     = document.getElementById('f-tipo').value;
   const contrato = document.getElementById('f-contrato').value;
   const motivo   = document.getElementById('f-motivo').value.trim();
@@ -1115,9 +1140,10 @@ function saveMovimento() {
   }
 
   const mov = {
-    id:               'mov-'+Date.now(),
+    id:               'mov-'+Date.now()+'-'+Math.random().toString(36).slice(2,8),
     tipo, contrato,
-    motivo: tipo === 'instalar' ? (motivo || 'Instalação de equipamento novo') : motivo,
+    // Instalação não tem motivo. A regra também é reforçada pelo backend.
+    motivo: tipo === 'instalar' ? '' : motivo,
     tag:              tipo==='realocar'||tipo==='baixar' ? tag : '',
     novaTag:          tipo==='instalar'||tipo==='adicionar' ? novaTag : '',
     marca:            document.getElementById('f-marca')?.value.trim()||'',
@@ -1131,20 +1157,32 @@ function saveMovimento() {
     // carregar base64 ali penalizaria o sistema por um dado que só o
     // relatório de instalações consome.
     fotos:            ['instalar','adicionar'].includes(tipo) ? fotosInstal : [],
-    status:           'pendente',
-    solicitanteEmail: user.email,
-    solicitanteNome:  user.name,
-    solicitantePerfil:user.role,
-    criadoEm:         Date.now(),
   };
-  movimentos.unshift(mov);
-  signRecord(mov.id, 'criado', 'movimentacoes').then(sig => {
-    mov._signatures = [sig];
-    saveData(mov);
+
+  const botao = document.getElementById('btn-save-mov');
+  salvandoMovimento = true;
+  if (botao) { botao.disabled = true; botao.textContent = 'Enviando…'; }
+  try {
+    // Só atualiza a lista e zera o formulário depois que o servidor gravar
+    // e devolver o registro canônico. Falhas mantêm o preenchimento intacto
+    // para que o usuário possa corrigir ou tentar novamente.
+    const resposta = await DB.saveMovimentacao(mov);
+    const salva = resposta?.movimentacao;
+    if (!salva) throw new Error('O servidor não confirmou a movimentação');
+    const i = movimentos.findIndex(m => m.id === salva.id);
+    if (i >= 0) movimentos[i] = salva;
+    else movimentos.unshift(salva);
+    salvarMovimentosNoCache();
+    limparFormularioMovimento();
     showToast('Solicitação enviada! Aguardando aprovação do admin.');
     showScreen('list');
     renderList();
-  });
+  } catch (e) {
+    showToast('Não foi possível enviar: ' + e.message, 7000);
+  } finally {
+    salvandoMovimento = false;
+    if (botao) { botao.disabled = false; botao.textContent = '📤 Enviar solicitação'; }
+  }
 }
 
 // ── Review modal ──────────────────────────────────────────────────
@@ -1158,7 +1196,7 @@ function openReview(id, action) {
     <strong>Tipo:</strong> ${tipoLabel}<br>
     <strong>TAG:</strong> ${m.tag||m.novaTag||'—'}<br>
     ${m.estabelecimentoDestino ? `<strong>Destino:</strong> ${m.estabelecimentoDestino}${m.recintoDestino?' / '+m.recintoDestino:''}<br>` : ''}
-    <strong>Motivo:</strong> ${esc(m.motivo)}<br>
+    ${m.motivo ? `<strong>Motivo:</strong> ${esc(m.motivo)}<br>` : ''}
     <strong>Solicitado por:</strong> ${esc(m.solicitanteNome)} (${esc(m.solicitantePerfil)})<br>
     <strong>Data:</strong> ${new Date(m.criadoEm).toLocaleDateString('pt-BR')}`;
 
@@ -1181,116 +1219,79 @@ function closeModal() {
   reviewId = null;
 }
 
-function confirmApprove() {
+async function confirmApprove() {
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
-  m.status       = 'aprovada';
-  m.aprovadoPor  = user.name;
-  m.aprovadoEm   = Date.now();
-  signRecord(m.id, 'aprovado', 'movimentacoes').then(sig => {
-    m._signatures = m._signatures||[]; m._signatures.push(sig);
-    saveData(m);
-    DB.updateMovStatus(m.id, 'aprovada').catch(()=>{});
+  try {
+    const resposta = await DB.updateMovStatus(m.id, 'aprovada');
+    const atualizada = resposta?.movimentacao;
+    if (!atualizada) throw new Error('O servidor não confirmou a aprovação');
+    movimentos = movimentos.map(x => x.id === atualizada.id ? atualizada : x);
+    salvarMovimentosNoCache();
     closeModal();
     showToast('Solicitação aprovada! Clique em "Executar no banco" para aplicar.');
     renderList();
-  });
+  } catch (e) {
+    showToast('Não foi possível aprovar: ' + e.message, 7000);
+  }
 }
 
-function confirmReject() {
+async function confirmReject() {
   const motivo = document.getElementById('f-motivo-rejeicao').value.trim();
   if (!motivo) { showToast('Informe o motivo da rejeição'); return; }
   const m = movimentos.find(x=>x.id===reviewId); if (!m) return;
-  m.status          = 'rejeitada';
-  m.motivoRejeicao  = motivo;
-  m.rejeitadoPor    = user.name;
-  m.rejeitadoEm     = Date.now();
-  signRecord(m.id, 'rejeitado', 'movimentacoes').then(sig => {
-    m._signatures = m._signatures||[]; m._signatures.push(sig);
-    saveData(m);
-    DB.updateMovStatus(m.id, 'rejeitada', motivo).catch(()=>{});
+  try {
+    const resposta = await DB.updateMovStatus(m.id, 'rejeitada', motivo);
+    const atualizada = resposta?.movimentacao;
+    if (!atualizada) throw new Error('O servidor não confirmou a rejeição');
+    movimentos = movimentos.map(x => x.id === atualizada.id ? atualizada : x);
+    salvarMovimentosNoCache();
     closeModal();
     showToast('Solicitação rejeitada.');
     renderList();
-  });
+  } catch (e) {
+    showToast('Não foi possível rejeitar: ' + e.message, 7000);
+  }
 }
 
 // ── Execute ───────────────────────────────────────────────────────
-function deleteMovimento(id) {
+async function deleteMovimento(id) {
   if (!confirm('Excluir esta solicitação de movimentação?')) return;
-  const prev = movimentos;
-  movimentos = movimentos.filter(m=>m.id!==id);
-  saveData();
-  renderList();
-  DB.deleteMovimentacao(id).catch(e => {
-    movimentos = prev; // reverte em caso de falha
-    saveData();
+  try {
+    await DB.deleteMovimentacao(id);
+    movimentos = movimentos.filter(m=>m.id!==id);
+    salvarMovimentosNoCache();
     renderList();
+    showToast('Solicitação excluída.');
+  } catch (e) {
     showToast('Erro ao excluir: ' + e.message);
-  });
+  }
 }
 
-function executeMovimento(id) {
+async function executeMovimento(id) {
   const m = movimentos.find(x=>x.id===id);
   if (!m || m.status!=='aprovada') return;
   if (!confirm(`Executar "${m.tipo}" da TAG ${m.tag||m.novaTag} no banco de dados?\n\nEsta ação atualiza o banco de equipamentos.`)) return;
 
-  const db = getEffDB() || {};
-  const equips = db[m.contrato] || [];
-
-  switch(m.tipo) {
-    case 'instalar':
-    case 'adicionar':
-      if (equips.find(e=>(e.tag||e['tag'])===m.novaTag)) {
-        showToast('TAG já existe no banco!'); return;
-      }
-      equips.push({
-        tag:m.novaTag, marca:m.marca, tipo:m.tipoEquip,
-        capacidade:m.capacidade,
-        estabelecimento:m.estabelecimentoDestino,
-        recinto:m.recintoDestino,
-        _instaladoEm:Date.now(), _instaladoPor:user.name
-      });
-      break;
-    case 'realocar': {
-      const eq = equips.find(e=>(e.tag||e['tag'])===m.tag);
-      if (!eq) { showToast('TAG não encontrada no banco!'); return; }
-      eq.estabelecimento = m.estabelecimentoDestino || eq.estabelecimento;
-      eq.recinto         = m.recintoDestino         || eq.recinto;
-      eq._realocadoEm    = Date.now();
-      eq._realocadoPor   = user.name;
-      break;
+  try {
+    // A alteração do banco de equipamentos acontece exclusivamente no
+    // backend. Assim uma falha de rede não deixa o navegador marcado como
+    // "executado" enquanto o servidor continua com a solicitação aprovada.
+    const resposta = await DB.updateMovStatus(m.id, 'executada');
+    const atualizada = resposta?.movimentacao;
+    if (!atualizada) throw new Error('O servidor não confirmou a execução');
+    movimentos = movimentos.map(x => x.id === atualizada.id ? atualizada : x);
+    if (resposta?.contrato) {
+      const i = contracts.findIndex(c => String(c.numero) === String(resposta.contrato.numero));
+      if (i >= 0) contracts[i] = resposta.contrato;
+      else contracts.push(resposta.contrato);
+      localStorage.setItem(CONT_KEY, JSON.stringify(contracts));
     }
-    case 'baixar': {
-      const eq = equips.find(e=>(e.tag||e['tag'])===m.tag);
-      if (!eq) { showToast('TAG não encontrada no banco!'); return; }
-      eq._inativo   = true;
-      eq._baixadoEm = Date.now();
-      eq._baixadoPor= user.name;
-      eq._motivoBaixa=m.motivo;
-      break;
-    }
-  }
-
-  db[m.contrato] = equips;
-  localStorage.setItem('smm_custom_db', JSON.stringify(db));
-
-  // Sync contracts
-  const conts = JSON.parse(localStorage.getItem(CONT_KEY)||'[]');
-  const ci = conts.findIndex(c=>c.numero===m.contrato);
-  if (ci>=0) { conts[ci].equipamentos=equips; localStorage.setItem(CONT_KEY,JSON.stringify(conts)); }
-
-  m.status      = 'executada';
-  m.executadoEm = Date.now();
-  m.executadoPor= user.name;
-  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
-  // senão a assinatura só existe localmente e nunca é persistida de fato.
-  signRecord(m.id, 'executado', 'movimentacoes').then(sig => {
-    m._signatures = m._signatures||[]; m._signatures.push(sig);
-    saveData(m);
-    DB.updateMovStatus(m.id, 'executada').catch(()=>{});
+    salvarMovimentosNoCache();
     showToast('✅ Banco de equipamentos atualizado!');
     renderList();
-  });
+  } catch (e) {
+    showToast('Não foi possível executar: ' + e.message, 7000);
+  }
 }
 
 // ── Screen nav ────────────────────────────────────────────────────
@@ -1299,11 +1300,6 @@ function showScreen(s) {
   document.getElementById('screen-form').style.display = s==='form' ? 'block' : 'none';
   document.getElementById('fab')?.classList.toggle('hidden', s !== 'list');
 }
-
-// ── Init ──────────────────────────────────────────────────────────
-loadData(); // pintura instantânea com o cache local; a busca no servidor (acima) substitui assim que chegar
-renderList();
-loadHistContratos();
 
 // ── Render assinaturas no card ────────────────────────────────────
 function _sigTrail(sigs) {
@@ -1318,14 +1314,13 @@ function _sigTrail(sigs) {
 }
 
 // ── Histórico do equipamento ─────────────────────────────────────
-async function loadHistContratos() {
+function preencherContratosHistorico() {
   const sel = document.getElementById('hist-contrato');
   if (!sel) return;
-  try {
-    const conts = await DB.getContratos();
-    sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
-      (conts||[]).map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
-  } catch(e) {}
+  const selecionado = sel.value;
+  sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+    (contracts||[]).map(c=>`<option value="${esc(c.numero)}">${esc(c.numero)}</option>`).join('');
+  if ([...sel.options].some(o => o.value === selecionado)) sel.value = selecionado;
 }
 
 function loadHistTags() {
