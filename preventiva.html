@@ -411,6 +411,15 @@ function loadPrestadoraConfig() {
 const PDF_M = 20, PDF_W = 210;
 
 // ── Formato da imagem, deduzido da data-URL ───────────────────────
+// Algumas fotos antigas foram persistidas com nomes alternativos de campo.
+// Normalizar aqui evita que a tela e o PDF tratem uma imagem válida como
+// vazia, sem relaxar a validação do servidor.
+function fotoDataUrl(photo) {
+  if (typeof photo === 'string') return photo;
+  return photo?.dataUrl || photo?.dataURL || photo?.url || photo?.src || '';
+}
+function fotoTemBytes(photo) { return !!fotoDataUrl(photo); }
+
 // Antes toda chamada passava 'JPEG' fixo. O sistema aceita PNG, WebP,
 // HEIC e outros (o laudo envia o arquivo cru do FileReader), e uma foto
 // que não fosse JPEG falhava — caindo num catch vazio e sumindo do PDF
@@ -440,8 +449,15 @@ function fotoUtilizavelPdf(dataUrl) {
 let _fotosFalhadasPdf = 0;
 
 function desenharFotoPdf(doc, dataUrl, x, y, w, h) {
+  dataUrl = fotoDataUrl(dataUrl);
   if (!fotoUtilizavelPdf(dataUrl)) {
     _fotosFalhadasPdf++;
+    // Nunca deixa uma célula branca sem explicação no relatório.
+    doc.setFillColor(248,250,252); doc.setDrawColor(203,213,225);
+    doc.rect(x, y, w, h, 'FD');
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(100,116,139);
+    doc.text('Foto não disponível', x + w/2, y + h/2, { align:'center' });
+    doc.setTextColor(0,0,0);
     console.warn('Foto ignorada: data-URL inválida ou vazia');
     return false;
   }
@@ -487,6 +503,7 @@ function drawPdfHeader(doc, { title, metaLines }) {
 // (W), mantém a proporção ORIGINAL (sem esticar) e limita a altura a Hmax
 // pra uma foto sozinha nunca estourar a página. Retorna {w,h} em mm.
 function photoFit(doc, dataUrl, W, Hmax){
+  dataUrl = fotoDataUrl(dataUrl);
   let iw = 0, ih = 0;
   try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
   if (!iw || !ih) return { w: W, h: Math.min(W*0.75, Hmax) };
@@ -655,8 +672,34 @@ function saveLocal() {
   }
 }
 
+// Reata os bytes que o servidor devolveu às fotos que o cache local
+// manteve apenas como metadados. A ordem e a lista local continuam
+// autoritativas quando o plano está sujo (inclusive exclusões em campo).
+function hidratarFotosLocais(localPhotos, serverPhotos) {
+  if (!Array.isArray(localPhotos) || !Array.isArray(serverPhotos)) return localPhotos;
+  const remote = new Map(serverPhotos.filter(Boolean).map(p => [p.id || p.dataUrl, p]));
+  return localPhotos.map(p => {
+    if (!p || p.dataUrl || !p.id) return p;
+    const sp = remote.get(p.id);
+    if (!sp || !sp.dataUrl) return p;
+    return Object.assign({}, sp, p, { dataUrl: sp.dataUrl, sha: p.sha || sp.sha });
+  });
+}
+function hidratarPlanoLocal(localPlan, serverPlan) {
+  if (!localPlan || !serverPlan || !Array.isArray(localPlan.equipments)) return localPlan;
+  const se = Array.isArray(serverPlan.equipments) ? serverPlan.equipments : [];
+  return Object.assign({}, localPlan, {
+    equipments: localPlan.equipments.map((eq, i) => {
+      const remote = se[i];
+      if (!eq || !remote || !Array.isArray(eq.photos)) return eq;
+      return Object.assign({}, eq, { photos: hidratarFotosLocais(eq.photos, remote.photos) });
+    }),
+  });
+}
+
 // Une planos locais e do servidor SEM perder trabalho local não sincronizado:
-// se o local está sujo ou é mais novo, ele vence; senão, adota o do servidor.
+// se o local está sujo ou é mais novo, ele vence; bytes de foto ausentes no
+// cache são reatados do servidor antes de devolver o plano.
 function mergePlans(local, server) {
   const byId = new Map();
   (server||[]).forEach(p => byId.set(p.id, p));
@@ -665,7 +708,7 @@ function mergePlans(local, server) {
     if (!sp) { byId.set(lp.id, lp); return; }               // só local: mantém
     const lu = lp.updatedAt || 0;
     const su = sp.updatedAt || sp.finalizedAt || sp.createdAt || 0;
-    if (lp._dirty || lu > su) byId.set(lp.id, lp);           // local vence
+    if (lp._dirty || lu > su) byId.set(lp.id, hidratarPlanoLocal(lp, sp)); // local vence
   });
   return Array.from(byId.values());
 }
@@ -1572,9 +1615,26 @@ function renderHistory() {
 }
 
 // ── PDF: individual plan ──
-function printExecPDF() {
+async function atualizarFotosParaPdf() {
+  const faltamBytes = plans.some(p => (p.equipments||[]).some(eq =>
+    (eq.photos||[]).some(photo => !fotoTemBytes(photo))));
+  if (!faltamBytes) return true;
+  setSync('saving', 'Carregando fotos do servidor…');
+  try {
+    const server = await DB.getAll('preventiva');
+    plans = mergePlans(plans, server || []);
+    saveLocal();
+    setSync('saved', 'Fotos carregadas');
+    return true;
+  } catch (e) {
+    setSync('error', 'Não foi possível carregar as fotos: ' + (e.message || 'falha de rede'));
+    return false;
+  }
+}
+async function printExecPDF() {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
+  if (!await atualizarFotosParaPdf()) return;
   generatePlanPDF(plan);
 }
 
@@ -1688,7 +1748,7 @@ function generatePlanPDF(plan, sharedDoc) {
       doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
       const cols=3, gap=6, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=90;
-      const sized = eq.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+      const sized = eq.photos.map(p => ({ p, dataUrl: fotoDataUrl(p), ...photoFit(doc, p, cellW, maxH) }));
       for (let i=0; i<sized.length; i+=cols) {
         const rowItems = sized.slice(i, i+cols);
         const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
@@ -1696,7 +1756,7 @@ function generatePlanPDF(plan, sharedDoc) {
         rowItems.forEach((it, c) => {
           const cellX = M + c*(cellW+gap);
           const ix = cellX + (cellW - it.w)/2;
-          desenharFotoPdf(doc, it.p.dataUrl, ix, y, it.w, it.h);
+          desenharFotoPdf(doc, it.dataUrl, ix, y, it.w, it.h);
           if (it.p.geo) {
             doc.setFontSize(6); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
             const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
@@ -1741,8 +1801,9 @@ function generatePlanPDF(plan, sharedDoc) {
 }
 
 // ── PDF: filtered report ──
-function printFilteredPDF() {
+async function printFilteredPDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
+  if (!await atualizarFotosParaPdf()) return;
   const filtered = getFiltered();
   if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
   if (filtered.length > 15 && !confirm(`Isso vai gerar um relatório completo de ${filtered.length} planos (pode ficar longo e demorar um pouco). Continuar?`)) return;
