@@ -378,12 +378,59 @@ let currentTab = 'pendentes'; // 'pendentes' | 'historico' | 'relatorio'
 let reviewId = null;
 let salvandoMovimento = false;
 
+// O servidor é a fonte de verdade. O cache do celular serve apenas para
+// acelerar a próxima abertura e nunca pode derrubar a tela por quota cheia.
+function removerBytesDeCache(valor) {
+  if (typeof valor === 'string') return { name: 'foto' };
+  const out = Object.assign({}, valor || {});
+  ['dataUrl','dataURL','base64','content','bytes'].forEach(k => delete out[k]);
+  ['url','src'].forEach(k => {
+    if (typeof out[k] === 'string' && out[k].toLowerCase().startsWith('data:image/')) delete out[k];
+  });
+  return out;
+}
+function contratoLeveParaCache(c) {
+  const out = Object.assign({}, c || {});
+  if (Array.isArray(out.documentos))
+    out.documentos = out.documentos.map(removerBytesDeCache);
+  if (Array.isArray(out.equipamentos)) {
+    out.equipamentos = out.equipamentos.map(eq => {
+      const item = Object.assign({}, eq || {});
+      if (Array.isArray(item.fotos)) item.fotos = item.fotos.map(removerBytesDeCache);
+      return item;
+    });
+  }
+  return out;
+}
+function movimentoLeveParaCache(m) {
+  const out = Object.assign({}, m || {});
+  if (Array.isArray(out.fotos)) out.fotos = out.fotos.map(removerBytesDeCache);
+  return out;
+}
+function gravarCacheSeguro(chave, valor, projetar) {
+  const dados = projetar ? valor.map(projetar) : valor;
+  try {
+    localStorage.setItem(chave, JSON.stringify(dados));
+    return true;
+  } catch (e) {
+    // Remove uma cópia antiga possivelmente maior e tenta uma única vez.
+    try {
+      localStorage.removeItem(chave);
+      localStorage.setItem(chave, JSON.stringify(dados));
+      return true;
+    } catch (e2) {
+      // Sem cache não há perda: a próxima abertura consulta a API.
+      console.warn('Cache do patrimônio indisponível:', e2.message || e.message);
+      return false;
+    }
+  }
+}
 function aplicarContratos(conts) {
   contracts = Array.isArray(conts) ? conts : [];
-  localStorage.setItem(CONT_KEY, JSON.stringify(contracts));
+  gravarCacheSeguro(CONT_KEY, contracts, contratoLeveParaCache);
 }
 function salvarMovimentosNoCache() {
-  localStorage.setItem(MOV_KEY, JSON.stringify(movimentos));
+  gravarCacheSeguro(MOV_KEY, movimentos, movimentoLeveParaCache);
 }
 
 async function iniciarPatrimonio() {
@@ -645,6 +692,20 @@ function setFilter(f) {
   renderList();
 }
 
+// Localização da TAG: instalações/adições já carregam o destino na
+// movimentação; desmontagens/baixas antigas podem só ter a TAG, então
+// consultamos o banco do contrato para manter estabelecimento e recinto.
+function localMovimento(m) {
+  const contrato = (contracts || []).find(c => String(c.numero) === String(m?.contrato));
+  const eq = m?.tag
+    ? (contrato?.equipamentos || []).find(e => String(e?.tag || '').trim() === String(m.tag).trim())
+    : null;
+  return {
+    estabelecimento: m?.estabelecimentoDestino || m?.estabelecimentoOrigem || eq?.estabelecimento || '',
+    recinto: m?.recintoDestino || m?.recintoOrigem || eq?.recinto || '',
+  };
+}
+
 // ── Render list ───────────────────────────────────────────────────
 function renderList() {
   const pending = movimentos.filter(m=>m.status==='pendente');
@@ -695,6 +756,7 @@ function renderList() {
       const canExecute= canApproveMov && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
+      const local = localMovimento(m);
       return `
       <div class="mov-card ${m.status}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
@@ -706,6 +768,9 @@ function renderList() {
         </div>
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">
           TAG: ${esc(m.tag||m.novaTag)||'—'} · Contrato ${esc(m.contrato)||'—'}
+        </div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
+          🏢 Estabelecimento: ${esc(local.estabelecimento)||'—'} · Recinto: ${esc(local.recinto)||'—'}
         </div>
         <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
           Solicitado por: ${m.solicitanteNome||'—'}
@@ -738,14 +803,13 @@ function renderList() {
 }
 
 function renderSummary() {
-  const db = getEffDB() || {};
   let total = 0;
   const byContract = {};
-  // Mesmo que um cache antigo ainda contenha equipamentos de outros
-  // contratos, o resumo só considera os contratos confirmados pela API.
-  const permitidos = new Set((contracts || []).map(c => String(c.numero)));
-  Object.entries(db).filter(([num]) => permitidos.has(String(num))).forEach(([num,equips])=>{
-    const active = (equips||[]).filter(e=>equipamentoOperante(e));
+  // Usa a resposta canônica em memória; o resumo não depende do cache local.
+  (contracts || []).forEach(c => {
+    const num = String(c.numero || '');
+    const active = (c.equipamentos || []).filter(e => equipamentoOperante(e));
+    if (!num) return;
     total += active.length;
     byContract[num] = active.length;
   });
@@ -815,6 +879,8 @@ const fmtBtu = n => n.toLocaleString('pt-BR') + ' BTU';
 function equipsDoContratoPat() {
   const c = document.getElementById('f-contrato')?.value;
   if (!c) return [];
+  const contrato = (contracts || []).find(x => String(x.numero) === String(c));
+  if (contrato && Array.isArray(contrato.equipamentos)) return contrato.equipamentos;
   return (getEffDB() || {})[c] || [];
 }
 
@@ -1300,7 +1366,7 @@ async function executeMovimento(id, btn) {
       const i = contracts.findIndex(c => String(c.numero) === String(resposta.contrato.numero));
       if (i >= 0) contracts[i] = resposta.contrato;
       else contracts.push(resposta.contrato);
-      localStorage.setItem(CONT_KEY, JSON.stringify(contracts));
+      aplicarContratos(contracts);
     }
     salvarMovimentosNoCache();
     showToast('✅ Banco de equipamentos atualizado!');
