@@ -91,6 +91,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
   <div class="card">
     <h2>O que é</h2>
     <p>O sistema centraliza, num só lugar, tudo que envolve a manutenção de equipamentos de climatização e instalações prediais dentro de um contrato de prestação de serviço: abertura e acompanhamento de chamados, registro fotográfico do serviço executado, orçamentos, manutenção preventiva programada, controle patrimonial dos equipamentos e relatórios gerenciais — cada contrato com seus próprios dados, equipamentos e usuários autorizados.</p>
+    <p>Os dados são gravados no servidor com retorno de confirmação, enquanto cada ação mostra quando está enviando ou carregando. Assim, a equipe trabalha com uma fonte única, sem depender do cache do navegador.</p>
     <p>Foi pensado pra ser usado tanto do escritório quanto em campo, direto do celular do técnico, sem precisar instalar nada — funciona como um aplicativo dentro do próprio navegador.</p>
   </div>
 
@@ -115,7 +116,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
       </div>
       <div class="module-item">
         <div class="module-icon">📦</div>
-        <div><div class="module-name">Patrimônio</div><div class="module-desc">Controle de instalação, transferência e baixa de equipamentos, com fluxo de solicitação e aprovação.</div></div>
+        <div><div class="module-name">Patrimônio</div><div class="module-desc">Controle de instalação, adição, baixa e desmontagem, com aprovação, relatório PDF por contrato/período e histórico completo de cada TAG.</div></div>
       </div>
       <div class="module-item">
         <div class="module-icon">📄</div>
@@ -123,7 +124,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
       </div>
       <div class="module-item">
         <div class="module-icon">📊</div>
-        <div><div class="module-name">Relatórios</div><div class="module-desc">Indicadores gerenciais por período e contrato, incluindo reincidência por equipamento e exportação em PDF.</div></div>
+        <div><div class="module-name">Relatórios</div><div class="module-desc">Indicadores gerenciais por período e contrato, reincidência por equipamento e exportação em PDF das movimentações patrimoniais.</div></div>
       </div>
       <div class="module-item">
         <div class="module-icon">👥</div>
@@ -142,6 +143,14 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
       <div class="benefit">
         <div class="benefit-icon">🏢</div>
         <div class="benefit-text"><strong>Organizado por contrato.</strong> Cada cliente/contrato tem seus próprios equipamentos, usuários autorizados e histórico — sem mistura de dados entre operações diferentes.</div>
+      </div>
+      <div class="benefit">
+        <div class="benefit-icon">🏷️</div>
+        <div class="benefit-text"><strong>Patrimônio com ciclo de vida.</strong> Toda TAG começa como <em>operante</em>. Baixa e desmontagem tornam o equipamento <em>inoperante</em>, bloqueiam novas requisições e preservam o histórico; uma nova instalação pode reativar a mesma TAG sem duplicá-la.</div>
+      </div>
+      <div class="benefit">
+        <div class="benefit-icon">📑</div>
+        <div class="benefit-text"><strong>Movimentações documentadas.</strong> Pendentes, histórico e relatório ficam em abas próprias, com filtros por contrato, período e tipo de movimentação — da instalação à baixa.</div>
       </div>
       <div class="benefit">
         <div class="benefit-icon">📍</div>
