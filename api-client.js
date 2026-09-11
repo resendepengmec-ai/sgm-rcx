@@ -595,6 +595,30 @@ function getEffDB() {
   return db;
 }
 
+// ── Ciclo de vida dos equipamentos ────────────────────────────────
+// Compatibilidade com inventários antigos: ausência de status equivale a
+// operante, exceto quando o legado trazia `_inativo`.
+function statusEquipamento(equipamento) {
+  const status = String(equipamento?.status || '').trim().toLowerCase();
+  if (status) return status;
+  return equipamento?._inativo ? 'baixado/inoperante' : 'operante';
+}
+function equipamentoOperante(equipamento) {
+  return statusEquipamento(equipamento) === 'operante' && equipamento?._inativo !== true;
+}
+function encontrarEquipamento(contrato, tag) {
+  const alvo = String(tag || '').trim();
+  if (!alvo) return null;
+  return (getEffDB()[contrato] || []).find(e => String(e?.tag || '').trim() === alvo) || null;
+}
+function textoStatusEquipamento(equipamento) {
+  const status = statusEquipamento(equipamento);
+  return status === 'operante' ? 'operante' : status;
+}
+window.statusEquipamento = statusEquipamento;
+window.equipamentoOperante = equipamentoOperante;
+window.encontrarEquipamento = encontrarEquipamento;
+window.textoStatusEquipamento = textoStatusEquipamento;
 // ── Assinaturas digitais ──────────────────────────────────────────
 const SIG_ICONS = {
   criado:    '✅',

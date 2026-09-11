@@ -239,7 +239,7 @@ function setScope(s){
 }
 function equipsDoContrato(){
   const el = document.getElementById('l-contract'); const c = el?el.value:'';
-  try{ return (getEffDB()[c]||[]).filter(e=>!e._inativo); }catch(e){ return []; }
+  try{ return (getEffDB()[c]||[]).filter(e=>equipamentoOperante(e)); }catch(e){ return []; }
 }
 function onContractChange(){
   const estabs = [...new Set(equipsDoContrato().map(e=>e.estabelecimento).filter(Boolean))].sort();

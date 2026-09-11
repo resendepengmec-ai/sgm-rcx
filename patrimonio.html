@@ -57,7 +57,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 .tipo-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;}
 .tipo-badge.instalar{background:#d1fae5;color:#065f46;}
-.tipo-badge.realocar{background:#dbeafe;color:#1e40af;}
+.tipo-badge.desmontar,.tipo-badge.realocar{background:#dbeafe;color:#1e40af;}
 .tipo-badge.baixar{background:var(--danger-bg);color:var(--danger);}
 .tipo-badge.adicionar{background:#ede9fe;color:#5b21b6;}
 
@@ -129,7 +129,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
           <input type="checkbox" class="rel-tipo" value="instalar" checked onchange="previewRelMov()"> 📥 Instalação</label>
         <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
-          <input type="checkbox" class="rel-tipo" value="realocar" checked onchange="previewRelMov()"> 🔄 Realocação</label>
+          <input type="checkbox" class="rel-tipo" value="desmontar" checked onchange="previewRelMov()"> 🧰 Desmontagem</label>
         <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
           <input type="checkbox" class="rel-tipo" value="baixar" checked onchange="previewRelMov()"> 🔴 Baixa</label>
         <label style="display:flex;gap:5px;align-items:center;cursor:pointer">
@@ -198,7 +198,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <select id="f-tipo" onchange="updateFormByTipo()">
         <option value="">Selecione…</option>
         <option value="instalar">🟢 Instalar — adicionar nova TAG</option>
-        <option value="realocar">🔵 Realocar — mover para outro local</option>
+        <option value="desmontar">🧰 Desmontagem — retirar e deixar inoperante</option>
         <option value="baixar">🔴 Baixar — retirar (inviável/inativo)</option>
         <option value="adicionar">🟣 Adicionar equipamento existente</option>
       </select>
@@ -219,7 +219,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <div id="contract-estabs-list" style="font-size:12px;color:#334155;line-height:1.7"></div>
     </div>
 
-    <!-- TAG existente (realocar / baixar) -->
+    <!-- TAG existente (desmontagem / baixa) -->
     <div id="field-tag-existente" style="display:none" class="field">
       <label>TAG do equipamento *</label>
       <input id="f-tag" type="text" list="tag-suggestions" placeholder="Digite ou selecione a TAG…" autocomplete="off">
@@ -290,7 +290,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       </div>
     </div>
 
-    <!-- Destino (realocar / instalar) -->
+    <!-- Destino (instalação) -->
     <div id="fields-destino" style="display:none">
       <div class="field" style="position:relative">
         <label>Estabelecimento destino *</label>
@@ -313,7 +313,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <!-- Motivo: NÃO se aplica à instalação.
          Instalar equipamento novo não precisa de justificativa — o motivo
-         é a própria instalação. Já realocar e dar baixa mexem em
+         é a própria instalação. Desmontagem e baixa mexem em
          patrimônio existente, e aí a justificativa é o que dá sentido à
          decisão quando alguém revisar meses depois. -->
     <div class="field" id="field-motivo">
@@ -463,7 +463,7 @@ function movimentosDoRelatorio() {
 
   return (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
-    if (!tipos.includes(m.tipo)) return false;
+    if (!tipos.includes(m.tipo) && !(m.tipo === 'realocar' && tipos.includes('desmontar'))) return false;
     const ts = m.criadoEm || m.createdAt || m.ts || 0;
     return ts >= ini && ts <= fim;
   }).sort((a, b) => (a.criadoEm || a.createdAt || 0) - (b.criadoEm || b.createdAt || 0));
@@ -477,7 +477,7 @@ function previewRelMov() {
   const nFotos = comFotos ? lista.reduce((a, m) => a + (m.fotos?.length || 0), 0) : 0;
   const porTipo = {};
   lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
-  const rot = { instalar: 'instalação', realocar: 'realocação', baixar: 'baixa', adicionar: 'adição' };
+  const rot = { instalar: 'instalação', desmontar: 'desmontagem', realocar: 'desmontagem', baixar: 'baixa', adicionar: 'adição' };
 
   el.innerHTML = lista.length
     ? `<strong>${lista.length}</strong> movimentação(ões): ` +
@@ -520,7 +520,7 @@ function gerarRelMovPDF() {
   // total, e só depois o detalhe.
   const porTipo = {};
   lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
-  const rotulo = { instalar: 'Instalações', realocar: 'Realocações', baixar: 'Baixas', adicionar: 'Adições' };
+  const rotulo = { instalar: 'Instalações', desmontar: 'Desmontagens', realocar: 'Desmontagens', baixar: 'Baixas', adicionar: 'Adições' };
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
   doc.text(`Resumo — ${lista.length} movimentação(ões)`, REL_M, y); y += 5;
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
@@ -531,7 +531,7 @@ function gerarRelMovPDF() {
 
   lista.forEach((m, idx) => {
     cabe(34);
-    const cor = { instalar: [5, 150, 105], realocar: [37, 99, 235],
+    const cor = { instalar: [5, 150, 105], desmontar: [37, 99, 235], realocar: [37, 99, 235],
                   baixar: [220, 38, 38], adicionar: [124, 58, 237] }[m.tipo] || [80, 80, 80];
     doc.setFillColor(...cor);
     doc.rect(REL_M, y - 3.5, 1.6, 12, 'F');      // marca colorida do tipo
@@ -549,7 +549,7 @@ function gerarRelMovPDF() {
     if (m.tipo === 'instalar' || m.tipo === 'adicionar') {
       linhas.push([m.marca, m.tipoEquip, m.capacidade].filter(Boolean).join(' · ') || '—');
       linhas.push(`Local: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
-    } else if (m.tipo === 'realocar') {
+    } else if (m.tipo === 'desmontar' || m.tipo === 'realocar') {
       linhas.push(`De: ${m.estabelecimentoOrigem || '—'}${m.recintoOrigem ? ' / ' + m.recintoOrigem : ''}`);
       linhas.push(`Para: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
     }
@@ -690,7 +690,7 @@ function renderList() {
   else {
     empty.style.display='none';
     list.innerHTML = filtered.map(m=>{
-      const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
+      const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
       const canReview = canApproveMov && m.status==='pendente';
       const canExecute= canApproveMov && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
@@ -745,7 +745,7 @@ function renderSummary() {
   // contratos, o resumo só considera os contratos confirmados pela API.
   const permitidos = new Set((contracts || []).map(c => String(c.numero)));
   Object.entries(db).filter(([num]) => permitidos.has(String(num))).forEach(([num,equips])=>{
-    const active = (equips||[]).filter(e=>!e._inativo);
+    const active = (equips||[]).filter(e=>equipamentoOperante(e));
     total += active.length;
     byContract[num] = active.length;
   });
@@ -837,8 +837,14 @@ function conferirNovaTag() {
   if (!limpo) { aviso.textContent = 'Informe o número da TAG.';
                 aviso.style.color = 'var(--text-2)'; return false; }
 
-  const existe = equipsDoContratoPat().some(e => String(e.tag).trim() === limpo);
-  if (existe) {
+  const existente = equipsDoContratoPat().find(e => String(e.tag).trim() === limpo);
+  const tipo = document.getElementById('f-tipo')?.value;
+  if (existente && tipo === 'instalar' && !equipamentoOperante(existente)) {
+    aviso.textContent = `↻ TAG ${limpo} será reativada como operante; o histórico será preservado.`;
+    aviso.style.color = '#166534'; campo.style.borderColor = '';
+    return true;
+  }
+  if (existente) {
     aviso.textContent = `⚠️ A TAG ${limpo} já existe neste contrato.`;
     aviso.style.color = 'var(--danger)';
     campo.style.borderColor = 'var(--danger)';
@@ -1037,15 +1043,16 @@ function renderFotosInstal() {
 
 function updateFormByTipo() {
   const tipo = document.getElementById('f-tipo').value;
-  const showExistente = ['realocar','baixar'].includes(tipo);
+  const showExistente = ['desmontar','baixar'].includes(tipo);
   const showNova      = ['instalar','adicionar'].includes(tipo);
-  const showDestino   = ['instalar','realocar','adicionar'].includes(tipo);
+  const showDestino   = ['instalar','adicionar'].includes(tipo);
   document.getElementById('field-tag-existente').style.display = showExistente ? '' : 'none';
   document.getElementById('fields-nova-tag').style.display     = showNova      ? '' : 'none';
   document.getElementById('fields-destino').style.display      = showDestino   ? '' : 'none';
   // Instalação não pede motivo: o motivo é a própria instalação.
   const campoMotivo = document.getElementById('field-motivo');
   if (campoMotivo) campoMotivo.style.display = (tipo === 'instalar') ? 'none' : '';
+  conferirNovaTag();
 }
 
 function loadTagsByContract() {
@@ -1056,7 +1063,7 @@ function loadTagsByContract() {
   conferirNovaTag();
   const num = document.getElementById('f-contrato').value;
   const db  = getEffDB() || {};
-  const equip = (db[num]||[]).filter(e=>!e._inativo);
+  const equip = (db[num]||[]).filter(e=>equipamentoOperante(e));
   const dl  = document.getElementById('tag-suggestions');
   dl.innerHTML = equip.map(e=>`<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${esc(e.tipo||'')} ${esc(e.marca||'')}</option>`).join('');
 
@@ -1128,15 +1135,16 @@ async function saveMovimento(btn) {
 
   const tag      = document.getElementById('f-tag')?.value.trim() || '';
   const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
-  if (['realocar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
+  if (['desmontar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
   if (['instalar','adicionar'].includes(tipo)) {
     if (!novaTag) { showToast('Informe a nova TAG'); return; }
     // O aviso ao vivo orienta; esta checagem é que impede. Duas máquinas
     // com a mesma TAG no contrato quebram preventiva, orçamento e
     // qualquer busca por equipamento.
     if (!/^\d+$/.test(novaTag)) { showToast('A TAG deve conter apenas números'); return; }
-    if (equipsDoContratoPat().some(e => String(e.tag).trim() === novaTag)) {
-      showToast(`A TAG ${novaTag} já existe neste contrato. Escolha outro número.`, 7000);
+    const existente = equipsDoContratoPat().find(e => String(e.tag).trim() === novaTag);
+    if (existente && (tipo !== 'instalar' || equipamentoOperante(existente))) {
+      showToast(`A TAG ${novaTag} já existe neste contrato. Use uma nova instalação apenas para reativar uma TAG inoperante.`, 7000);
       return;
     }
   }
@@ -1146,7 +1154,7 @@ async function saveMovimento(btn) {
     tipo, contrato,
     // Instalação não tem motivo. A regra também é reforçada pelo backend.
     motivo: tipo === 'instalar' ? '' : motivo,
-    tag:              tipo==='realocar'||tipo==='baixar' ? tag : '',
+    tag:              tipo==='desmontar'||tipo==='baixar' ? tag : '',
     novaTag:          tipo==='instalar'||tipo==='adicionar' ? novaTag : '',
     marca:            document.getElementById('f-marca')?.value.trim()||'',
     tipoEquip:        document.getElementById('f-tipo-equip')?.value.trim()||'',
@@ -1191,7 +1199,7 @@ async function saveMovimento(btn) {
 function openReview(id, action) {
   reviewId = id;
   const m = movimentos.find(x=>x.id===id); if (!m) return;
-  const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
+  const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
   document.getElementById('modal-title').textContent = `Revisar: ${tipoLabel} — TAG ${m.tag||m.novaTag||'—'}`;
   document.getElementById('modal-details').innerHTML = `
     <strong>Contrato:</strong> ${esc(m.contrato)}<br>
@@ -1338,7 +1346,7 @@ function loadHistTags() {
   const db = getEffDB() || {};
   const equips = db[contrato] || [];
   if (dl) {
-    dl.innerHTML = equips.map(e => `<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${esc(e.tipo||'')} ${esc(e.marca||'')}${e._inativo?' (BAIXADO)':''}</option>`).join('');
+    dl.innerHTML = equips.map(e => `<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${esc(e.tipo||'')} ${esc(e.marca||'')}${equipamentoOperante(e) ? ' (OPERANTE)' : ' (' + textoStatusEquipamento(e).toUpperCase() + ')'}</option>`).join('');
   }
 }
 
@@ -1374,6 +1382,11 @@ async function openEquipHistory() {
     events.push({ ts: equipRaw._baixadoEm, type: 'baixa', icon:'🔴', color:'#dc2626',
       title: 'Equipamento baixado',
       desc: `Motivo: ${equipRaw._motivoBaixa||'—'} · Por ${equipRaw._baixadoPor||'—'}` });
+  }
+  if (equipRaw._desmontadoEm) {
+    events.push({ ts: equipRaw._desmontadoEm, type: 'desmontagem', icon:'🧰', color:'#2563eb',
+      title: 'Equipamento desmontado',
+      desc: `Motivo: ${equipRaw._motivoDesmontagem||'—'} · Por ${equipRaw._desmontadoPor||'—'}` });
   }
 
   // 2. Chamados
@@ -1417,7 +1430,7 @@ async function openEquipHistory() {
   // 5. Movimentações patrimoniais
   const movsList = (movimentos||[]).filter(m => m.contrato===contrato && (m.tag||'').toUpperCase()===tag);
   movsList.forEach(m => {
-    const tipos = { instalar:'📥 Instalação', realocar:'🔄 Realocação', baixar:'🔴 Baixa', adicionar:'➕ Adição' };
+    const tipos = { instalar:'📥 Instalação', desmontar:'🧰 Desmontagem', realocar:'🧰 Desmontagem', baixar:'🔴 Baixa', adicionar:'➕ Adição' };
     events.push({ ts: m.createdAt || Date.now(), type:'movimentacao', icon:'📋', color:'#7c3aed',
       title: `Solicitação: ${tipos[m.tipo]||m.tipo}`,
       desc: m.motivo || '—',
@@ -1432,7 +1445,8 @@ async function openEquipHistory() {
 }
 
 function renderEquipHistoryModal(equip, contrato, events) {
-  const isInativo = equip._inativo;
+  const isInativo = !equipamentoOperante(equip);
+  const statusEquip = textoStatusEquipamento(equip);
   let modal = document.getElementById('equip-history-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -1447,8 +1461,8 @@ function renderEquipHistoryModal(equip, contrato, events) {
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:18px;font-weight:700;color:#0f172a">
-              ${isInativo?'🔴 ':''}${equip.tag}
-              ${isInativo?'<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">BAIXADO</span>':''}
+              ${isInativo?'🔴 ':'🟢 '}${equip.tag}
+              ${isInativo ? '<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">' + statusEquip.toUpperCase() + '</span>' : '<span style="background:#16a34a;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">OPERANTE</span>'}
             </div>
             <div style="font-size:12px;color:#64748b;margin-top:2px">
               ${equip.marca||''} ${equip.tipo||''} ${equip.capacidade||''}

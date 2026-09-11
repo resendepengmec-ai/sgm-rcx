@@ -642,7 +642,7 @@ async function render() {
   if (filtMovimentos.length) {
     document.getElementById('section-patrimonio').style.display='';
     const porStatus = st => filtMovimentos.filter(m=>m.status===st).length;
-    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'};
     const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
     document.getElementById('patrimonio-kpis').innerHTML = `
       <div class="kpi"><div class="kpi-val">${filtMovimentos.length}</div><div class="kpi-label">Total</div></div>
@@ -1107,7 +1107,7 @@ async function generatePDF() {
 
   // Patrimônio
   if (movimentos.length) {
-    const tipoLabel = {instalar:'Instalar',realocar:'Realocar',baixar:'Baixar',adicionar:'Adicionar'};
+    const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'};
     const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
     const porStatus = st => movimentos.filter(m=>m.status===st).length;
     addSection(`Movimentações de patrimônio (${movimentos.length})`);

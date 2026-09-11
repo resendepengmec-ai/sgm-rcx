@@ -850,6 +850,10 @@ async function saveChamado(btn) {
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!equip)  { showToast('Informe a TAG do equipamento'); return; }
   if (!desc)   { showToast('Descreva o problema'); return; }
+  const equipamento = encontrarEquipamento(client, equip);
+  if (equipamento && !equipamentoOperante(equipamento)) {
+    showToast('A TAG ' + equip + ' está ' + textoStatusEquipamento(equipamento) + ' e não pode receber chamados.', 7000); return;
+  }
   const c = {
     id: editingId || genId(),
     client, equip,
@@ -1129,7 +1133,7 @@ function onTagInput(){
 function showTagSuggestions(q){
   const contract=document.getElementById('f-client').value;
   if(!contract){showToast('Selecione o contrato primeiro');return;}
-  const list=(getEffDB()[contract]||[]).filter(m=>!m._inativo);
+  const list=(getEffDB()[contract]||[]).filter(m=>equipamentoOperante(m));
   const qLow = q.toLowerCase();
   const matches=list.filter(m=>{
     const tag = (m.tag||'').toString().toLowerCase();

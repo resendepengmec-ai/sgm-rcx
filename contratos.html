@@ -767,6 +767,7 @@ function handleEquipFile(e) {
       const tag = (novo.tag||novo['tag']||'').toString().toUpperCase().trim();
       if (!tag) return;
       novo.tag = tag;
+      if (!novo.status) novo.status = 'operante';
 
       const idx = result.findIndex(eq =>
         (eq.tag||eq['tag']||'').toString().toUpperCase().trim() === tag
@@ -777,11 +778,12 @@ function handleEquipFile(e) {
         adicionados++;
       } else {
         const existente = result[idx];
-        if (existente._inativo) {
+        if (!equipamentoOperante(existente)) {
           ignorados++;
         } else {
-          const campos_patrimonio = ['_inativo','_baixadoEm','_baixadoPor','_motivoBaixa',
-                                     '_realocadoEm','_realocadoPor','_instaladoEm','_instaladoPor'];
+          const campos_patrimonio = ['status','_inativo','_baixadoEm','_baixadoPor','_motivoBaixa',
+                                     '_desmontadoEm','_desmontadoPor','_motivoDesmontagem',
+                                     '_statusHistorico','_realocadoEm','_realocadoPor','_instaladoEm','_instaladoPor'];
           const preservado = {};
           campos_patrimonio.forEach(k => { if (existente[k]) preservado[k] = existente[k]; });
           result[idx] = { ...existente, ...novo, ...preservado };
@@ -792,16 +794,16 @@ function handleEquipFile(e) {
 
     pendingEquip = result;
 
-    const ativos  = result.filter(r=>!r._inativo).length;
-    const inativos= result.filter(r=>r._inativo).length;
+    const ativos  = result.filter(r=>equipamentoOperante(r)).length;
+    const inativos= result.filter(r=>!equipamentoOperante(r)).length;
     document.getElementById('equip-count').textContent = ativos;
     document.getElementById('equip-preview').style.display = '';
     document.getElementById('equip-sample').innerHTML =
       `<div style="font-size:11px;line-height:1.8;color:var(--text-2)">
         ✅ <strong>${adicionados}</strong> adicionados &nbsp;·&nbsp;
         ✏️ <strong>${atualizados}</strong> atualizados &nbsp;·&nbsp;
-        ${inativos>0 ? `🔴 <strong>${inativos}</strong> baixados (preservados) &nbsp;·&nbsp;` : ''}
-        ${ignorados>0 ? `⚠️ <strong>${ignorados}</strong> ignorados (já baixados)` : ''}
+        ${inativos>0 ? `🔴 <strong>${inativos}</strong> inoperantes (preservados) &nbsp;·&nbsp;` : ''}
+        ${ignorados>0 ? `⚠️ <strong>${ignorados}</strong> ignorados (já inoperantes)` : ''}
         <br>Total ativo: ${ativos} equipamentos
       </div>`;
 
@@ -1047,7 +1049,7 @@ function checkExistingClient() {
   // Agrupa equipamentos únicos por TAG (evita duplicatas entre contratos do mesmo cliente)
   box.style.display = '';
   list.innerHTML = found.map(c => {
-    const nEquip = (c.equipamentos||[]).filter(e=>!e._inativo).length;
+    const nEquip = (c.equipamentos||[]).filter(e=>equipamentoOperante(e)).length;
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:#fff;border-radius:6px;margin-bottom:6px;border:1px solid #e2e8f0">
       <div>
         <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${esc(c.numero)} — ${esc(c.razao)}</div>
@@ -1064,7 +1066,7 @@ function checkExistingClient() {
 function importFromContract(cid) {
   const src = contracts.find(c => c.id === cid);
   if (!src || !src.equipamentos) { showToast('Contrato não encontrado'); return; }
-  const equips = src.equipamentos.filter(e => !e._inativo);
+  const equips = src.equipamentos.filter(e => equipamentoOperante(e));
   if (!equips.length) { showToast('Contrato origem sem equipamentos ativos'); return; }
 
   // Merge com o que já está no formulário
@@ -1081,11 +1083,11 @@ function importFromContract(cid) {
   });
   pendingEquip = existing;
 
-  document.getElementById('equip-count').textContent = pendingEquip.filter(e=>!e._inativo).length;
+  document.getElementById('equip-count').textContent = pendingEquip.filter(e=>equipamentoOperante(e)).length;
   document.getElementById('equip-preview').style.display = '';
   document.getElementById('equip-sample').innerHTML = `<div style="font-size:11px;color:#059669">
     ✅ ${added} equipamento(s) importado(s) do contrato ${src.numero}
-    <br>Total: ${pendingEquip.filter(e=>!e._inativo).length} equipamento(s)
+    <br>Total: ${pendingEquip.filter(e=>equipamentoOperante(e)).length} equipamento(s)
   </div>`;
   showToast(`${added} equipamentos importados de ${src.numero}`);
 }

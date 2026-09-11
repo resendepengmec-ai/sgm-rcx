@@ -1594,6 +1594,14 @@ function cancelNew() {
 function saveQuote(btn) {
   const client = document.getElementById('f-client').value.trim();
   if (!client) { showToast('Selecione o contrato'); return; }
+  const tagsOrcamento = escopoNovo === 'varias'
+    ? newItems.map(i => i.tag).filter(Boolean)
+    : [document.getElementById('f-equip')?.value.trim()].filter(Boolean);
+  const inoperantes = tagsOrcamento.map(tag => encontrarEquipamento(client, tag))
+    .filter(e => e && !equipamentoOperante(e));
+  if (inoperantes.length) {
+    showToast('A TAG ' + inoperantes[0].tag + ' está ' + textoStatusEquipamento(inoperantes[0]) + ' e não pode receber orçamento.', 7000); return;
+  }
   if (!newItems.length) { showToast('Adicione pelo menos um serviço'); return; }
   const numero = (document.getElementById('f-numero')?.value || '').trim();
   if (!numero) { showToast('Informe o nº ou nome do orçamento'); return; }

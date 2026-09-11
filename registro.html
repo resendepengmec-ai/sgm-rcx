@@ -1032,6 +1032,10 @@ function saveRecord(btn) {
     equip = document.getElementById('f-equip').value.trim();
     if (!client) { showToast('Selecione o contrato'); return; }
     if (!equip) { showToast('Informe a TAG do equipamento'); return; }
+    const equipamento = encontrarEquipamento(client, equip);
+    if (equipamento && !equipamentoOperante(equipamento)) {
+      showToast('A TAG ' + equip + ' está ' + textoStatusEquipamento(equipamento) + ' e não pode receber manutenção.', 7000); return;
+    }
     machine = selectedMachine || null;
   }
 
@@ -1514,7 +1518,7 @@ function onTagInput(){
 function showTagSuggestions(q){
   const contract = document.getElementById('f-client').value;
   if(!contract){ showToast('Selecione o contrato primeiro'); return; }
-  const list = (getEffDB()[contract]||[]).filter(m=>!m._inativo);
+  const list = (getEffDB()[contract]||[]).filter(m=>equipamentoOperante(m));
   const qLow = q.toLowerCase();
   const matches = list.filter(m=>{
     const tag = (m.tag||'').toString().toLowerCase();

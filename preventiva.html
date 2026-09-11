@@ -911,7 +911,7 @@ function renderBatchPanel() {
     return;
   }
   const db = getEffDB();
-  const equips = (db[contract] || []).filter(e=>!e._inativo);
+  const equips = (db[contract] || []).filter(e=>equipamentoOperante(e));
   const byEstab = {};
   equips.forEach(e => {
     const est = e.estabelecimento || 'Sem estabelecimento';
@@ -965,7 +965,7 @@ function saveBatchPlans(btn) {
   const restore = setActionBusy(btn, true, 'Enviando planos…');
 
   const db = getEffDB();
-  const equips = (db[client] || []).filter(e=>!e._inativo);
+  const equips = (db[client] || []).filter(e=>equipamentoOperante(e));
   let created = 0;
   entries.forEach(([est, level]) => {
     const items = equips.filter(e => (e.estabelecimento||'Sem estabelecimento') === est);
