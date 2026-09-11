@@ -279,7 +279,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
   DB.getAll('registros').then(data => {
-    if (data && data.length > 0) {
+    if (Array.isArray(data)) {
       records = data;
       saveRegistrosLocal();
       renderRecordList();
@@ -384,7 +384,7 @@ const SERVICES = [
 ];
 
 // ── State ──
-let records = JSON.parse(localStorage.getItem('registro_records') || '[]');
+let records = safeLocalStorageGetJSON('registro_records', []);
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
 const APP_BUILD = '2026-08-19.1';
@@ -420,7 +420,7 @@ function saveRegistrosLocal(){
     catch(e2){ console.warn('cache local cheio — seguindo sem cache:', e2.message); }
   }
 }
-let settings = JSON.parse(localStorage.getItem('registro_settings') || '{}');
+let settings = safeLocalStorageGetJSON('registro_settings', {});
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
   DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
@@ -524,7 +524,7 @@ function drawPdfFooters(doc, cont) {
     doc.setTextColor(0,0,0);
   }
 }
-let ordensCache = JSON.parse(localStorage.getItem('smm_ordens_servico') || '[]');
+let ordensCache = safeLocalStorageGetJSON('smm_ordens_servico', []);
 function loadOrdens() {
   DB.getOrdens().then(list => {
     ordensCache = list || [];
@@ -721,7 +721,7 @@ function printFilteredPDF() {
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
   const W=210, M=20, CW=W-M*2;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const contFilter = filterContract ? contracts.find(x=>x.numero===filterContract) : null;
 
   let y = drawPdfHeader(doc, { title: 'RELATÓRIO DE SERVIÇOS EXECUTADOS', metaLines: [] });
@@ -1001,7 +1001,7 @@ function onContractChange() {
   const container = document.getElementById('svc-checklist-container');
   const num = document.getElementById('f-client')?.value;
   if (!num) { if (container) container.innerHTML = ''; return; }
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(c => c.numero === num);
   const svcs = cont?.servicos || [];
   if (svcs.length) renderOSChecklist(svcs);
@@ -1231,7 +1231,7 @@ function closeServiceModal(){ document.getElementById('service-modal').classList
 // porque é um marcador de status (preenche a observação), não um serviço.
 function _getAvailableServices() {
   const contract = document.getElementById('f-client')?.value;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const c = contracts.find(x => x.numero === contract);
   const custom = (c?.servicos || []).map(s => ({
     name: s.name,
@@ -1696,7 +1696,7 @@ function printPDF(id){
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   const W=210, M=20, CW=W-M*2;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(x=>x.numero===r.client);
 
   let y = drawPdfHeader(doc, {
@@ -1877,7 +1877,7 @@ async function populateContractDropdownsReg() {
     const contratos = await DB.getContratos();
     // Mantém o cache local completo (equipamentos inclusos) atualizado —
     // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
-    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
     // O backend já retorna só os contratos permitidos pro usuário — não
     // precisa refiltrar aqui (o filtro antigo comparava como valor único e
     // quebrava quando o usuário tinha mais de um contrato vinculado).
@@ -1959,7 +1959,7 @@ function renderOSList() {
     return `
       <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">${titulo}</div>
       ${items.map(o => {
-        const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+        const chamados = safeLocalStorageGetJSON('chamados_list', []);
         const c = chamados.find(x=>x.id===o.chamadoId)||{};
         const statusStyle = {
           aberta:     'background:#fef3c7;color:#92400e',
@@ -2013,10 +2013,10 @@ function renderOSList() {
 // ── Envio para assinatura do cliente (fatia 4b) ───────────────────
 let _respCache = null;
 function _contratoAssinaturaOn(numero){
-  try{ const cs=JSON.parse(localStorage.getItem('smm_contracts')||'[]'); const c=cs.find(x=>String(x.numero)===String(numero)); return !!(c&&c.assinaturaClientePorEstab); }catch(e){ return false; }
+  try{ const cs=safeLocalStorageGetJSON('smm_contracts', []); const c=cs.find(x=>String(x.numero)===String(numero)); return !!(c&&c.assinaturaClientePorEstab); }catch(e){ return false; }
 }
 function _contratoRazao(numero){
-  try{ const cs=JSON.parse(localStorage.getItem('smm_contracts')||'[]'); const c=cs.find(x=>String(x.numero)===String(numero)); return c?(c.razao||''):''; }catch(e){ return ''; }
+  try{ const cs=safeLocalStorageGetJSON('smm_contracts', []); const c=cs.find(x=>String(x.numero)===String(numero)); return c?(c.razao||''):''; }catch(e){ return ''; }
 }
 function _openAssinModal(inner){
   let m=document.getElementById('asn-modal');
@@ -2258,7 +2258,7 @@ function iniciarRegistroOS(osId) {
     if (solInput) {
       let solDate = '';
       try {
-        const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+        const chamados = safeLocalStorageGetJSON('chamados_list', []);
         const ch = chamados.find(x=>x.id===os.chamadoId);
         if (ch && ch.date) solDate = ch.date;
       } catch(e){}
@@ -2284,7 +2284,7 @@ function iniciarRegistroOS(osId) {
     // O técnico marca quais foram executados
     const contratoNumero = os.contrato || os.client;
     if (contratoNumero) {
-      const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+      const contracts = safeLocalStorageGetJSON('smm_contracts', []);
       const cont = contracts.find(c => c.numero === contratoNumero);
       const svcs = cont?.servicos || [];
       if (svcs.length) {

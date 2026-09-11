@@ -357,9 +357,9 @@ try { guardaDeModulo('chamados'); } catch (e) {}
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
   DB.getAll('chamados').then(data => {
-    if (data && data.length > 0) {
+    if (Array.isArray(data)) {
       chamados = data;
-      localStorage.setItem('chamados_list', JSON.stringify(data));
+      safeLocalStorageSetJSON('chamados_list', data, { stripBinaries: true });
       renderList();
     }
   }).catch(() => {});
@@ -395,8 +395,8 @@ try { guardaDeModulo('chamados'); } catch (e) {}
 <script>
 
 // ── State ──
-let chamados = JSON.parse(localStorage.getItem('chamados_list') || '[]');
-let settings = JSON.parse(localStorage.getItem('chamados_settings') || '{}');
+let chamados = safeLocalStorageGetJSON('chamados_list', []);
+let settings = safeLocalStorageGetJSON('chamados_settings', {});
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
   DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
@@ -457,11 +457,11 @@ function drawPdfFooters(doc, cont) {
     doc.setTextColor(0,0,0);
   }
 }
-let ordensCache = JSON.parse(localStorage.getItem('smm_ordens_servico') || '[]');
+let ordensCache = safeLocalStorageGetJSON('smm_ordens_servico', []);
 function loadOrdens() {
   DB.getOrdens().then(list => {
     ordensCache = list || [];
-    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_ordens_servico', ordensCache);
     if (currentDetailId) openDetail(currentDetailId); // re-renderiza modal aberto, se houver
     // A fila de triagem exclui chamados que já têm O.S., então o contador
     // só fica correto depois que as O.S. chegam do servidor.
@@ -683,7 +683,7 @@ async function populateContractDropdowns() {
     // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
     // Sem isso, ficava preso ao que contratos.html tivesse gravado por
     // último (ou vazio, se o usuário nunca tivesse aberto lá).
-    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
 
     const user = getCurrentUser();
     const userContract = user?.contract;
@@ -881,7 +881,7 @@ async function saveChamado(btn) {
       DB.getOrdensByChamado(c.id).then(list => {
         if (list && list.length) {
           ordensCache = [...list, ...ordensCache.filter(o=>o.chamadoId!==c.id)];
-          try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+          safeLocalStorageSetJSON('smm_ordens_servico', ordensCache);
           showToast(`📋 O.S. ${list[0].numero} gerada automaticamente`, 4000);
         } else {
           showToast('📨 Chamado registrado. Aguardando avaliação para gerar a O.S.', 5000);
@@ -916,7 +916,7 @@ async function deleteChamado(id, btn) {
   try {
     await DB.delete('chamados', id);
     chamados=chamados.filter(c=>c.id!==id);
-    try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+    safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
     renderList(); closeDetailModal(); showToast('Chamado excluído');
   } catch (e) {
     showToast('Erro ao excluir no servidor: ' + e.message, 7000);
@@ -928,7 +928,7 @@ function updateStatus(id, status) {
   const c=chamados.find(x=>x.id===id); if(!c) return;
   const prev = c.status;
   c.status = status; // otimista
-  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+  safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
   openDetail(id);
   DB.updateChamadoStatus(id, status).then(r => {
     renderList();
@@ -937,7 +937,7 @@ function updateStatus(id, status) {
     }
   }).catch(e => {
     c.status = prev; // reverte em caso de falha (ex.: sem permissão)
-    try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e2) {}
+    safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
     showToast('Erro ao alterar status: ' + e.message);
     openDetail(id);
   });
@@ -945,7 +945,7 @@ function updateStatus(id, status) {
 
 function persist(record) {
   // Cache local
-  try { localStorage.setItem('chamados_list', JSON.stringify(chamados)); } catch(e) {}
+  safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
   renderList();
   // Sync backend (registro explícito, se informado; senão o mais recente)
   const last = record || chamados[0];
@@ -1250,7 +1250,7 @@ function printPDF(id){
   const W=210,M=20,CW=W-M*2;
   const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
   const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(x=>x.numero===c.client);
 
   let y = drawPdfHeader(doc, {
@@ -1329,7 +1329,7 @@ function printFilteredPDF(){
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const W=210,M=20,CW=W-M*2;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const contFilter = filterContract ? contracts.find(x=>x.numero===filterContract) : null;
 
   let y = drawPdfHeader(doc, { title: 'RELATÓRIO DE CHAMADOS', metaLines: [] });
@@ -1474,7 +1474,7 @@ function gerarOS(chamadoId, btn) {
   const restore = setActionBusy(btn, true, 'Enviando O.S.…');
   DB.saveOrdem(os).then(() => {
     ordensCache.unshift(os);
-    try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_ordens_servico', ordensCache);
     // Muda status do chamado para em andamento
     if (c.status==='aberto') { c.status='andamento'; persist(); }
     showToast(`✅ ${numero} gerada! Disponível em Registros → O.S. Pendentes`);

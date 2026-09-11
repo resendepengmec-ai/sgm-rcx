@@ -1457,7 +1457,7 @@ async function openEquipHistory() {
 
   // 2. Chamados
   try {
-    const chamados = JSON.parse(localStorage.getItem('chamados_list')||'[]');
+    const chamados = safeLocalStorageGetJSON('chamados_list', []);
     chamados.filter(c => c.client===contrato && (c.equip||'').toUpperCase()===tag).forEach(c => {
       events.push({ ts: c.createdAt || new Date(c.date||Date.now()).getTime(), type:'chamado', icon:'🔔', color:'#d97706',
         title: `Chamado — ${c.priority||'normal'}`,
@@ -1468,7 +1468,7 @@ async function openEquipHistory() {
 
   // 3. Registros de manutenção
   try {
-    const regs = JSON.parse(localStorage.getItem('registro_records')||'[]');
+    const regs = safeLocalStorageGetJSON('registro_records', []);
     regs.filter(r => (r.client||r.contract)===contrato && (r.equip||r.tag||'').toUpperCase()===tag).forEach(r => {
       const svcs = (r.items||[]).map(i => i.name||i.service||String(i)).join(', ');
       events.push({ ts: r.createdAt || new Date(r.date||Date.now()).getTime(), type:'registro', icon:'🔧', color:'#0284c7',
@@ -1480,7 +1480,7 @@ async function openEquipHistory() {
 
   // 4. Preventiva
   try {
-    const plans = JSON.parse(localStorage.getItem('prev_plans')||'[]');
+    const plans = safeLocalStorageGetJSON('prev_plans', []);
     plans.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
       (p.equipments||[]).filter(eq => (eq.tag||'').toUpperCase()===tag).forEach(eq => {
         (p.execucoes||[]).forEach(ex => {

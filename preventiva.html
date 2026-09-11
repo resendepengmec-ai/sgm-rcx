@@ -383,7 +383,7 @@ const LEVEL_BG    = {1:'#eff6ff',  2:'#fffbeb', 3:'#fef2f2'};
 const LEVEL_BADGE = {1:'badge-n1', 2:'badge-n2', 3:'badge-n3'};
 
 // ── State ──
-let plans = JSON.parse(localStorage.getItem('prev_plans') || '[]');
+let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
@@ -557,7 +557,7 @@ async function populateContractDropdowns() {
     const contratos = await DB.getContratos();
     // Mantém o cache local completo (equipamentos inclusos) atualizado —
     // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
-    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
     const user = getCurrentUser();
     const userContract = user?.contract;
     const visible = userContract
@@ -1648,7 +1648,7 @@ function generatePlanPDF(plan, sharedDoc) {
   let y = M;
   const color = LEVEL_COLOR[plan.level].replace('#','');
   const r = parseInt(color.slice(0,2),16), g=parseInt(color.slice(2,4),16), b=parseInt(color.slice(4,6),16);
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(x=>x.numero===plan.client);
 
   function header(label) {
@@ -1812,7 +1812,7 @@ async function printFilteredPDF() {
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm', format:'a4'});
   const W=210, M=20, CW=W-M*2;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const contFilter = fContract ? contracts.find(x=>x.numero===fContract) : null;
 
   // Capa: resumo tabular de todos os planos filtrados

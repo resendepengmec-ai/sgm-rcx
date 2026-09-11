@@ -103,7 +103,7 @@ const laudoDel   = id => laudoAPI('DELETE',`/laudos/${id}`);
 const laudoTexto = p  => laudoAPI('POST','/laudo/gerar-texto',p);
 
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function contratos(){ try{ return JSON.parse(localStorage.getItem('smm_contracts')||'[]'); }catch(e){ return []; } }
+function contratos(){ return safeLocalStorageGetJSON('smm_contracts', []); }
 function contratoSel(){ const el=document.getElementById('l-contract'); const n=el?el.value:''; return contratos().find(c=>String(c.numero)===String(n)) || null; }
 function cidadeDoEndereco(end){
   if(!end) return '';
@@ -121,7 +121,7 @@ function cidadeDoEndereco(end){
   }
   const bm=document.getElementById('l-build'); if(bm) bm.textContent='v'+LAUDO_BUILD;
   try{ prestadora = await DB.getPrestadoraConfig() || {}; }catch(e){ prestadora = {}; }
-  try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) localStorage.setItem('smm_contracts', JSON.stringify(cs)); }catch(e){}
+  try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) safeLocalStorageSetJSON('smm_contracts', cs, { stripBinaries: true }); }catch(e){}
   renderForm();
   renderItens();
   loadLaudos();

@@ -484,11 +484,11 @@ function renderDashboard(user) {
   const role = ROLES[user.role] || {};
   const users = getUsers();
   const wl = getWhitelist();
-  const chamados  = JSON.parse(localStorage.getItem('chamados_list')     || '[]');
-  const registros = JSON.parse(localStorage.getItem('registro_records')  || '[]');
-  const orcamentos= JSON.parse(localStorage.getItem('orcamento_quotes')  || '[]');
-  const contratos = JSON.parse(localStorage.getItem('smm_contracts')     || '[]');
-  const movs      = JSON.parse(localStorage.getItem('smm_movimentacoes') || '[]');
+  const chamados  = safeLocalStorageGetJSON('chamados_list', []);
+  const registros = safeLocalStorageGetJSON('registro_records', []);
+  const orcamentos= safeLocalStorageGetJSON('orcamento_quotes', []);
+  const contratos = safeLocalStorageGetJSON('smm_contracts', []);
+  const movs      = safeLocalStorageGetJSON('smm_movimentacoes', []);
   const movPendentes = movs.filter(m=>m.status==='pendente').length;
   const abertos = chamados.filter(c=>c.status==='aberto').length;
   const mes = new Date().toISOString().slice(0,7);
@@ -501,7 +501,7 @@ function renderDashboard(user) {
     ...orcamentos.map(o=>({ts:o.createdAt,icon:'📄',color:'#2563eb',text:`Orçamento — Contrato ${o.client||'?'} TAG ${o.equip||'?'}`})),
   ].sort((a,b)=>b.ts-a.ts).slice(0,6);
 
-  const plans = JSON.parse(localStorage.getItem('prev_plans') || '[]');
+  const plans = safeLocalStorageGetJSON('prev_plans', []);
   const allModules = [
     {id:'chamados', icon:'🔔',name:'Chamados',  desc:'Abertura e acompanhamento de chamados',  count:`${abertos} aberto${abertos!==1?'s':''}`,   file:'chamados.html'},
     {id:'registro', icon:'🔧',name:'Registros', desc:'Registro de serviços executados',          count:`${regMes} este mês`,                         file:'registro.html'},
@@ -641,7 +641,7 @@ function _fmtCel(c){ c=String(c||'').replace(/\D/g,''); if(c.length===11)return 
 async function renderResponsaveisTab(el) {
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
   try { _responsaveis = await DB.getResponsaveis(); } catch(e){ _responsaveis = []; }
-  const contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contratos = safeLocalStorageGetJSON('smm_contracts', []);
   const habilitados = contratos.filter(c => c.assinaturaClientePorEstab);
   const opts = habilitados.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
   el.innerHTML = `
@@ -773,7 +773,7 @@ function _renderUsersList(el, users, currentUser) {
   }
   // Cruza com whitelist para saber o contrato vinculado
   const wl = getWhitelist();
-  const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contractsList = safeLocalStorageGetJSON('smm_contracts', []);
 
   const usersWithContracts = users.map(u => {
     const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
@@ -857,7 +857,7 @@ function _renderWLContent(el, wl) {
   const pendentes = wlEnhanced.filter(e => !e.hasAccount && !e.usedAt);
 
   // Lista de contratos disponíveis para os selects
-  const contractsList = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contractsList = safeLocalStorageGetJSON('smm_contracts', []);
 
   const isAdmin = getCurrentUser()?.role === 'admin';
   const renderRow = (e) => {
@@ -1314,7 +1314,7 @@ function processDbFile(file) {
 
 function applyNewDB() {
   if (!pendingDB) return;
-  localStorage.setItem('smm_custom_db', JSON.stringify(pendingDB));
+  safeLocalStorageSetJSON('smm_custom_db', pendingDB, { stripBinaries: true });
   // db.js fallback: also set MACHINE_DB in window for current session
   window.MACHINE_DB = pendingDB;
   showToast('Banco de dados atualizado!');
@@ -1591,10 +1591,10 @@ if (_user) {
 }
 
 // ── Compatibilidade v4 — substitui funções do auth.js antigo ─────
-function getUsers()         { return JSON.parse(localStorage.getItem('smm_users_cache') || '[]'); }
-function saveUsers(u)       { localStorage.setItem('smm_users_cache', JSON.stringify(u)); }
-function getWhitelist()     { return JSON.parse(localStorage.getItem('smm_whitelist_cache') || '[]'); }
-function saveWhitelist(w)   { localStorage.setItem('smm_whitelist_cache', JSON.stringify(w)); }
+function getUsers()         { return safeLocalStorageGetJSON('smm_users_cache', []); }
+function saveUsers(u)       { safeLocalStorageSetJSON('smm_users_cache', u); }
+function getWhitelist()     { return safeLocalStorageGetJSON('smm_whitelist_cache', []); }
+function saveWhitelist(w)   { safeLocalStorageSetJSON('smm_whitelist_cache', w); }
 function isAdminDevice()    { return getCurrentUser()?.role === 'admin'; }
 function markAsAdminDevice(){ /* v4: handled by backend */ }
 function getAdminEmail()    { return null; }

@@ -2,6 +2,71 @@
 // Substitui o auth.js standalone. Toda lógica de dados vai para o backend.
 // Configure SMM_API_URL antes de usar, ou deixe vazio para URL relativa.
 
+// Cache local nunca é a fonte de verdade. Ele serve apenas como uma cópia
+// auxiliar para abrir a tela mais rápido/offline e, por isso, toda leitura e
+// escrita precisa ser tolerante a cache corrompido ou quota cheia. Em especial
+// não guardamos fotos/documentos base64 no localStorage: no Safari/iOS isso
+// esgota a quota e pode interromper o render da resposta recém-chegada do API.
+function safeLocalStorageGet(key, fallback = null) {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value;
+  } catch (_) { return fallback; }
+}
+
+function safeLocalStorageGetJSON(key, fallback) {
+  const raw = safeLocalStorageGet(key, null);
+  if (raw === null || raw === '') return fallback;
+  try { return JSON.parse(raw); } catch (_) { return fallback; }
+}
+
+function _cacheSemBinarios(value, seen = new WeakSet()) {
+  if (!value || typeof value !== 'object') return value;
+  if (seen.has(value)) return null;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const out = value.map(item => _cacheSemBinarios(item, seen));
+    seen.delete(value);
+    return out;
+  }
+  const out = {};
+  Object.keys(value).forEach(key => {
+    const lower = key.toLowerCase();
+    const item = value[key];
+    // Campos usados pelos módulos para anexos/fotos/documentos e payloads
+    // binários. Metadados (nome, hash, tipo, data) continuam no cache.
+    if (['dataurl', 'data_url', 'base64', 'bytes'].includes(lower)) return;
+    if (lower === 'data' && typeof item === 'string' && (item.length > 2048 || /^data:/i.test(item))) return;
+    if (lower === 'content' && typeof item === 'string' && item.length > 2048) return;
+    if ((lower === 'url' || lower === 'src') && typeof item === 'string' && /^data:/i.test(item)) return;
+    out[key] = _cacheSemBinarios(item, seen);
+  });
+  seen.delete(value);
+  return out;
+}
+
+function safeLocalStorageSet(key, value) {
+  try { localStorage.setItem(key, String(value)); return true; }
+  catch (_) {
+    // Remove somente a entrada que falhou; nunca deixe uma exceção de cache
+    // impedir a atualização em memória ou a persistência no servidor.
+    try { localStorage.removeItem(key); } catch (_) {}
+    return false;
+  }
+}
+
+function safeLocalStorageSetJSON(key, value, { stripBinaries = false } = {}) {
+  try {
+    const payload = stripBinaries ? _cacheSemBinarios(value) : value;
+    return safeLocalStorageSet(key, JSON.stringify(payload));
+  } catch (_) { return false; }
+}
+
+window.safeLocalStorageGet = safeLocalStorageGet;
+window.safeLocalStorageGetJSON = safeLocalStorageGetJSON;
+window.safeLocalStorageSet = safeLocalStorageSet;
+window.safeLocalStorageSetJSON = safeLocalStorageSetJSON;
+
 const SMM_API_URL = (() => {
   // 1. Variável global (pode ser definida antes deste script)
   if (typeof window.SMM_API !== 'undefined') return window.SMM_API;
@@ -578,7 +643,7 @@ function getEffDB() {
   // 2. Constrói mapa contrato→equipamentos a partir de smm_contracts (fonte principal)
   let db = {};
   try {
-    const contracts = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+    const contracts = safeLocalStorageGetJSON('smm_contracts', []);
     contracts.forEach(c => {
       if (c.numero && Array.isArray(c.equipamentos)) {
         db[c.numero] = c.equipamentos;

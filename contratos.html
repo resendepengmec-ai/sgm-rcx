@@ -288,9 +288,9 @@ setTimeout(() => { try { guardaDeModulo('contratos'); } catch (e) {} }, 0);
   const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
   document.getElementById('fab')?.classList.toggle('hidden', !canCreateContractInit);
   DB.getContratos().then(data => {
-    if (data && data.length) {
+    if (Array.isArray(data)) {
       contracts = data;
-      localStorage.setItem('smm_contracts', JSON.stringify(data));
+      safeLocalStorageSetJSON('smm_contracts', data, { stripBinaries: true });
       renderList();
     }
   }).catch(()=>{}); }
@@ -303,11 +303,11 @@ let pendingEquip = null;
 let pendingDocs  = [];
 
 function load() {
-  contracts = JSON.parse(localStorage.getItem(CONTRACTS_KEY) || '[]');
+  contracts = safeLocalStorageGetJSON(CONTRACTS_KEY, []);
 }
 
 function save() {
-  localStorage.setItem(CONTRACTS_KEY, JSON.stringify(contracts));
+  safeLocalStorageSetJSON(CONTRACTS_KEY, contracts, { stripBinaries: true });
 }
 
 // ── Toast ─────────────────────────────────────────────────────────
@@ -738,7 +738,7 @@ async function saveContract(btn) {
     if (c.equipamentos.length) {
       const mdb = getEffDB() || {};
       mdb[c.numero] = c.equipamentos;
-      localStorage.setItem('smm_custom_db', JSON.stringify(mdb));
+      safeLocalStorageSetJSON('smm_custom_db', mdb, { stripBinaries: true });
       await DB.saveMachineDB(mdb).catch(()=>{});
     }
 
@@ -966,9 +966,9 @@ function showScreen(s) {
 load();
 renderList();
 DB.getContratos().then(data => {
-  if (data && data.length) {
+  if (Array.isArray(data)) {
     contracts = data;
-    localStorage.setItem(CONTRACTS_KEY, JSON.stringify(data));
+    safeLocalStorageSetJSON(CONTRACTS_KEY, data, { stripBinaries: true });
     renderList();
   }
 }).catch(() => {
@@ -990,9 +990,9 @@ function _sigTrail(sigs) {
 // ── Banco de dados (integrado de contratos) ───────────────────────
 
 function renderBancoTab(el) {
-  const customDb = localStorage.getItem('smm_custom_db');
+  const customDb = safeLocalStorageGet('smm_custom_db', '');
   let dbInfo = '';
-  const sourceDb = customDb ? JSON.parse(customDb) : (typeof MACHINE_DB!=='undefined'?MACHINE_DB:{});
+  const sourceDb = customDb ? safeLocalStorageGetJSON('smm_custom_db', {}) : (typeof MACHINE_DB!=='undefined'?MACHINE_DB:{});
   const contracts = Object.keys(sourceDb);
   if (contracts.length) {
     dbInfo = `<div class="db-info">

@@ -264,15 +264,15 @@ async function loadData() {
       DB.getContratos().catch(()=>[]),
     ]);
     // Fallback to localStorage
-    if (!chamados.length)  chamados  = JSON.parse(localStorage.getItem('chamados_list')||'[]');
-    if (!registros.length) registros = JSON.parse(localStorage.getItem('registro_records')||'[]');
-    if (!preventiva.length)preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]');
-    if (!contratos.length) contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+    if (!chamados.length)  chamados  = safeLocalStorageGetJSON('chamados_list', []);
+    if (!registros.length) registros = safeLocalStorageGetJSON('registro_records', []);
+    if (!preventiva.length)preventiva= safeLocalStorageGetJSON('prev_plans', []);
+    if (!contratos.length) contratos = safeLocalStorageGetJSON('smm_contracts', []);
   } catch(e) {
-    chamados  = JSON.parse(localStorage.getItem('chamados_list')||'[]');
-    registros = JSON.parse(localStorage.getItem('registro_records')||'[]');
-    preventiva= JSON.parse(localStorage.getItem('prev_plans')||'[]');
-    contratos = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+    chamados  = safeLocalStorageGetJSON('chamados_list', []);
+    registros = safeLocalStorageGetJSON('registro_records', []);
+    preventiva= safeLocalStorageGetJSON('prev_plans', []);
+    contratos = safeLocalStorageGetJSON('smm_contracts', []);
   }
   // Populate contract filter
   const sel = document.getElementById('f-contract');

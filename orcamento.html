@@ -407,9 +407,9 @@ try { guardaDeModulo('orcamento'); } catch (e) {}
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
   DB.getAll('orcamentos').then(data => {
-    if (data && data.length > 0) {
+    if (Array.isArray(data)) {
       quotes = data;
-      localStorage.setItem('orcamento_quotes', JSON.stringify(data));
+      safeLocalStorageSetJSON('orcamento_quotes', data, { stripBinaries: true });
       renderQuoteList();
     }
   }).catch(() => {});
@@ -456,7 +456,7 @@ const SERVICES = [
 ];
 
 // ── State ──
-let quotes = JSON.parse(localStorage.getItem('orcamento_quotes') || '[]');
+let quotes = safeLocalStorageGetJSON('orcamento_quotes', []);
 // (a variável  foi removida: os textos do PDF agora vêm da
 // leitura do pedido — remetente, cidade e descrições — ou são fixos,
 // no caso dos itens não incluídos.)
@@ -861,7 +861,7 @@ let impRespostas = {};   // dúvidas respondidas
 function impPrepararTela() {
   const sel = document.getElementById('imp-contrato');
   if (!sel) return;
-  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+  const contratos = safeLocalStorageGetJSON('smm_contracts', []);
   const atual = sel.value;
   sel.innerHTML = '<option value="">Selecione…</option>' +
     contratos.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao || '')}</option>`).join('');
@@ -1299,7 +1299,7 @@ function impGerar(btn) {
     .then(sig => { q._signatures = [sig]; return persist(q); })
     .catch(() => persist(q))
     .then(() => {
-      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+      safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
       renderQuoteList();
       switchTab('quotes');
       impRecomecar();
@@ -1311,7 +1311,7 @@ function impGerar(btn) {
       // salvo, e ele sumiria no próximo carregamento vindo do servidor.
       const i = quotes.findIndex(x => x.id === q.id);
       if (i >= 0) quotes.splice(i, 1);
-      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(_) {}
+      safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
       renderQuoteList();
       showToast('❌ O orçamento NÃO foi salvo: ' + (e.message || 'erro desconhecido'), 9000);
       restore();
@@ -1657,7 +1657,7 @@ function saveQuote(btn) {
       if (idx >= 0) {
         if (previous) quotes[idx] = previous; else quotes.splice(idx, 1);
       }
-      try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(_) {}
+      safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
       renderQuoteList();
       showToast('❌ O orçamento NÃO foi salvo: ' + (e.message || 'erro desconhecido'), 9000);
       restore();
@@ -1669,7 +1669,7 @@ async function deleteQuote(id, btn) {
   try {
     await DB.delete('orcamentos', id);
     quotes = quotes.filter(q => q.id !== id);
-    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+    safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
     closeDetailModal();
     renderQuoteList();
     showToast('Orçamento excluído');
@@ -1688,7 +1688,7 @@ async function deleteQuote(id, btn) {
 // salvar" sem nenhuma explicação na tela. Falha de gravação precisa ser
 // visível.
 function persist(record) {
-  localStorage.setItem('orcamento_quotes', JSON.stringify(quotes));
+  safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
   renderQuoteList();
   const last = record || quotes[0];
   if (!last) return Promise.resolve();
@@ -1793,7 +1793,7 @@ function _getAvailableServices(contratoExplicito) {
     || (abaImportarAtiva
         ? document.getElementById('imp-contrato')?.value
         : document.getElementById('f-client')?.value);
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const c = contracts.find(x => x.numero === contract);
   const custom = (c?.servicos || []).map(s => ({
     name: s.name,
@@ -2120,7 +2120,7 @@ function updateStatus(id, status, itensAprovados) {
 
   const prev = q.status;
   q.status = status; // otimista
-  try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+  safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
   renderQuoteList();
   DB.updateOrcamentoStatus(id, status, itensAprovados).then(r => {
     // O servidor pode ter convertido "parcial" em "completo" (quando todos
@@ -2130,14 +2130,14 @@ function updateStatus(id, status, itensAprovados) {
       showToast('Todos os itens marcados — registrado como Aprovado completo');
     }
     if (r?.orcamento?.items) q.items = r.orcamento.items;
-    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e) {}
+    safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
     if ((status === 'approved' || status === 'approved_partial') && r?.ordem) {
       showToast(`✅ Orçamento aprovado — O.S. ${r.ordem.numero} disponível em Registro → O.S. Pendentes`);
     }
     if (currentDetailId === id) openDetail(id);
   }).catch(e => {
     q.status = prev; // reverte em caso de falha (ex.: sem permissão)
-    try { localStorage.setItem('orcamento_quotes', JSON.stringify(quotes)); } catch(e2) {}
+    safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
     showToast('Erro ao alterar status: ' + e.message);
     renderQuoteList();
     if (currentDetailId === id) openDetail(id);
@@ -2488,7 +2488,7 @@ function printConsolidatedPDF(unitName, unitQuotes) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });   // modelo é Carta
 
-  const contratos = JSON.parse(localStorage.getItem('smm_contracts') || '[]');
+  const contratos = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = unitQuotes[0] ? contratos.find(x => x.numero === unitQuotes[0].client) : null;
 
   // Número do orçamento: o do pedido importado, quando houver; senão o
@@ -2674,7 +2674,7 @@ function printPDF(id) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 20, CW = W - M*2;
   const lineH = 7;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(x=>x.numero===q.client);
 
   let y = drawPdfHeader(doc, {
@@ -2770,7 +2770,7 @@ async function populateContractDropdowns() {
     // é dele que _getAvailableServices() e getEffDB() leem os dados do
     // contrato selecionado. Sem isso, ficavam presos ao que contratos.html
     // tivesse gravado por último (ou vazio, se o usuário nunca abriu lá).
-    try { localStorage.setItem('smm_contracts', JSON.stringify(contratos)); } catch(e) {}
+    safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
 
     // O backend já retorna só os contratos permitidos pro usuário — não
     // precisa refiltrar aqui (o filtro antigo comparava como valor único e

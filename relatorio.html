@@ -318,6 +318,8 @@ function gradeDeFotos(doc, fotos, opts) {
   return y;
 }
 
+let _reportContracts = safeLocalStorageGetJSON('smm_contracts', []);
+
 function init() {
   // Default: mês atual pros dois campos
   const now = new Date();
@@ -329,14 +331,16 @@ function init() {
   // necessário pro filtro de TAG poder sugerir as TAGs do contrato)
   DB.getContratos().then(data => {
     if (data) {
-      localStorage.setItem('smm_contracts', JSON.stringify(data));
+      _reportContracts = data;
+      safeLocalStorageSetJSON('smm_contracts', data, { stripBinaries: true });
       const sel = document.getElementById('f-contrato');
       sel.innerHTML = '<option value="">Todos os contratos</option>' +
         data.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
       populateTagList();
     }
   }).catch(()=>{
-    const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+    _reportContracts = safeLocalStorageGetJSON('smm_contracts', []);
+    const contracts = _reportContracts;
     const sel = document.getElementById('f-contrato');
     sel.innerHTML = '<option value="">Todos os contratos</option>' +
       contracts.map(c=>`<option value="${c.numero}">${c.numero}</option>`).join('');
@@ -350,7 +354,7 @@ function init() {
 // selecionado (ou de todos os contratos, se nenhum estiver selecionado)
 function populateTagList() {
   const contrato = document.getElementById('f-contrato').value;
-  const contracts = JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts = _reportContracts;
   const relevantes = contrato ? contracts.filter(c=>c.numero===contrato) : contracts;
   const tags = [];
   relevantes.forEach(c => (c.equipamentos||[]).forEach(e => { if (e.tag) tags.push(e.tag); }));
@@ -403,7 +407,7 @@ function _semFotos(lista) {
 // falha em silêncio, que foi o que escondeu este problema.
 function _guardarReserva(chave, lista) {
   try {
-    localStorage.setItem(chave, JSON.stringify(_semFotos(lista)));
+    safeLocalStorageSetJSON(chave, _semFotos(lista));
   } catch (e) {
     console.warn('Cache de reserva não gravado (' + chave + '):', e.name);
     try { localStorage.removeItem(chave); } catch (_) {}
@@ -419,7 +423,7 @@ async function loadReportData() {
     } catch (e) {
       falhas.push(rot);
       // Sem servidor, usa a reserva local (sem fotos, mas com os dados).
-      try { _dados[destino] = JSON.parse(localStorage.getItem(chave) || '[]'); }
+      try { _dados[destino] = safeLocalStorageGetJSON(chave, []); }
       catch (_) { _dados[destino] = []; }
     }
   };
@@ -459,7 +463,7 @@ async function render() {
   const registros  = _dados.registros;
   const preventiva = _dados.preventiva;
   const movimentos = _dados.movimentacoes;
-  const contracts  = JSON.parse(localStorage.getItem('smm_contracts')   ||'[]');
+  const contracts  = _reportContracts;
 
   // Filter by period (intervalo início–fim, inclusive) + contract
   const inPeriod = (dateStr) => {
@@ -988,7 +992,7 @@ async function generatePDF() {
   const mesLabel = periodoIni === periodoFim
     ? labelOfPdf(periodoIni, {month:'long', year:'numeric'})
     : `${labelOfPdf(periodoIni, {month:'short', year:'numeric'})} a ${labelOfPdf(periodoFim, {month:'short', year:'numeric'})}`;
-  const contracts= JSON.parse(localStorage.getItem('smm_contracts')||'[]');
+  const contracts= _reportContracts;
   const cont     = contrato ? contracts.find(c=>c.numero===contrato) : null;
 
   const tagFilterPdf = document.getElementById('f-tag').value.trim().toUpperCase();
