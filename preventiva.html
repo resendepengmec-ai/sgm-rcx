@@ -607,7 +607,7 @@ function setSync(state, msg, onRetry){
 // manda as fotos JÁ sincronizadas sem os bytes (o servidor as preserva) —
 // assim um check não reenvia megabytes de foto.
 async function persist(record) {
-  const last = record || plans[0];
+  const last = record || plans.find(p => p.id === currentPlanId) || plans[0];
   if (last) { last.updatedAt = Date.now(); last._dirty = true; }
   saveLocal(); // cache local nunca falha
   if (!last) return true;
