@@ -147,6 +147,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 /* Buttons */
 .action-bar{display:flex;gap:10px;margin-top:16px;}
+.exec-backbar{display:flex;align-items:center;padding:0 0 12px;}
+.exec-backbar .btn{flex:0 1 auto;min-width:170px;}
 .btn{flex:1;padding:13px 14px;border-radius:var(--radius-sm);font-size:15px;font-weight:600;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s;}
 .btn:active{opacity:.8;}
 .btn-primary{background:var(--primary);color:#fff;}
@@ -301,6 +303,9 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 <!-- ── SCREEN: EXECUTION ── -->
 <div id="screen-exec" class="screen">
+  <div class="exec-backbar">
+    <button class="btn btn-secondary" type="button" onclick="switchTab('list')">← Voltar para a lista</button>
+  </div>
   <div id="exec-header-info" class="card" style="margin-bottom:12px"></div>
   <div class="summary-grid">
     <div class="summary-card"><div class="summary-val" id="exec-total">0</div><div class="summary-label">Equipamentos</div></div>
@@ -309,7 +314,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </div>
   <div id="exec-list"></div>
   <div class="action-bar">
-    <button class="btn btn-secondary" onclick="switchTab('list')">← Voltar</button>
+    <button class="btn btn-secondary" type="button" onclick="switchTab('list')">← Voltar para a lista</button>
     <button class="btn btn-success" onclick="finalizePlan(this)">✅ Finalizar</button>
     <button class="btn btn-primary" onclick="printExecPDF()">🖨️ PDF</button>
   </div>
@@ -387,7 +392,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-14.1';
+const APP_BUILD = '2026-09-14.2';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
