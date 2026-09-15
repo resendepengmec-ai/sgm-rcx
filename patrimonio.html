@@ -222,7 +222,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <!-- TAG existente (desmontagem / baixa) -->
     <div id="field-tag-existente" style="display:none" class="field">
       <label>TAG do equipamento *</label>
-      <input id="f-tag" type="text" list="tag-suggestions" placeholder="Digite ou selecione a TAG…" autocomplete="off">
+      <input id="f-tag" type="text" list="tag-suggestions" placeholder="Selecione o contrato primeiro…" autocomplete="off" disabled>
       <datalist id="tag-suggestions"></datalist>
       <div id="tag-info" style="font-size:12px;color:var(--text-2);margin-top:4px;display:none"></div>
     </div>
@@ -318,12 +318,8 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
          decisão quando alguém revisar meses depois. -->
     <div class="field" id="field-motivo">
       <label>Motivo / Justificativa *</label>
-      <textarea id="f-motivo" rows="3" placeholder="Descreva o motivo da movimentação…"></textarea>
-    </div>
-
-    <div class="field">
-      <label>Observações adicionais</label>
-      <textarea id="f-obs-mov" rows="2" placeholder="Informações complementares…"></textarea>
+      <textarea id="f-motivo" rows="3" placeholder="Clique em uma sugestão ou descreva o motivo…"></textarea>
+      <div id="motivo-sugestoes" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:7px"></div>
     </div>
 
     <div class="action-bar" style="margin-top:16px">
@@ -477,8 +473,11 @@ function showToast(msg, dur=2500) {
 // em vez de no cadastro do equipamento.
 
 const REL_M = 14, REL_W = 210, REL_H = 297;
+// IDs excluídos apenas da prévia atual; nada é removido do histórico.
+let relExcluidos = new Set();
 
 function prepararRelMov() {
+  relExcluidos = new Set();
   const sel = document.getElementById('rel-contrato');
   if (sel) {
     const selecionado = sel.value;
@@ -499,7 +498,8 @@ function prepararRelMov() {
 // Filtra pelo contrato, período e tipos selecionados. O relatório é uma
 // trilha patrimonial: inclui também pendentes e rejeitadas, sempre com o
 // respectivo status, para que o período reflita todas as solicitações.
-function movimentosDoRelatorio() {
+
+function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
@@ -508,30 +508,54 @@ function movimentosDoRelatorio() {
   const ini = de  ? new Date(de + 'T00:00:00').getTime()  : 0;
   const fim = ate ? new Date(ate + 'T23:59:59').getTime() : Infinity;
 
-  return (movimentos || []).filter(m => {
+  const base = (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
     if (!tipos.includes(m.tipo) && !(m.tipo === 'realocar' && tipos.includes('desmontar'))) return false;
     const ts = m.criadoEm || m.createdAt || m.ts || 0;
     return ts >= ini && ts <= fim;
   }).sort((a, b) => (a.criadoEm || a.createdAt || 0) - (b.criadoEm || b.createdAt || 0));
+  return incluirExcluidos ? base : base.filter(m => !relExcluidos.has(String(m.id)));
+}
+
+function toggleRelMov(id, incluir) {
+  const chave = String(id);
+  if (incluir) relExcluidos.delete(chave);
+  else relExcluidos.add(chave);
+  previewRelMov();
 }
 
 function previewRelMov() {
   const el = document.getElementById('rel-preview');
   if (!el) return;
-  const lista = movimentosDoRelatorio();
+  const candidatos = movimentosDoRelatorio({ incluirExcluidos: true });
+  const lista = candidatos.filter(m => !relExcluidos.has(String(m.id)));
   const comFotos = document.getElementById('rel-fotos')?.checked;
   const nFotos = comFotos ? lista.reduce((a, m) => a + (m.fotos?.length || 0), 0) : 0;
   const porTipo = {};
   lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
   const rot = { instalar: 'instalação', desmontar: 'desmontagem', realocar: 'desmontagem', baixar: 'baixa', adicionar: 'adição' };
 
-  el.innerHTML = lista.length
-    ? `<strong>${lista.length}</strong> movimentação(ões): ` +
-      Object.entries(porTipo).map(([t, n]) => `${n} ${rot[t] || t}`).join(' · ') +
-      (nFotos ? ` · ${nFotos} foto(s)` : '')
-    : 'Nenhuma movimentação no período.';
-  el.style.color = lista.length ? 'var(--text-2)' : 'var(--danger)';
+  const resumo = lista.length
+    ? '<strong>' + lista.length + '</strong> de ' + candidatos.length + ' movimentação(ões) selecionada(s): ' +
+      Object.entries(porTipo).map(([t, n]) => n + ' ' + (rot[t] || t)).join(' · ') +
+      (nFotos ? ' · ' + nFotos + ' foto(s)' : '')
+    : (candidatos.length ? 'Nenhuma movimentação selecionada.' : 'Nenhuma movimentação no período.');
+
+  const itens = candidatos.length
+    ? '<div style="margin-top:8px;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">' +
+      candidatos.map(m => {
+        const marcado = !relExcluidos.has(String(m.id));
+        const tipo = rot[m.tipo] || m.tipo || 'movimentação';
+        const quando = m.criadoEm || m.createdAt;
+        const data = quando ? new Date(quando).toLocaleDateString('pt-BR') : 'sem data';
+        const identificacao = 'TAG ' + (m.tag || m.novaTag || '—') + ' · ' + (m.contrato || 'sem contrato');
+        const autor = m.solicitante || m.solicitanteEmail || 'usuário não informado';
+        return '<label style="display:flex;gap:7px;align-items:flex-start;padding:6px 4px;border-bottom:1px solid var(--border);cursor:pointer">' +
+          '<input type="checkbox" data-id="' + esc(m.id) + '" ' + (marcado ? 'checked' : '') + ' onchange="toggleRelMov(this.dataset.id,this.checked)" style="margin-top:2px">' +
+          '<span><strong>' + esc(tipo) + '</strong> · ' + esc(identificacao) + '<br><small>' + esc(data) + ' · ' + esc(autor) + '</small></span></label>';
+      }).join('') + '</div>'
+    : '';
+  el.innerHTML = '<div style="color:' + (lista.length ? 'var(--text-2)' : 'var(--danger)') + '">' + resumo + '</div>' + itens;
 }
 
 async function gerarRelMovPDF() {
@@ -574,19 +598,44 @@ async function gerarRelMovPDF() {
 
   cabecalho();
 
-  // Resumo por tipo: quem lê um relatório de patrimônio quer primeiro o
-  // total, e só depois o detalhe.
-  const porTipo = {};
-  lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
-  const rotulo = { instalar: 'Instalações', desmontar: 'Desmontagens', realocar: 'Desmontagens', baixar: 'Baixas', adicionar: 'Adições' };
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(`Resumo — ${lista.length} movimentação(ões)`, REL_M, y); y += 5;
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  Object.entries(porTipo).forEach(([t, n]) => {
-    doc.text(`• ${rotulo[t] || t}: ${n}`, REL_M + 3, y); y += 4.5;
-  });
-  y += 4;
 
+  // Tabelas-resumo para leitura rápida do relatório.
+  const porTipo = {};
+  const porUsuario = {};
+  const rotulo = { instalar: 'Instalações', desmontar: 'Desmontagens', realocar: 'Desmontagens', baixar: 'Baixas', adicionar: 'Adições' };
+  lista.forEach(m => {
+    const tipo = rotulo[m.tipo] || m.tipo || 'Não informado';
+    const usuario = m.solicitante || m.solicitanteEmail || 'Não informado';
+    porTipo[tipo] = (porTipo[tipo] || 0) + 1;
+    porUsuario[usuario] = (porUsuario[usuario] || 0) + 1;
+  });
+
+  const desenharTabelaResumo = (titulo, linhas) => {
+    cabe(18 + linhas.length * 6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
+    doc.text(titulo, REL_M, y); y += 5;
+    doc.setFillColor(231, 238, 248);
+    doc.rect(REL_M, y - 4, CW, 6, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    doc.text('Categoria', REL_M + 2, y);
+    doc.text('Qtd.', REL_W - REL_M - 2, y, { align: 'right' });
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    linhas.forEach(([label, quantidade]) => {
+      cabe(8);
+      doc.setFontSize(8.5); doc.setTextColor(35, 45, 60);
+      const texto = doc.splitTextToSize(String(label), CW - 24)[0];
+      doc.text(texto, REL_M + 2, y);
+      doc.text(String(quantidade), REL_W - REL_M - 2, y, { align: 'right' });
+      doc.setDrawColor(225); doc.setLineWidth(0.2);
+      doc.line(REL_M, y + 2, REL_W - REL_M, y + 2);
+      y += 5;
+    });
+    y += 4;
+  };
+
+  desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo));
+  desenharTabelaResumo('Resumo por usuário', Object.entries(porUsuario).sort((a, b) => b[1] - a[1]));
   lista.forEach((m, idx) => {
     cabe(34);
     const cor = { instalar: [5, 150, 105], desmontar: [37, 99, 235], realocar: [37, 99, 235],
@@ -850,7 +899,7 @@ function openNewMovimento() {
 }
 
 function limparFormularioMovimento() {
-  ['f-tipo', 'f-motivo', 'f-obs-mov', 'f-tag', 'f-nova-tag', 'f-marca',
+  ['f-tipo', 'f-motivo', 'f-contrato', 'f-tag', 'f-nova-tag', 'f-marca',
    'f-capacidade', 'f-estab-destino', 'f-recinto-destino']
     .forEach(id => {
       const el = document.getElementById(id);
@@ -1118,17 +1167,40 @@ function renderFotosInstal() {
     </div>`).join('');
 }
 
+function renderMotivoSugestoes(tipo) {
+  const box = document.getElementById('motivo-sugestoes');
+  if (!box) return;
+  const sugestoes = {
+    desmontar: ['desmontagem para imobilização', 'desmontagem para substituição', 'desmontagem para remanejamento'],
+    baixar: ['baixa por inviabilidade técnica', 'baixa por dano irreparável', 'baixa por obsolescência'],
+    adicionar: ['inclusão de equipamento existente', 'regularização do inventário'],
+  }[tipo] || [];
+  box.innerHTML = sugestoes.map(s =>
+    `<button type="button" onclick="selecionarMotivo('${jsAttrPat(s)}')" style="border:1px solid #cbd5e1;background:#f8fafc;color:#334155;border-radius:99px;padding:5px 9px;font-size:11px;cursor:pointer">${esc(s)}</button>`
+  ).join('');
+}
+function selecionarMotivo(texto) {
+  const campo = document.getElementById('f-motivo');
+  if (campo) { campo.value = texto; campo.focus(); }
+}
 function updateFormByTipo() {
   const tipo = document.getElementById('f-tipo').value;
+  const contrato = document.getElementById('f-contrato')?.value;
   const showExistente = ['desmontar','baixar'].includes(tipo);
   const showNova      = ['instalar','adicionar'].includes(tipo);
   const showDestino   = ['instalar','adicionar'].includes(tipo);
   document.getElementById('field-tag-existente').style.display = showExistente ? '' : 'none';
   document.getElementById('fields-nova-tag').style.display     = showNova      ? '' : 'none';
   document.getElementById('fields-destino').style.display      = showDestino   ? '' : 'none';
+  const campoTag = document.getElementById('f-tag');
+  if (campoTag) {
+    campoTag.disabled = !contrato || !showExistente;
+    campoTag.placeholder = contrato ? 'Digite ou selecione a TAG…' : 'Selecione o contrato primeiro…';
+  }
   // Instalação não pede motivo: o motivo é a própria instalação.
   const campoMotivo = document.getElementById('field-motivo');
   if (campoMotivo) campoMotivo.style.display = (tipo === 'instalar') ? 'none' : '';
+  renderMotivoSugestoes(tipo);
   conferirNovaTag();
 }
 
@@ -1139,6 +1211,14 @@ function loadTagsByContract() {
   preencherSugestoesPat();
   conferirNovaTag();
   const num = document.getElementById('f-contrato').value;
+  const tagInput = document.getElementById('f-tag');
+  const info = document.getElementById('tag-info');
+  if (tagInput) {
+    tagInput.disabled = !num || !['desmontar','baixar'].includes(document.getElementById('f-tipo')?.value);
+    tagInput.placeholder = num ? 'Digite ou selecione a TAG…' : 'Selecione o contrato primeiro…';
+    if (!num) tagInput.value = '';
+  }
+  if (info && !num) { info.textContent = ''; info.style.display = 'none'; }
   const db  = getEffDB() || {};
   const equip = (db[num]||[]).filter(e=>equipamentoOperante(e));
   const dl  = document.getElementById('tag-suggestions');
@@ -1186,9 +1266,10 @@ function loadTagsByContract() {
     const info  = document.getElementById('tag-info');
     if (found) {
       info.style.display='';
-      info.textContent = `${found.tipo||''} ${found.marca||''} — ${found.estabelecimento||''} / ${found.recinto||''}`;
+      info.textContent = `Estabelecimento: ${found.estabelecimento||'—'} · Recinto: ${found.recinto||'—'} · ${found.tipo||''} ${found.marca||''}`;
     } else { info.style.display='none'; }
   };
+  updateFormByTipo();
 }
 
 // Preenche o campo de estabelecimento destino ao clicar no badge
@@ -1238,7 +1319,6 @@ async function saveMovimento(btn) {
     capacidade:       document.getElementById('f-capacidade')?.value.trim()||'',
     estabelecimentoDestino: document.getElementById('f-estab-destino')?.value.trim()||'',
     recintoDestino:   document.getElementById('f-recinto-destino')?.value.trim()||'',
-    obs:              document.getElementById('f-obs-mov').value.trim(),
     // Fotos ficam NA MOVIMENTAÇÃO, não no cadastro do equipamento: o
     // banco de equipamentos é lido a cada plano e a cada orçamento, e
     // carregar base64 ali penalizaria o sistema por um dado que só o
