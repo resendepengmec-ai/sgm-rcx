@@ -392,7 +392,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-14.2';
+const APP_BUILD = '2026-09-14.3';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -746,7 +746,7 @@ try { guardaDeModulo('preventiva'); } catch (e) {}
   // Carrega dados do backend (mantém localStorage como cache)
   // Carrega do backend e FUNDE com o local (não sobrescreve): trabalho de
   // campo ainda não sincronizado é preservado; depois reenvia o que ficou.
-  DB.getAll('preventiva').then(server => {
+  DB.getAll('preventiva', '?resumo=1').then(server => {
     plans = mergePlans(plans, server || []);
     saveLocal();
     if (currentPlanId) { const p = plans.find(x=>x.id===currentPlanId); if (p) renderExecList(p); }
@@ -1151,6 +1151,49 @@ function savePlan(btn) {
 }
 
 // ── Execution ──
+function renderExecHeader(plan) {
+  document.getElementById('exec-header-info').innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="font-size:24px">${plan.level===1?'🟢':plan.level===2?'🟡':'🔴'}</div>
+      <div>
+        <div style="font-size:15px;font-weight:700">Contrato ${plan.client}</div>
+        <div style="font-size:13px;color:var(--text-2)">${fmtMonth(plan.period)} · ${LEVEL_LABEL[plan.level]}</div>
+        ${(() => { const e=[...new Set((plan.equipments||[]).map(x=>x.estabelecimento).filter(Boolean))]; const l=e.length===1?e[0]:e.length>1?`${e.length} estabelecimentos`:''; return l?`<div style="font-size:12px;color:var(--text-2)">🏢 ${esc(l)}</div>`:''; })()}
+        ${plan.tech?`<div style="font-size:12px;color:var(--text-3)">👷 ${esc(plan.tech)}</div>`:''}
+      </div>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}', this)">🗑️</button>` : ''}
+      </div>
+    </div>
+    ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;
+}
+
+// Busca o plano completo só ao abrir: a listagem já veio sem bytes de fotos.
+async function hydratePlanDetail(id) {
+  try {
+    const detail = await DB.getPreventiva(id);
+    if (!detail) return;
+    const idx = plans.findIndex(p => p && p.id === id);
+    if (idx < 0) return;
+    const local = plans[idx];
+    const serverStamp = detail.updatedAt || detail._updatedAt || detail.finalizedAt || detail.createdAt || 0;
+    const localStamp = local.updatedAt || 0;
+    plans[idx] = local && (local._dirty || localStamp > serverStamp)
+      ? hidratarPlanoLocal(local, detail)
+      : detail;
+    saveLocal();
+    if (currentPlanId === id) {
+      renderExecHeader(plans[idx]);
+      renderExecList(plans[idx]);
+      updatePlanSummary(plans[idx]);
+    }
+  } catch (e) {
+    // A lista e o checklist em cache continuam utilizáveis offline; fotos
+    // voltam a aparecer quando a rede estiver disponível.
+    console.warn('Detalhe da preventiva indisponível:', e.message);
+  }
+}
+
 function openPlan(id) {
   const plan = plans.find(p=>p.id===id);
   if (!plan) return;
@@ -1169,24 +1212,10 @@ function openPlan(id) {
 
   currentPlanId = id;
   _openExecCards = new Set([0]);
-
-  document.getElementById('exec-header-info').innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-      <div style="font-size:24px">${plan.level===1?'🟢':plan.level===2?'🟡':'🔴'}</div>
-      <div>
-        <div style="font-size:15px;font-weight:700">Contrato ${plan.client}</div>
-        <div style="font-size:13px;color:var(--text-2)">${fmtMonth(plan.period)} · ${LEVEL_LABEL[plan.level]}</div>
-        ${(() => { const e=[...new Set((plan.equipments||[]).map(x=>x.estabelecimento).filter(Boolean))]; const l=e.length===1?e[0]:e.length>1?`${e.length} estabelecimentos`:''; return l?`<div style="font-size:12px;color:var(--text-2)">🏢 ${esc(l)}</div>`:''; })()}
-        ${plan.tech?`<div style="font-size:12px;color:var(--text-3)">👷 ${esc(plan.tech)}</div>`:''}
-      </div>
-      <div style="margin-left:auto;display:flex;gap:6px">
-        ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}', this)">🗑️</button>` : ''}
-      </div>
-    </div>
-    ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;
-
+  renderExecHeader(plan);
   renderExecList(plan);
   switchTab('exec');
+  hydratePlanDetail(id);
 }
 
 let _openExecCards = new Set([0]); // cards abertos na tela de execução (sobrevive a re-renders)

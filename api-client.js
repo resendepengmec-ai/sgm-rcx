@@ -519,7 +519,8 @@ async function getAdminContact() {
 // ── Data API ──────────────────────────────────────────────────────
 const DB = {
   // Coleções
-  getAll:    col       => API.get(`/${col}`),
+  getAll:    (col, query='') => API.get(`/${col}${query || ''}`),
+  getPreventiva: id => API.get(`/preventiva/${encodeURIComponent(id)}`),
   save:      (col, r)  => API.post(`/${col}`, { record:r }),
   updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
 
