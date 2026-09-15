@@ -41,7 +41,7 @@
   --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
   --green:var(--success);--yellow:#d97706;--red:var(--danger);--blue:#2563eb;--cyan:#0891b2;
 }
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding-bottom:80px;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding-bottom:80px;overflow-x:hidden;}
 
 /* Header uses the shared .app-header/.back-btn pattern. */
 
@@ -59,8 +59,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .row-4{grid-template-columns:repeat(4,1fr);}
 .row-3{grid-template-columns:repeat(3,1fr);}
 .row-2{grid-template-columns:repeat(2,1fr);}
-@media(max-width:640px){.row-4,.row-3,.row-2{grid-template-columns:1fr 1fr;}}
-@media(max-width:400px){.row-4,.row-3,.row-2{grid-template-columns:1fr;}}
+@media(max-width:960px){.row-4{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:700px){.row-4,.row-3,.row-2{grid-template-columns:1fr;}}
 
 /* KPI Card */
 .kpi{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow);position:relative;overflow:hidden;}
@@ -83,7 +83,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 /* Chart card */
 .chart-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow);overflow-x:auto;}
 .chart-title{font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-2);}
-.chart-wrap{position:relative;}
+.chart-wrap{position:relative;min-width:0;height:220px;}
+.chart-wrap canvas{display:block;max-width:100%;}
 
 /* Priority list */
 .prio-list{list-style:none;}
@@ -127,15 +128,20 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 
 .section-title{font-size:14px;font-weight:700;color:var(--text);padding:4px 0 10px;border-bottom:1px solid var(--border);margin-bottom:14px;}
 
-@media(max-width:640px){
+@media(max-width:700px){
+  .app-header{padding:12px;}
+  .app-header h1{font-size:16px;line-height:1.15;min-width:0;}
+  #last-update{font-size:10px !important;white-space:nowrap;}
   .filters{padding:10px 12px;}
   .period-pills{width:100%;}
   .period-pill{flex:1;padding-left:8px;padding-right:8px;}
-  .filters select,.filters input{min-width:calc(50% - 4px);}
-  .btn-refresh{flex:1;}
+  .filters select,.filters input,.filters #f-tag{min-width:100%;flex:1 1 100%;}
+  .btn-refresh{width:100%;flex:1 1 100%;}
+  .dash-grid{padding:10px 12px;gap:10px;}
+  .kpi,.chart-card{padding:14px;}
 }
-@media(max-width:400px){
-  .filters select,.filters input{min-width:100%;}
+@media(max-width:420px){
+  .period-pill{font-size:12px;padding-left:6px;padding-right:6px;}
 }
 </style>
 </head>
