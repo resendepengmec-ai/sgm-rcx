@@ -460,40 +460,7 @@ function render() {
       </table>
     </div>
   </div>
-
-  <!-- Preventiva por contrato -->
-  <div class="dash-grid">
-    <div class="chart-card">
-      <div class="section-title">Execução de preventiva por contrato</div>
-      ${contratos.length ? `
-      <table class="dash-table">
-        <thead><tr><th>Contrato</th><th>Contratante</th><th>Planos</th><th>Executados</th><th>Backlog</th><th>Aderência</th></tr></thead>
-        <tbody>
-          ${contratos.map(cont => {
-            const plans = preventiva.filter(p=>(p.client||p.contrato)===cont.numero);
-            const exec  = plans.filter(p=>(p.execucoes||[]).some(e=>inPeriod((e.data||'').slice(0,10)))).length;
-            const back  = plans.length-exec;
-            const rate  = plans.length>0?Math.round(exec/plans.length*100):0;
-            return `<tr>
-              <td style="font-weight:600">${cont.numero}</td>
-              <td style="color:var(--text-2)">${cont.razao?.slice(0,30)||'—'}</td>
-              <td>${plans.length}</td>
-              <td style="color:var(--green)">${exec}</td>
-              <td style="color:${back>0?'var(--yellow)':'var(--text-2)'}">${back}</td>
-              <td>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <div style="flex:1;background:var(--border);border-radius:99px;height:6px;overflow:hidden">
-                    <div style="width:${rate}%;height:100%;background:${rate>=80?'var(--green)':rate>=60?'var(--yellow)':'var(--red)'};border-radius:99px"></div>
-                  </div>
-                  <span style="font-size:11px;font-weight:700;color:${rate>=80?'var(--green)':rate>=60?'var(--yellow)':'var(--red)'}">${rate}%</span>
-                </div>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>` : '<div class="empty-state">Nenhum contrato cadastrado</div>'}
-    </div>
-  </div>`;
+  `;
 
   // Render charts
   requestAnimationFrame(() => {
