@@ -32,35 +32,30 @@
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#7c3aed">
 <title>Dashboard — SGM-RCX</title>
 <script src="vendor/chart.umd.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{
-  --primary:#7c3aed;--bg:#0f172a;--surface:#1e293b;--surface2:#273549;
-  --border:#334155;--text:#f1f5f9;--text2:#94a3b8;--text3:#475569;
-  --green:#22c55e;--yellow:#eab308;--red:#ef4444;--blue:#3b82f6;--cyan:#06b6d4;
-  --radius:12px;
+  --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
+  --green:var(--success);--yellow:#d97706;--red:var(--danger);--blue:#2563eb;--cyan:#0891b2;
 }
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh;padding-bottom:32px;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding-bottom:80px;}
 
-/* Header */
-.dash-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;}
-.dash-title{font-size:16px;font-weight:700;flex:1;}
-.back-link{color:var(--text2);font-size:13px;text-decoration:none;display:flex;align-items:center;gap:4px;}
+/* Header uses the shared .app-header/.back-btn pattern. */
 
 /* Filters */
-.filters{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
-.filters select,.filters input{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-size:12px;}
+.filters{background:var(--surface);border-bottom:1px solid var(--border);box-shadow:var(--shadow);padding:12px 14px;display:flex;flex-direction:row;gap:8px;flex-wrap:wrap;align-items:center;}
+.filters select,.filters input{background:var(--surface);border:1.5px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;min-width:160px;width:auto;flex:1 1 160px;}
+.filters #f-tag{min-width:90px;flex:0 1 110px;}
 .period-pills{display:flex;gap:4px;}
-.period-pill{padding:6px 14px;border-radius:99px;border:1px solid var(--border);background:transparent;color:var(--text2);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;}
-.period-pill.active{background:var(--primary);border-color:var(--primary);color:#fff;}
-.btn-refresh{padding:7px 14px;border-radius:8px;border:none;background:var(--primary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;}
+.period-pill{padding:7px 14px;border-radius:99px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;}
+.period-pill.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
+.btn-refresh{font-size:13px;white-space:nowrap;flex:0 0 auto;}
 
 /* Grid */
-.dash-grid{padding:16px;display:grid;gap:14px;}
+.dash-grid{max-width:1400px;margin:0 auto;padding:12px 14px;display:grid;gap:14px;}
 .row-4{grid-template-columns:repeat(4,1fr);}
 .row-3{grid-template-columns:repeat(3,1fr);}
 .row-2{grid-template-columns:repeat(2,1fr);}
@@ -68,26 +63,26 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 @media(max-width:400px){.row-4,.row-3,.row-2{grid-template-columns:1fr;}}
 
 /* KPI Card */
-.kpi{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);position:relative;overflow:hidden;}
+.kpi{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow);position:relative;overflow:hidden;}
 .kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,var(--primary));}
-.kpi-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.kpi-label{font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
 .kpi-val{font-size:32px;font-weight:700;line-height:1;color:var(--accent,var(--text));}
-.kpi-sub{font-size:11px;color:var(--text2);margin-top:6px;}
+.kpi-sub{font-size:11px;color:var(--text-2);margin-top:6px;}
 .kpi-trend{position:absolute;top:14px;right:14px;font-size:20px;}
 .kpi-bar{height:4px;background:var(--border);border-radius:99px;margin-top:10px;overflow:hidden;}
 .kpi-bar-fill{height:100%;border-radius:99px;background:var(--accent,var(--primary));transition:width .6s ease;}
 
 /* Gauge */
-.gauge-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);text-align:center;}
-.gauge-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.gauge-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow);text-align:center;}
+.gauge-label{font-size:11px;color:var(--text-2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
 .gauge-wrap{position:relative;width:120px;height:70px;margin:0 auto 8px;}
 .gauge-svg{width:120px;height:70px;}
 .gauge-val{position:absolute;bottom:0;left:0;right:0;text-align:center;font-size:22px;font-weight:700;}
-.gauge-sub{font-size:11px;color:var(--text2);}
+.gauge-sub{font-size:11px;color:var(--text-2);}
 
 /* Chart card */
-.chart-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);}
-.chart-title{font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text2);}
+.chart-card{background:var(--surface);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow);overflow-x:auto;}
+.chart-title{font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-2);}
 .chart-wrap{position:relative;}
 
 /* Priority list */
@@ -103,20 +98,20 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 /* SLA meter */
 .sla-ring{display:flex;flex-direction:column;align-items:center;gap:4px;}
 .sla-val{font-size:28px;font-weight:700;}
-.sla-label{font-size:11px;color:var(--text2);}
+.sla-label{font-size:11px;color:var(--text-2);}
 
 /* Status pills */
 .status-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
-.status-pill{flex:1;min-width:70px;padding:10px 8px;border-radius:8px;text-align:center;background:var(--surface2);}
+.status-pill{flex:1;min-width:70px;padding:10px 8px;border-radius:8px;text-align:center;background:var(--bg);}
 .status-pill .sp-val{font-size:22px;font-weight:700;}
-.status-pill .sp-label{font-size:10px;color:var(--text2);margin-top:2px;}
+.status-pill .sp-label{font-size:10px;color:var(--text-2);margin-top:2px;}
 
 /* Table */
-.dash-table{width:100%;border-collapse:collapse;font-size:12px;}
-.dash-table th{padding:8px 10px;text-align:left;color:var(--text2);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.06em;border-bottom:1px solid var(--border);}
+.dash-table{width:100%;min-width:540px;border-collapse:collapse;font-size:12px;}
+.dash-table th{padding:8px 10px;text-align:left;color:var(--text-2);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.06em;border-bottom:1px solid var(--border);}
 .dash-table td{padding:8px 10px;border-bottom:1px solid var(--border);}
 .dash-table tr:last-child td{border-bottom:none;}
-.dash-table tr:hover td{background:var(--surface2);}
+.dash-table tr:hover td{background:var(--primary-light);}
 
 .badge-sm{display:inline-block;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:700;}
 .badge-aberto{background:#fef3c7;color:#92400e;}
@@ -127,26 +122,37 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .badge-normal{background:#f1f5f9;color:#475569;}
 .badge-baixa{background:#f0fdf4;color:#14532d;}
 
-.empty-state{text-align:center;padding:40px;color:var(--text3);}
-.loading{text-align:center;padding:40px;color:var(--text2);}
+.empty-state{text-align:center;padding:40px;color:var(--text-3);}
+.loading{text-align:center;padding:40px;color:var(--text-2);}
 
 .section-title{font-size:14px;font-weight:700;color:var(--text);padding:4px 0 10px;border-bottom:1px solid var(--border);margin-bottom:14px;}
+
+@media(max-width:640px){
+  .filters{padding:10px 12px;}
+  .period-pills{width:100%;}
+  .period-pill{flex:1;padding-left:8px;padding-right:8px;}
+  .filters select,.filters input{min-width:calc(50% - 4px);}
+  .btn-refresh{flex:1;}
+}
+@media(max-width:400px){
+  .filters select,.filters input{min-width:100%;}
+}
 </style>
 </head>
 <body>
-<div class="auth-overlay" id="auth-overlay" style="position:fixed;inset:0;background:#0f172a;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:999">
-  <div class="spinner" style="border-color:#334155;border-top-color:#7c3aed"></div>
-  <p style="color:#94a3b8;margin-top:12px;font-size:13px">Verificando acesso…</p>
+<div class="auth-overlay" id="auth-overlay" style="position:fixed;inset:0;background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999">
+  <div class="spinner" style="border-color:var(--border);border-top-color:var(--primary)"></div>
+  <p style="color:var(--text-2);margin-top:12px;font-size:13px">Verificando acesso…</p>
 </div>
 
-<header class="dash-header">
-  <a href="index.html" class="back-link">← Início</a>
-  <span class="dash-title">Dashboard de Manutenção</span>
-  <span id="last-update" style="font-size:11px;color:var(--text2)"></span>
+<header class="app-header" style="background:var(--primary)">
+  <a href="index.html" class="back-btn">← Início</a>
+  <h1>Dashboard de Manutenção</h1>
+  <span id="last-update" style="font-size:11px;color:rgba(255,255,255,.78)"></span>
 </header>
 
 <!-- Filters -->
-<div class="filters">
+<div class="filter-bar filters" aria-label="Filtros do dashboard">
   <div class="period-pills">
     <button class="period-pill active" role="tab" aria-selected="true" onclick="setPeriod('day')">Hoje</button>
     <button class="period-pill" role="tab" aria-selected="false" onclick="setPeriod('week')">7 dias</button>
@@ -160,7 +166,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
     <option value="">Todos os estabelecimentos</option>
   </select>
   <input id="f-tag" type="text" placeholder="TAG…" style="width:90px" oninput="render()">
-  <button class="btn-refresh" onclick="loadData()">↻ Atualizar</button>
+  <button class="btn btn-primary btn-sm btn-refresh" onclick="loadData(this)">↻ Atualizar</button>
 </div>
 
 <!-- Main content -->
@@ -171,34 +177,13 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
-const user = getCurrentUser();
-if (!user) { window.location.href = 'index.html'; }
-else {
+let user = null;
+async function iniciarDashboard() {
+  user = await guardaDeModulo('dashboard');
+  if (!user) return null;
   document.getElementById('auth-overlay').style.display = 'none';
-  if (!['admin','diretor','supervisor','gestor'].includes(user.role)) {
-    window.location.href = 'index.html';
-  }
-
-  // ── V13: reconfirmação de papel no servidor ─────────────────────
-  // A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
-  // assinatura). Aqui o papel REAL é confirmado com GET /auth/me.
-  //
-  // O dashboard aparece na matriz para gestor pra cima e também
-  // mantém a confirmação do papel devolvido pelo servidor.
-  //
-  // Fica DENTRO do else de propósito: instrução entre `if` e `else` é
-  // SyntaxError, e um SyntaxError aqui mata o script inteiro — a tela
-  // trava em "Verificando acesso…" para sempre.
-  setTimeout(() => {
-    try {
-      refreshCurrentUser().then(u => {
-        if (u && !['admin','diretor','supervisor','gestor'].includes(u.role))
-          window.location.href = 'index.html';
-      }).catch(() => {});   // rede instável em campo não bloqueia a tela
-    } catch (e) {}
-  }, 0);
+  return user;
 }
-
 // ── State ─────────────────────────────────────────────────────────
 let period   = 'month';
 let chamados = [], registros = [], preventiva = [], contratos = [];
@@ -251,7 +236,8 @@ function matchFilters(c) {
 }
 
 // ── Load data ─────────────────────────────────────────────────────
-async function loadData() {
+async function loadData(button) {
+  if (button) return withActionBusy(button, 'Atualizando…', () => loadData());
   document.getElementById('last-update').textContent = '';
   document.getElementById('dash-content').innerHTML = '<div class="loading">Sincronizando com o servidor…</div>';
   try {
@@ -428,11 +414,11 @@ function render() {
       </ul>
       <!-- SLA por prioridade -->
       <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
-        <div style="font-size:11px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">SLA por prioridade</div>
+        <div style="font-size:11px;color:var(--text-2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.06em">SLA por prioridade</div>
         ${[['urgente','4h','#dc2626'],['alta','8h','#f97316'],['normal','24h','#3b82f6'],['baixa','72h','#22c55e']].map(([p,sla,c])=>`
           <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border)">
             <span style="color:${c}">${p.charAt(0).toUpperCase()+p.slice(1)}</span>
-            <span style="color:var(--text2)">Prazo: ${sla}</span>
+            <span style="color:var(--text-2)">Prazo: ${sla}</span>
           </div>`).join('')}
       </div>
     </div>
@@ -459,11 +445,11 @@ function render() {
             const poCor= {urgente:'badge-urgente',alta:'badge-alta',normal:'badge-normal',baixa:'badge-baixa'}[po];
             return `<tr>
               <td style="font-weight:600">${c.equip||c.tag||'—'}</td>
-              <td style="color:var(--text2)">${c.client||'—'}</td>
+              <td style="color:var(--text-2)">${c.client||'—'}</td>
               <td><span class="badge-sm ${poCor}">${po}</span></td>
               <td style="color:${dias>3?'var(--red)':dias>1?'var(--yellow)':'var(--green)'}">${dias}d</td>
             </tr>`;
-          }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Nenhum chamado aberto</td></tr>'}
+          }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text-2);padding:20px">Nenhum chamado aberto</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -484,10 +470,10 @@ function render() {
             const rate  = plans.length>0?Math.round(exec/plans.length*100):0;
             return `<tr>
               <td style="font-weight:600">${cont.numero}</td>
-              <td style="color:var(--text2)">${cont.razao?.slice(0,30)||'—'}</td>
+              <td style="color:var(--text-2)">${cont.razao?.slice(0,30)||'—'}</td>
               <td>${plans.length}</td>
               <td style="color:var(--green)">${exec}</td>
-              <td style="color:${back>0?'var(--yellow)':'var(--text2)'}">${back}</td>
+              <td style="color:${back>0?'var(--yellow)':'var(--text-2)'}">${back}</td>
               <td>
                 <div style="display:flex;align-items:center;gap:8px">
                   <div style="flex:1;background:var(--border);border-radius:99px;height:6px;overflow:hidden">
@@ -528,10 +514,10 @@ function renderEvolucaoChart(evolution) {
     },
     options: {
       responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ labels:{ color:'#94a3b8', font:{size:11} } } },
+      plugins:{ legend:{ labels:{ color:'#475569', font:{size:11} } } },
       scales:{
-        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#1e293b'} },
-        y:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#334155'}, beginAtZero:true },
+        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#e2e8f0'} },
+        y:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#e2e8f0'}, beginAtZero:true },
       }
     }
   });
@@ -554,16 +540,19 @@ function renderTagsChart(topTags) {
       indexAxis:'y', responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false} },
       scales:{
-        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#334155'}, beginAtZero:true },
-        y:{ ticks:{color:'#94a3b8',font:{size:11}}, grid:{display:false} },
+        x:{ ticks:{color:'#475569',font:{size:10}}, grid:{color:'#e2e8f0'}, beginAtZero:true },
+        y:{ ticks:{color:'#475569',font:{size:11}}, grid:{display:false} },
       }
     }
   });
 }
 
 // ── Init ──────────────────────────────────────────────────────────
-loadData();
-setInterval(loadData, 5 * 60 * 1000); // auto-refresh 5 min
+iniciarDashboard().then(() => {
+  if (!user) return;
+  loadData();
+  setInterval(loadData, 5 * 60 * 1000); // auto-refresh 5 min
+});
 </script>
 </body>
 </html>
