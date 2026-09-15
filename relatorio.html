@@ -374,6 +374,7 @@ function onContratoChangeRel() {
 // o relatório sair incompleto/vazio se essas telas não tivessem sido
 // abertas nesse mesmo navegador antes.
 let _reportDataLoaded = false;
+let _reportDetailsLoaded = false;
 
 // ── Dados do relatório, EM MEMÓRIA ────────────────────────────────
 // A versão anterior gravava tudo em localStorage — inclusive as fotos,
@@ -429,10 +430,10 @@ async function loadReportData() {
   };
 
   await Promise.all([
-    carregar('chamados',      'chamados_list',     DB.getAll('chamados'),     'chamados'),
-    carregar('registros',     'registro_records',  DB.getAll('registros'),    'registros'),
-    carregar('preventiva',    'prev_plans',        DB.getAll('preventiva'),   'preventiva'),
-    carregar('movimentações', 'smm_movimentacoes', DB.getMovimentacoes(),     'movimentacoes'),
+    carregar('chamados',      'chamados_list',     DB.getAll('chamados', '?resumo=1'),     'chamados'),
+    carregar('registros',     'registro_records',  DB.getAll('registros', '?resumo=1'),    'registros'),
+    carregar('preventiva',    'prev_plans',        DB.getAll('preventiva', '?resumo=1'),   'preventiva'),
+    carregar('movimentações', 'smm_movimentacoes', DB.getMovimentacoes('?semFotos=1'),     'movimentacoes'),
   ]);
 
   if (falhas.length) {
@@ -440,6 +441,21 @@ async function loadReportData() {
               '. O relatório pode sair incompleto e sem fotos.', 8000);
   }
   _reportDataLoaded = true;
+}
+
+async function loadReportDetails() {
+  if (_reportDetailsLoaded) return;
+  const [ch, reg, prev, mov] = await Promise.all([
+    DB.getAll('chamados'),
+    DB.getAll('registros'),
+    DB.getAll('preventiva'),
+    DB.getMovimentacoes(),
+  ]);
+  if (Array.isArray(ch)) _dados.chamados = ch;
+  if (Array.isArray(reg)) _dados.registros = reg;
+  if (Array.isArray(prev)) _dados.preventiva = prev;
+  if (Array.isArray(mov)) _dados.movimentacoes = mov;
+  _reportDetailsLoaded = true;
 }
 
 async function render() {
@@ -972,6 +988,8 @@ function renderPreventivaPlanDetail(doc, plan) {
 async function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
+  try { await loadReportDetails(); }
+  catch (e) { showToast('Não foi possível carregar os anexos completos: ' + e.message, 7000); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   function fitText(doc, text, maxW) {

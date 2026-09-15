@@ -356,7 +356,7 @@ try { guardaDeModulo('chamados'); } catch (e) {}
   if (!role || !role.modules.includes('chamados')) { window.location.href = 'index.html'; return; }
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
-  DB.getAll('chamados').then(data => {
+  DB.getAll('chamados', '?resumo=1').then(data => {
     if (Array.isArray(data)) {
       chamados = data;
       safeLocalStorageSetJSON('chamados_list', data, { stripBinaries: true });
@@ -822,7 +822,7 @@ function renderList() {
       <div class="cc-right">
         <span class="badge ${s.cls}">${s.label}</span>
         <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span>
-        ${c.photos&&c.photos.length?`<span style="font-size:12px;color:var(--text-3)">${c.photos.length}📷</span>`:''}
+        ${(c.photoCount ?? c.photos?.length ?? 0) ? `<span style="font-size:12px;color:var(--text-3)">${c.photoCount ?? c.photos.length}📷</span>` : ''}
         ${_sigTrail(c._signatures)}
 </div>
     </div>`;
@@ -1528,12 +1528,26 @@ saveChamado = async function(btn) {
 };
 
 const _origOpenDetailC = openDetail;
+const _chamadoDetalhesEmCarga = new Set();
+function _hidratarChamado(id) {
+  const c = chamados.find(x => x.id === id);
+  if (!c || c._detailLoaded || _chamadoDetalhesEmCarga.has(id)) return;
+  _chamadoDetalhesEmCarga.add(id);
+  DB.getRecord('chamados', id).then(full => {
+    const idx = chamados.findIndex(x => x.id === id);
+    if (idx < 0 || !full) return;
+    chamados[idx] = { ...chamados[idx], ...full, _detailLoaded:true };
+    safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries:true });
+    if (currentDetailId === id) openDetail(id);
+  }).catch(() => {}).finally(() => _chamadoDetalhesEmCarga.delete(id));
+}
 openDetail = function(id) {
   _origOpenDetailC(id);
   const role = window._currentRole || {};
   const canEditChamado = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
   if (!canEditChamado) document.querySelectorAll('[onclick*="editChamado"]').forEach(b => b.style.display='none');
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteChamado"]').forEach(b => b.style.display='none');
+  _hidratarChamado(id);
 };
 
 // ── Render assinaturas no card ────────────────────────────────────

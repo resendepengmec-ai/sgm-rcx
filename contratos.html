@@ -287,10 +287,9 @@ setTimeout(() => { try { guardaDeModulo('contratos'); } catch (e) {} }, 0);
 
   const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
   document.getElementById('fab')?.classList.toggle('hidden', !canCreateContractInit);
-  DB.getContratos().then(data => {
+  DB.getContratos('?resumo=1').then(data => {
     if (Array.isArray(data)) {
       contracts = data;
-      safeLocalStorageSetJSON('smm_contracts', data, { stripBinaries: true });
       renderList();
     }
   }).catch(()=>{}); }
@@ -303,7 +302,22 @@ let pendingEquip = null;
 let pendingDocs  = [];
 
 function load() {
-  contracts = safeLocalStorageGetJSON(CONTRACTS_KEY, []);
+  if (!contracts.length) contracts = safeLocalStorageGetJSON(CONTRACTS_KEY, []);
+}
+
+async function ensureContratoDetalhe(id) {
+  load();
+  const idx = contracts.findIndex(x => x.id === id);
+  if (idx < 0) return null;
+  const atual = contracts[idx];
+  if (Array.isArray(atual.equipamentos) && Array.isArray(atual.servicos) &&
+      !Object.prototype.hasOwnProperty.call(atual, 'equipamentosCount')) return atual;
+  const completo = await DB.getContrato(id);
+  if (completo) {
+    contracts[idx] = { ...atual, ...completo };
+    save();
+  }
+  return contracts[idx];
 }
 
 function save() {
@@ -337,6 +351,7 @@ function renderList() {
   empty.style.display = 'none';
   list.innerHTML = contracts.map(c => {
     const equip  = c.equipamentos || [];
+    const equipCount = c.equipamentosCount ?? equip.length;
     const docs   = c.documentos   || [];
     const canEdit= ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
     return `
@@ -360,9 +375,9 @@ function renderList() {
         <div><label>Telefone</label><div>${esc(c.tel||'—')}</div></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <span class="tag-count">📊 ${equip.length} equipamentos</span>
+        <span class="tag-count">📊 ${equipCount} equipamentos</span>
         ${docs.map(d=>`<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
-        ${equip.length ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
+        ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
       ${_sigTrail(c._signatures)}
       </div>
     </div>`;
@@ -442,7 +457,9 @@ function addSectionTitle(doc, text, y) {
 
 async function generateContractPDF(id) {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
-  const c = contracts.find(x=>x.id===id);
+  let c;
+  try { c = await ensureContratoDetalhe(id); }
+  catch (e) { showToast('Não foi possível carregar o contrato: ' + e.message); return; }
   if (!c) { showToast('Contrato não encontrado'); return; }
   showToast('Gerando PDF…');
 
@@ -647,11 +664,12 @@ function openNewContract() {
   showScreen('form');
 }
 
-function openEdit(id) {
+async function openEdit(id) {
   const u = getCurrentUser();
   if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode editar contratos'); return; }
-  load();
-  const c = contracts.find(x=>x.id===id);
+  let c;
+  try { c = await ensureContratoDetalhe(id); }
+  catch (e) { showToast('Não foi possível carregar o contrato: ' + e.message); return; }
   if (!c) return;
   editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[]; pendingServicos = c.servicos||[];
   document.getElementById('form-title').textContent = 'Editar contrato';
@@ -905,9 +923,11 @@ function renderDocsList() {
 function removeDoc(i) { pendingDocs.splice(i,1); renderDocsList(); }
 
 // ── Equipamentos viewer ───────────────────────────────────────────
-function viewEquipamentos(id) {
-  load();
-  const c = contracts.find(x=>x.id===id); if (!c) return;
+async function viewEquipamentos(id) {
+  let c;
+  try { c = await ensureContratoDetalhe(id); }
+  catch (e) { showToast('Não foi possível carregar os equipamentos: ' + e.message); return; }
+  if (!c) return;
   const equip = c.equipamentos||[];
   const detail= document.getElementById('detail-content');
   const byEstab = {};
@@ -965,10 +985,9 @@ function showScreen(s) {
 // Carrega do localStorage primeiro (imediato) depois sincroniza com backend
 load();
 renderList();
-DB.getContratos().then(data => {
+DB.getContratos('?resumo=1').then(data => {
   if (Array.isArray(data)) {
     contracts = data;
-    safeLocalStorageSetJSON(CONTRACTS_KEY, data, { stripBinaries: true });
     renderList();
   }
 }).catch(() => {
@@ -1049,7 +1068,9 @@ function checkExistingClient() {
   // Agrupa equipamentos únicos por TAG (evita duplicatas entre contratos do mesmo cliente)
   box.style.display = '';
   list.innerHTML = found.map(c => {
-    const nEquip = (c.equipamentos||[]).filter(e=>equipamentoOperante(e)).length;
+    const nEquip = Array.isArray(c.equipamentos)
+      ? c.equipamentos.filter(e=>equipamentoOperante(e)).length
+      : (c.equipamentosCount || 0);
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:#fff;border-radius:6px;margin-bottom:6px;border:1px solid #e2e8f0">
       <div>
         <div style="font-size:12px;font-weight:600;color:#0f172a">Contrato ${esc(c.numero)} — ${esc(c.razao)}</div>
@@ -1063,8 +1084,10 @@ function checkExistingClient() {
   }).join('');
 }
 
-function importFromContract(cid) {
-  const src = contracts.find(c => c.id === cid);
+async function importFromContract(cid) {
+  let src;
+  try { src = await ensureContratoDetalhe(cid); }
+  catch (e) { showToast('Não foi possível carregar o contrato origem: ' + e.message); return; }
   if (!src || !src.equipamentos) { showToast('Contrato não encontrado'); return; }
   const equips = src.equipamentos.filter(e => equipamentoOperante(e));
   if (!equips.length) { showToast('Contrato origem sem equipamentos ativos'); return; }

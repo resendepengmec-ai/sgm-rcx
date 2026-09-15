@@ -182,27 +182,27 @@ function selectTab(container, activeTab) {
 window.selectTab = selectTab;
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
                  canCreate:false, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
   tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669',
-                 modules:['chamados','registro','orcamento','relatorios','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','preventiva','contratos','patrimonio'],
                  canCreate:true, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
@@ -520,6 +520,7 @@ async function getAdminContact() {
 const DB = {
   // Coleções
   getAll:    (col, query='') => API.get(`/${col}${query || ''}`),
+  getRecord: (col, id) => API.get(`/${col}/${encodeURIComponent(id)}`),
   getPreventiva: id => API.get(`/preventiva/${encodeURIComponent(id)}`),
   save:      (col, r)  => API.post(`/${col}`, { record:r }),
   updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
@@ -553,7 +554,8 @@ const DB = {
   removeWhitelist:    email       => API.delete(`/whitelist/${encodeURIComponent(email)}`),
 
   // Contratos
-  getContratos:       ()    => API.get('/contratos'),
+  getContratos:       (query='') => API.get(`/contratos${query || ''}`),
+  getContrato:        id => API.get(`/contratos/id/${encodeURIComponent(id)}`),
   saveContrato:       c     => API.post('/contratos', { contrato:c }),
   deleteContrato:     id    => API.delete(`/contratos/${id}`),
 
@@ -576,7 +578,7 @@ const DB = {
   deleteLaudo:        id    => API.delete(`/laudos/${id}`),
 
   // Movimentações
-  getMovimentacoes:   ()    => API.get('/movimentacoes'),
+  getMovimentacoes:   (query='') => API.get(`/movimentacoes${query || ''}`),
   saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),
   deleteMovimentacao: id    => API.delete(`/movimentacoes/${id}`),
   updateMovStatus:    (id, status, motivoRejeicao) =>

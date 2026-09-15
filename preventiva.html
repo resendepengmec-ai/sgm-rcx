@@ -392,7 +392,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-14.3';
+const APP_BUILD = '2026-09-15.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -741,7 +741,7 @@ function showToast(msg) {
 try { guardaDeModulo('preventiva'); } catch (e) {}
 
   const role = ROLES[user.role];
-  if (!role || !role.modules.includes('registro')) { window.location.href = 'index.html'; return; }
+  if (!role || !role.modules.includes('preventiva')) { window.location.href = 'index.html'; return; }
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
   // Carrega do backend e FUNDE com o local (não sobrescreve): trabalho de

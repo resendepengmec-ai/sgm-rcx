@@ -278,7 +278,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   if (!user) return;
   document.getElementById('auth-overlay').style.display = 'none';
   // Carrega dados do backend (mantém localStorage como cache)
-  DB.getAll('registros').then(data => {
+  DB.getAll('registros', '?resumo=1').then(data => {
     if (Array.isArray(data)) {
       records = data;
       saveRegistrosLocal();
@@ -689,7 +689,7 @@ function renderRecordList() {
       header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${label}</div>`;
     }
     const firstPhoto = r.photos && r.photos[0];
-    const thumb = firstPhoto
+    const thumb = firstPhoto && firstPhoto.dataUrl
       ? `<div class="rc-thumb"><img src="${imgSrc(firstPhoto.dataUrl)}" alt="foto"></div>`
       : `<div class="rc-thumb">📷</div>`;
     const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).join(', ');
@@ -707,7 +707,7 @@ function renderRecordList() {
         ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.estabelecimento)}${r.machine.recinto?' · '+esc(r.machine.recinto):''}</div>` : ''}
         ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.endereco)}</div>` : ''}
       </div>
-      <div class="rc-count">${r.photos?r.photos.length:0}📷</div>
+      <div class="rc-count">${r.photoCount ?? r.photos?.length ?? 0}📷</div>
     </div>`;
   }).join('');
 }
@@ -1906,12 +1906,26 @@ updateOSBadge();
 
 
 const _origOpenDetailR = openDetail;
+const _registroDetalhesEmCarga = new Set();
+function _hidratarRegistro(id) {
+  const r = records.find(x => x.id === id);
+  if (!r || r._detailLoaded || _registroDetalhesEmCarga.has(id)) return;
+  _registroDetalhesEmCarga.add(id);
+  DB.getRecord('registros', id).then(full => {
+    const idx = records.findIndex(x => x.id === id);
+    if (idx < 0 || !full) return;
+    records[idx] = { ...records[idx], ...full, _detailLoaded:true };
+    saveRegistrosLocal();
+    if (currentDetailId === id) openDetail(id);
+  }).catch(() => {}).finally(() => _registroDetalhesEmCarga.delete(id));
+}
 openDetail = function(id) {
   _origOpenDetailR(id);
   const role = window._currentRole || {};
   const canEditRegistro = ['admin','diretor','supervisor','gestor'].includes(window._currentUser?.role);
   if (!canEditRegistro) document.querySelectorAll('[onclick*="editRecord"]').forEach(b => b.style.display='none');
   if (!role.canDelete) document.querySelectorAll('[onclick*="deleteRecord"]').forEach(b => b.style.display='none');
+  _hidratarRegistro(id);
 };
 // ── Ordens de Serviço ────────────────────────────────────────────
 

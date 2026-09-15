@@ -183,10 +183,8 @@ else {
   // A guarda acima lê o JWT com _decodeJWT (atob puro, SEM verificar a
   // assinatura). Aqui o papel REAL é confirmado com GET /auth/me.
   //
-  // O dashboard não é um "módulo" de ROLES — o acesso é por PAPEL
-  // (gestor pra cima). Por isso confirma pelo papel devolvido pelo
-  // servidor, e não por guardaDeModulo(), que expulsaria todo mundo
-  // procurando um módulo 'dashboard' que não existe na matriz.
+  // O dashboard aparece na matriz para gestor pra cima e também
+  // mantém a confirmação do papel devolvido pelo servidor.
   //
   // Fica DENTRO do else de propósito: instrução entre `if` e `else` é
   // SyntaxError, e um SyntaxError aqui mata o script inteiro — a tela
@@ -258,10 +256,10 @@ async function loadData() {
   document.getElementById('dash-content').innerHTML = '<div class="loading">Sincronizando com o servidor…</div>';
   try {
     [chamados, registros, preventiva, contratos] = await Promise.all([
-      DB.getAll('chamados').catch(()=>[]),
-      DB.getAll('registros').catch(()=>[]),
-      DB.getAll('preventiva').catch(()=>[]),
-      DB.getContratos().catch(()=>[]),
+      DB.getAll('chamados', '?resumo=1').catch(()=>[]),
+      DB.getAll('registros', '?resumo=1').catch(()=>[]),
+      DB.getAll('preventiva', '?resumo=1').catch(()=>[]),
+      DB.getContratos('?resumo=1').catch(()=>[]),
     ]);
     // Fallback to localStorage
     if (!chamados.length)  chamados  = safeLocalStorageGetJSON('chamados_list', []);

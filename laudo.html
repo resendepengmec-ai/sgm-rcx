@@ -66,7 +66,7 @@
 
 <script>
 'use strict';
-const LAUDO_BUILD='2026-08-22.2';
+const LAUDO_BUILD='2026-09-15.1';
 let prestadora = {};
 let fotos = [];           // { dataUrl, geo, capturedAt }
 let laudosCache = [];
@@ -98,7 +98,8 @@ async function laudoAPI(method, path, body){
   return json.data;
 }
 const laudoSave  = l  => laudoAPI('POST','/laudos',{laudo:l});
-const laudoList  = () => laudoAPI('GET','/laudos');
+const laudoList  = () => laudoAPI('GET','/laudos?resumo=1');
+const laudoDetalhe = id => laudoAPI('GET', `/laudos/${encodeURIComponent(id)}`);
 const laudoDel   = id => laudoAPI('DELETE',`/laudos/${id}`);
 const laudoTexto = p  => laudoAPI('POST','/laudo/gerar-texto',p);
 
@@ -815,7 +816,17 @@ function renderRealizados(){
     </div>`).join('');
 }
 
-function gerarPDFde(id, btn){ const l=laudosCache.find(x=>x.id===id); if(!l) return; const restore=setActionBusy(btn,true,'Gerando PDF…'); try{ gerarPDF(l); } finally{ restore(); } }
+async function gerarPDFde(id, btn){
+  const restore=setActionBusy(btn,true,'Carregando laudo…');
+  try{
+    const l=await laudoDetalhe(id);
+    if(!l) throw new Error('Laudo não encontrado');
+    const idx=laudosCache.findIndex(x=>x.id===id);
+    if(idx>=0) laudosCache[idx]={...laudosCache[idx],...l};
+    gerarPDF(l);
+  }catch(e){ showToast('Erro ao gerar PDF: '+(e.message||e)); }
+  finally{ restore(); }
+}
 async function excluirLaudo(id, btn){
   const l=laudosCache.find(x=>x.id===id);
   if(!confirm('Excluir o laudo de '+(l?l.unidade:'')+'?')) return;
@@ -824,8 +835,11 @@ async function excluirLaudo(id, btn){
   catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
   finally{ restore(); }
 }
-function reabrirLaudo(id){
-  const l = laudosCache.find(x=>x.id===id); if(!l) return;
+async function reabrirLaudo(id){
+  const resumo = laudosCache.find(x=>x.id===id); if(!resumo) return;
+  let l;
+  try { l = await laudoDetalhe(id); }
+  catch(e) { showToast('Não foi possível carregar o laudo: '+(e.message||e)); return; }
   switchView('novo');
   currentLaudoId = l.id;
   document.getElementById('l-contract').value = l.contract||''; onContractChange();

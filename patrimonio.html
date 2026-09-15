@@ -444,7 +444,7 @@ async function iniciarPatrimonio() {
     return;
   }
   try {
-    const [conts, movs] = await Promise.all([DB.getContratos(), DB.getMovimentacoes()]);
+    const [conts, movs] = await Promise.all([DB.getContratos(), DB.getMovimentacoes('?semFotos=1')]);
     aplicarContratos(conts);
     movimentos = Array.isArray(movs) ? movs : [];
     salvarMovimentosNoCache();
@@ -534,14 +534,25 @@ function previewRelMov() {
   el.style.color = lista.length ? 'var(--text-2)' : 'var(--danger)';
 }
 
-function gerarRelMovPDF() {
+async function gerarRelMovPDF() {
   if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
+  const comFotos = document.getElementById('rel-fotos')?.checked;
+  if (comFotos) {
+    try {
+      // A lista usa metadados leves; fotos base64 só entram quando o PDF
+      // foi explicitamente solicitado.
+      const completos = await DB.getMovimentacoes();
+      if (Array.isArray(completos)) movimentos = completos;
+    } catch (e) {
+      showToast('Não foi possível carregar as fotos do relatório: ' + e.message, 7000);
+      return;
+    }
+  }
   const lista = movimentosDoRelatorio();
   if (!lista.length) { showToast('Nada a incluir no período selecionado'); return; }
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const comFotos = document.getElementById('rel-fotos')?.checked;
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
