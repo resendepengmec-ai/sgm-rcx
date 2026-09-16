@@ -1651,6 +1651,12 @@ async function saveMovimento(btn) {
   if (['desmontar','baixar'].includes(tipo)) {
     if (!tag) { showToast('Informe a TAG do equipamento'); return; }
     if (!/^[0-9]+$/.test(tag)) { showToast('A TAG deve conter apenas números'); return; }
+    const equipamentoRetirada = equipsDoContratoPat().find(e => String(e?.tag ?? e?.TAG ?? '').trim() === tag);
+    if (!equipamentoRetirada) { showToast('A TAG não foi encontrada neste contrato'); return; }
+    if (!equipamentoOperante(equipamentoRetirada)) {
+      showToast('A TAG ' + tag + ' já está ' + textoStatusEquipamento(equipamentoRetirada) + ' e não pode ser retirada novamente.', 7000);
+      return;
+    }
   }
   if (['instalar','adicionar'].includes(tipo)) {
     if (!novaTag) { showToast('Informe a nova TAG'); return; }
