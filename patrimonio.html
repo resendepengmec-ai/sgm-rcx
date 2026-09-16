@@ -33,6 +33,9 @@
   <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <meta name="theme-color" content="#7c3aed">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Patrimônio — Sistema de Manutenção</title>
 <link rel="stylesheet" href="shared.css">
 <style>
@@ -256,7 +259,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="field-tag-existente" style="display:none;position:relative;z-index:20" class="field">
       <label>TAG do equipamento *</label>
       <input id="f-tag" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Selecione o contrato primeiro…" autocomplete="off" oninput="normalizarTagExistente(this)" disabled>
-      <datalist id="tag-suggestions"></datalist>
       <div id="tag-autocomplete" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);max-height:220px;overflow:auto"></div>
       <div id="tag-info" style="font-size:10.5px;color:var(--text-2);margin-top:4px;display:none;background:#f8fafc;border-radius:6px;padding:4px 7px;line-height:1.35"></div>
     </div>
@@ -1061,6 +1063,8 @@ function limparFormularioMovimento() {
   const sugestoes = document.getElementById('estab-pat-sugestoes');
   if (sugestoes) sugestoes.style.display = 'none';
   fotosInstal = [];
+  patrimonioTagsAtuais = [];
+  esconderAutocompleteTagPat();
   renderFotosInstal();
   preencherSugestoesPat();
   updateFormByTipo();
@@ -1404,10 +1408,101 @@ function updateFormByTipo() {
   conferirNovaTag();
 }
 
+let patrimonioTagsAtuais = [];
+let patrimonioTagBlurTimer = null;
+
+function tagTextoPat(equipamento) {
+  if (!equipamento) return "";
+  return primeiroTextoPat(equipamento.tag, equipamento.TAG, equipamento.numeroTag);
+}
+function primeiroTextoPat(...valores) {
+  for (const valor of valores) {
+    if (valor === null || valor === undefined) continue;
+    const texto = String(valor).trim();
+    if (texto) return texto;
+  }
+  return "";
+}
+function localizacaoEquipamentoPat(equipamento) {
+  const e = equipamento || {};
+  const loc = e.localizacao && typeof e.localizacao === "object" ? e.localizacao : {};
+  return {
+    estabelecimento: primeiroTextoPat(e.estabelecimento, e.estabelecimentoDestino, e.estabelecimentoOrigem, e.unidade, loc.estabelecimento, loc.unidade),
+    recinto: primeiroTextoPat(e.recinto, e.recintoDestino, e.recintoOrigem, e.sala, e.ambiente, loc.recinto, loc.sala),
+  };
+}
 function normalizarTagExistente(campo) {
   if (!campo) return;
-  const limpo = String(campo.value || '').replace(/[^0-9]/g, '');
+  const limpo = String(campo.value || "").replace(/[^0-9]/g, "");
   if (campo.value !== limpo) campo.value = limpo;
+}
+function esconderAutocompleteTagPat() {
+  const box = document.getElementById("tag-autocomplete");
+  if (box) { box.innerHTML = ""; box.style.display = "none"; }
+}
+function atualizarRotuloTagPat(equipamento) {
+  const info = document.getElementById("tag-info");
+  if (!info) return;
+  if (!equipamento) { info.textContent = ""; info.style.display = "none"; return; }
+  const local = localizacaoEquipamentoPat(equipamento);
+  const estabelecimento = local.estabelecimento || "não informado";
+  const recinto = local.recinto || "não informado";
+  info.innerHTML = "✓ Estabelecimento: <strong>" + esc(estabelecimento) + "</strong> · Recinto: <strong>" + esc(recinto) + "</strong>";
+  info.style.display = "";
+}
+function escolherTagPat(tag) {
+  const input = document.getElementById("f-tag");
+  if (!input) return;
+  input.value = String(tag || "").replace(/[^0-9]/g, "");
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.focus();
+  esconderAutocompleteTagPat();
+}
+function renderAutocompleteTagPat() {
+  const input = document.getElementById("f-tag");
+  const box = document.getElementById("tag-autocomplete");
+  if (!input || !box || input.disabled) { esconderAutocompleteTagPat(); return; }
+  const typed = String(input.value || "").trim();
+  if (!typed) { esconderAutocompleteTagPat(); return; }
+  const matches = patrimonioTagsAtuais.filter(e => tagTextoPat(e).startsWith(typed)).slice(0, 8);
+  if (!matches.length) {
+    box.innerHTML = "<div style=\"padding:8px 10px;font-size:11px;color:var(--text-2)\">Nenhuma TAG iniciada por \"" + esc(typed) + "\".</div>";
+    box.style.display = "";
+    return;
+  }
+  box.innerHTML = matches.map(e => {
+    const tag = tagTextoPat(e);
+    const local = localizacaoEquipamentoPat(e);
+    const est = local.estabelecimento || "Estabelecimento não informado";
+    const rec = local.recinto || "Recinto não informado";
+    return "<button type=\"button\" data-tag-choice=\"" + esc(tag) + "\" style=\"display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);padding:8px 10px;cursor:pointer;touch-action:manipulation\"><strong style=\"font-size:12px\">TAG " + esc(tag) + "</strong><span style=\"display:block;font-size:10px;color:var(--text-2);margin-top:2px\">Estabelecimento: " + esc(est) + " · Recinto: " + esc(rec) + "</span></button>";
+  }).join("");
+  box.querySelectorAll("[data-tag-choice]").forEach(button => {
+    const escolher = evento => { evento.preventDefault(); escolherTagPat(button.dataset.tagChoice || ""); };
+    button.addEventListener("pointerdown", escolher, { passive: false });
+    button.addEventListener("touchstart", escolher, { passive: false });
+    button.addEventListener("click", escolher);
+  });
+  box.style.display = "";
+}
+function bindAutocompleteTagPat() {
+  const input = document.getElementById("f-tag");
+  if (!input || input.dataset.tagAutocompleteBound === "1") return;
+  input.dataset.tagAutocompleteBound = "1";
+  input.addEventListener("input", () => {
+    normalizarTagExistente(input);
+    const typed = String(input.value || "").trim();
+    const found = typed ? patrimonioTagsAtuais.find(e => tagTextoPat(e) === typed) : null;
+    atualizarRotuloTagPat(found);
+    if (found) esconderAutocompleteTagPat(); else renderAutocompleteTagPat();
+  });
+  input.addEventListener("focus", () => {
+    if (patrimonioTagBlurTimer) clearTimeout(patrimonioTagBlurTimer);
+    renderAutocompleteTagPat();
+  });
+  input.addEventListener("blur", () => {
+    patrimonioTagBlurTimer = setTimeout(esconderAutocompleteTagPat, 320);
+  });
 }
 function loadTagsByContract() {
   // Trocar de contrato muda TUDO: as TAGs existentes, as marcas usadas e
@@ -1429,14 +1524,15 @@ function loadTagsByContract() {
   if (autocompleteReset) { autocompleteReset.innerHTML = ''; autocompleteReset.style.display = 'none'; }
   // Usa os contratos recém-sincronizados em memória; o cache local não pode deixar TAGs antigas.
   const equip = equipsDoContratoPat().filter(e => equipamentoOperante(e));
-  const dl  = document.getElementById('tag-suggestions');
-  dl.innerHTML = equip.map(e=>`<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${esc(e.tipo||'')} ${esc(e.marca||'')}</option>`).join('');
+  patrimonioTagsAtuais = equip;
+  bindAutocompleteTagPat();
 
   // Agrupa por estabelecimento
   const byEstab = {};
   equip.forEach(e => {
-    const est = e.estabelecimento || e['estabelecimento'] || 'Sem estabelecimento';
-    const rec = e.recinto || e['recinto'] || '';
+    const local = localizacaoEquipamentoPat(e);
+    const est = local.estabelecimento || 'Sem estabelecimento';
+    const rec = local.recinto || '';
     byEstab[est] = byEstab[est] || {recintos: new Set(), count: 0};
     byEstab[est].count++;
     if (rec) byEstab[est].recintos.add(rec);
@@ -1469,51 +1565,6 @@ function loadTagsByContract() {
     }
   }
 
-  const autocomplete = document.getElementById("tag-autocomplete");
-  const atualizarInfoTag = found => {
-    if (!info) return;
-    if (!found) { info.textContent = ""; info.style.display = "none"; return; }
-    const est = found.estabelecimento || found["estabelecimento"] || "Sem estabelecimento";
-    const rec = found.recinto || found["recinto"] || "Sem recinto";
-    info.innerHTML = "📍 " + esc(est) + " · <strong>" + esc(rec) + "</strong>";
-    info.style.display = "";
-  };
-  const esconderAutocomplete = () => {
-    if (autocomplete) autocomplete.style.display = "none";
-  };
-  const mostrarAutocomplete = () => {
-    if (!autocomplete) return;
-    const typed = String(tagInput.value || "").trim();
-    if (!typed) { autocomplete.innerHTML = ""; esconderAutocomplete(); return; }
-    const matches = equip.filter(e => String(e.tag || e["tag"]).trim().startsWith(typed)).slice(0, 8);
-    if (!matches.length) {
-      autocomplete.innerHTML = "<div style=\"padding:8px 10px;font-size:11px;color:var(--text-2)\">Nenhuma TAG iniciada por " + esc(typed) + ".</div>";
-      autocomplete.style.display = "";
-      return;
-    }
-    autocomplete.innerHTML = matches.map(e => {
-      const tag = String(e.tag || e["tag"]).trim();
-      const est = e.estabelecimento || e["estabelecimento"] || "Sem estabelecimento";
-      const rec = e.recinto || e["recinto"] || "Sem recinto";
-      return "<button type=\"button\" data-tag-choice=\"" + esc(tag) + "\" style=\"display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);padding:7px 10px;cursor:pointer\">" +
-        "<strong style=\"font-size:12px\">TAG " + esc(tag) + "</strong><span style=\"display:block;font-size:10px;color:var(--text-2);margin-top:2px\">" + esc(est) + " · " + esc(rec) + "</span></button>";
-    }).join("");
-    autocomplete.querySelectorAll("[data-tag-choice]").forEach(btn => btn.addEventListener("mousedown", ev => {
-      ev.preventDefault();
-      tagInput.value = btn.dataset.tagChoice || "";
-      tagInput.dispatchEvent(new Event("input", { bubbles: true }));
-      tagInput.focus();
-    }));
-    autocomplete.style.display = "";
-  };
-  tagInput.oninput = function() {
-    this.value = this.value.replace(/[^0-9]/g, "");
-    const found = equip.find(e => String(e.tag || e["tag"]).trim() === this.value);
-    atualizarInfoTag(found);
-    if (found) esconderAutocomplete(); else mostrarAutocomplete();
-  };
-  tagInput.onfocus = function() { if (this.value) mostrarAutocomplete(); };
-  tagInput.onblur = function() { setTimeout(esconderAutocomplete, 160); };
   updateFormByTipo();
 }
 
@@ -1639,7 +1690,7 @@ async function editMovimento(id) {
   updateFormByTipo();
   renderFotosInstal();
   const tagInput = document.getElementById('f-tag');
-  if (tagInput?.oninput) tagInput.oninput();
+  if (tagInput) tagInput.dispatchEvent(new Event('input', { bubbles: true }));
   document.getElementById('screen-form-title').textContent = 'Editar movimentação pendente';
   document.getElementById('btn-save-mov').textContent = '💾 Salvar alterações';
   showScreen('form');
