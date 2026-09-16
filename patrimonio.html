@@ -144,6 +144,32 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           Aumenta bastante o tamanho do arquivo.</span></span>
     </label>
 
+    <div class="field">
+      <label>Texto adicional <span style="font-weight:400;color:var(--text-2)">(opcional)</span></label>
+      <textarea id="rel-texto-adicional" rows="4" maxlength="2000"
+        placeholder="Informações complementares para constar neste relatório"
+        oninput="previewRelMov()"
+        style="width:100%;resize:vertical;box-sizing:border-box"></textarea>
+    </div>
+
+    <div class="field">
+      <label>Fotos adicionais <span style="font-weight:400;color:var(--text-2)">(até 3)</span></label>
+      <div id="rel-fotos-adicionais-info"
+           style="font-size:11px;color:var(--text-2);margin-bottom:6px">0 de 3</div>
+      <input type="file" id="rel-foto-adicional-cam" accept="image/*" capture="environment"
+             style="display:none" onchange="addFotoRelAdicional(event)">
+      <input type="file" id="rel-foto-adicional-gal" accept="image/*" multiple
+             style="display:none" onchange="addFotosRelAdicionais(event)">
+      <div style="display:flex;gap:8px">
+        <button type="button" class="btn btn-secondary btn-sm" id="rel-btn-foto-cam" style="flex:1"
+                onclick="document.getElementById('rel-foto-adicional-cam').click()">📷 Câmera</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="rel-btn-foto-gal" style="flex:1"
+                onclick="document.getElementById('rel-foto-adicional-gal').click()">🖼️ Galeria</button>
+      </div>
+      <div id="rel-fotos-adicionais-grid"
+           style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+    </div>
+
     <div id="rel-preview" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
     <button class="btn btn-primary" style="width:100%" onclick="gerarRelMovPDF(this)">📄 Gerar PDF</button>
   </div>
@@ -476,6 +502,70 @@ const REL_M = 14, REL_W = 210, REL_H = 297;
 // IDs excluídos apenas da prévia atual; nada é removido do histórico.
 let relExcluidos = new Set();
 
+const MAX_FOTOS_REL_ADICIONAIS = 3;
+let relFotosAdicionais = [];
+
+function addFotoRelAdicional(ev) {
+  const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+  if (!f) return;
+  if (relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS) {
+    showToast('Limite de 3 fotos adicionais por relatório'); return;
+  }
+  comprimirFotoInstal(f).then(dataUrl => {
+    relFotosAdicionais.push({ dataUrl, capturedAt: Date.now() });
+    renderRelFotosAdicionais();
+    previewRelMov();
+  }).catch(e => showToast('Erro ao processar a foto adicional: ' + e.message));
+}
+
+async function addFotosRelAdicionais(ev) {
+  const arquivos = Array.from(ev.target.files || []); ev.target.value = '';
+  if (!arquivos.length) return;
+  let incluidas = 0, fora = 0;
+  for (const arquivo of arquivos) {
+    if (relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS) { fora++; continue; }
+    try {
+      const dataUrl = await comprimirFotoInstal(arquivo);
+      relFotosAdicionais.push({ dataUrl, capturedAt: Date.now() });
+      incluidas++;
+    } catch (e) { fora++; }
+  }
+  renderRelFotosAdicionais();
+  previewRelMov();
+  showToast(incluidas + ' foto(s) adicional(is) incluída(s)' + (fora ? ' · ' + fora + ' fora do limite' : ''));
+}
+
+function removerFotoRelAdicional(i) {
+  relFotosAdicionais.splice(i, 1);
+  renderRelFotosAdicionais();
+  previewRelMov();
+}
+
+function renderRelFotosAdicionais() {
+  const info = document.getElementById('rel-fotos-adicionais-info');
+  const grid = document.getElementById('rel-fotos-adicionais-grid');
+  const cheio = relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS;
+  if (info) {
+    const mb = relFotosAdicionais.reduce((total, f) => total + (f.dataUrl?.length || 0), 0) / 1048576;
+    info.textContent = relFotosAdicionais.length + ' de ' + MAX_FOTOS_REL_ADICIONAIS +
+      (mb >= 0.5 ? ' · ' + mb.toFixed(1) + ' MB' : '');
+    info.style.color = cheio ? 'var(--danger)' : 'var(--text-2)';
+  }
+  ['rel-btn-foto-cam','rel-btn-foto-gal'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.disabled = cheio; btn.style.opacity = cheio ? '.5' : ''; }
+  });
+  if (!grid) return;
+  grid.innerHTML = relFotosAdicionais.map((f, i) =>
+    '<div style="position:relative">' +
+      '<img src="' + imgSrc(f.dataUrl) + '" alt="Foto adicional ' + (i + 1) + '"' +
+           ' style="width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">' +
+      '<button type="button" onclick="removerFotoRelAdicional(' + i + ')"' +
+        ' style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;' +
+               'border:none;background:var(--danger);color:#fff;font-size:14px;line-height:1;cursor:pointer">×</button>' +
+    '</div>').join('');
+}
+
 function prepararRelMov() {
   relExcluidos = new Set();
   const sel = document.getElementById('rel-contrato');
@@ -503,6 +593,7 @@ function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
+
   const tipos = [...document.querySelectorAll('.rel-tipo:checked')].map(c => c.value);
 
   const ini = de  ? new Date(de + 'T00:00:00').getTime()  : 0;
@@ -531,6 +622,7 @@ function previewRelMov() {
   const lista = candidatos.filter(m => !relExcluidos.has(String(m.id)));
   const comFotos = document.getElementById('rel-fotos')?.checked;
   const nFotos = comFotos ? lista.reduce((a, m) => a + (m.fotos?.length || 0), 0) : 0;
+  const textoAdicional = document.getElementById('rel-texto-adicional')?.value.trim() || '';
   const porTipo = {};
   lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
   const rot = { instalar: 'instalação', desmontar: 'desmontagem', realocar: 'desmontagem', baixar: 'baixa', adicionar: 'adição' };
@@ -538,7 +630,9 @@ function previewRelMov() {
   const resumo = lista.length
     ? '<strong>' + lista.length + '</strong> de ' + candidatos.length + ' movimentação(ões) selecionada(s): ' +
       Object.entries(porTipo).map(([t, n]) => n + ' ' + (rot[t] || t)).join(' · ') +
-      (nFotos ? ' · ' + nFotos + ' foto(s)' : '')
+      (nFotos ? ' · ' + nFotos + ' foto(s)' : '') +
+      (relFotosAdicionais.length ? ' · ' + relFotosAdicionais.length + ' foto(s) adicional(is)' : '') +
+      (textoAdicional ? ' · texto adicional' : '')
     : (candidatos.length ? 'Nenhuma movimentação selecionada.' : 'Nenhuma movimentação no período.');
 
   const itens = candidatos.length
@@ -580,6 +674,8 @@ async function gerarRelMovPDF() {
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
+  const textoAdicionalPDF = document.getElementById('rel-texto-adicional')?.value.trim() || '';
+  const fotosAdicionaisPDF = relFotosAdicionais.slice();
   const CW = REL_W - REL_M * 2;
   let y = REL_M, falhas = 0;
 
@@ -595,6 +691,27 @@ async function gerarRelMovPDF() {
   };
 
   const cabe = h => { if (y + h > REL_H - REL_M) { doc.addPage(); y = REL_M; } };
+  const desenharFotosPDF = fotos => {
+    if (!Array.isArray(fotos) || !fotos.length) return;
+    y += 2;
+    const cols = 3, gap = 4, cellW = (CW - 4 - gap * (cols - 1)) / cols, maxH = 34;
+    for (let i = 0; i < fotos.length; i += cols) {
+      const linha = fotos.slice(i, i + cols);
+      cabe(maxH + 4);
+      linha.forEach((f, c) => {
+        const x = REL_M + 4 + c * (cellW + gap);
+        const src = f?.dataUrl || f;
+        const mm = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(String(src || '').trim());
+        if (!mm || mm[2].length < 64) { falhas++; return; }
+        const t = mm[1].toLowerCase();
+        const fmt = t === 'png' ? 'PNG' : t === 'webp' ? 'WEBP' : t === 'gif' ? 'GIF' : 'JPEG';
+        try { doc.addImage(src, fmt, x, y, cellW, maxH); }
+        catch (e) { try { doc.addImage(src, x, y, cellW, maxH); } catch (e2) { falhas++; } }
+      });
+      y += maxH + 3;
+    }
+  };
+
 
   cabecalho();
 
@@ -636,6 +753,22 @@ async function gerarRelMovPDF() {
 
   desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo));
   desenharTabelaResumo('Resumo por usuário', Object.entries(porUsuario).sort((a, b) => b[1] - a[1]));
+
+  if (textoAdicionalPDF || fotosAdicionaisPDF.length) {
+    cabe(16);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
+    doc.text('Informações adicionais do relatório', REL_M, y); y += 5;
+    if (textoAdicionalPDF) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+      const textoLinhas = doc.splitTextToSize(textoAdicionalPDF, CW - 4);
+      textoLinhas.forEach(t => { cabe(5); doc.text(t, REL_M + 2, y); y += 4; });
+    }
+    if (fotosAdicionaisPDF.length) desenharFotosPDF(fotosAdicionaisPDF);
+    y += 3;
+    doc.setDrawColor(225); doc.setLineWidth(0.2);
+    doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
+  }
+
   lista.forEach((m, idx) => {
     cabe(34);
     const cor = { instalar: [5, 150, 105], desmontar: [37, 99, 235], realocar: [37, 99, 235],
@@ -672,27 +805,7 @@ async function gerarRelMovPDF() {
       doc.text(q, REL_M + 4, y); y += q.length * 4;
     });
 
-    // Fotos da instalação, em grade — todas, não só a primeira.
-    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) {
-      y += 2;
-      const cols = 3, gap = 4, cellW = (CW - 4 - gap * (cols - 1)) / cols, maxH = 34;
-      for (let i = 0; i < m.fotos.length; i += cols) {
-        const linha = m.fotos.slice(i, i + cols);
-        cabe(maxH + 4);
-        linha.forEach((f, c) => {
-          const x = REL_M + 4 + c * (cellW + gap);
-          const src = f?.dataUrl || f;
-          // Formato deduzido da data-URL: 'JPEG' fixo perdia PNG e HEIC.
-          const mm = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(String(src || '').trim());
-          if (!mm || mm[2].length < 64) { falhas++; return; }
-          const t = mm[1].toLowerCase();
-          const fmt = t === 'png' ? 'PNG' : t === 'webp' ? 'WEBP' : t === 'gif' ? 'GIF' : 'JPEG';
-          try { doc.addImage(src, fmt, x, y, cellW, maxH); }
-          catch (e) { try { doc.addImage(src, x, y, cellW, maxH); } catch (e2) { falhas++; } }
-        });
-        y += maxH + 3;
-      }
-    }
+    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) desenharFotosPDF(m.fotos);
 
     y += 3;
     doc.setDrawColor(225); doc.setLineWidth(0.2);
