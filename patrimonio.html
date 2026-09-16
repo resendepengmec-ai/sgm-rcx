@@ -110,11 +110,18 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="field">
       <label>Contrato</label>
-      <select id="rel-contrato" onchange="previewRelMov()">
+      <select id="rel-contrato" onchange="atualizarFiltroEstabelecimentoRel(); previewRelMov()">
         <option value="">Todos os contratos</option>
       </select>
     </div>
 
+    <div class="field">
+      <label>Estabelecimento <span style="font-weight:400;color:var(--text-2)">(opcional)</span></label>
+      <select id="rel-estabelecimento" onchange="previewRelMov()" disabled>
+        <option value="">Selecione o contrato primeiro</option>
+      </select>
+      <div style="font-size:10.5px;color:var(--text-2);margin-top:4px">Selecione um contrato para filtrar pelos estabelecimentos vinculados.</div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field">
         <label>De</label>
@@ -593,15 +600,65 @@ function prepararRelMov() {
   if (de && !de.value)
     de.value = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
   if (ate && !ate.value) ate.value = hoje.toISOString().slice(0, 10);
+  atualizarFiltroEstabelecimentoRel();
   previewRelMov();
 }
 
+function estabelecimentosMovimentoRel(movimento) {
+  const nomes = new Set();
+  const adicionar = valor => {
+    const texto = String(valor ?? "").trim();
+    if (texto) nomes.add(texto);
+  };
+  adicionar(movimento?.estabelecimentoDestino);
+  adicionar(movimento?.estabelecimentoOrigem);
+  adicionar(movimento?.estabelecimento);
+  const contrato = (contracts || []).find(c => String(c.numero) === String(movimento?.contrato));
+  const tag = String(movimento?.tag || movimento?.novaTag || "").trim();
+  const equipamento = tag ? (contrato?.equipamentos || []).find(e => String(e?.tag ?? e?.TAG ?? "").trim() === tag) : null;
+  if (equipamento) adicionar(localizacaoEquipamentoPat(equipamento).estabelecimento);
+  return nomes;
+}
+
+function estabelecimentosDoContratoRel(numero) {
+  if (!numero) return [];
+  const contrato = (contracts || []).find(c => String(c.numero) === String(numero));
+  const nomes = new Set();
+  (contrato?.equipamentos || []).forEach(equipamento => {
+    const nome = localizacaoEquipamentoPat(equipamento).estabelecimento;
+    if (nome) nomes.add(nome);
+  });
+  (movimentos || []).filter(m => String(m?.contrato) === String(numero)).forEach(m => {
+    estabelecimentosMovimentoRel(m).forEach(nome => nomes.add(nome));
+  });
+  return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
+function atualizarFiltroEstabelecimentoRel() {
+  const contrato = document.getElementById("rel-contrato")?.value || "";
+  const sel = document.getElementById("rel-estabelecimento");
+  if (!sel) return;
+  const anterior = sel.value;
+  const nomes = estabelecimentosDoContratoRel(contrato);
+  if (!contrato) {
+    sel.innerHTML = "<option value=\"\">Selecione o contrato primeiro</option>";
+    sel.disabled = true;
+  } else if (!nomes.length) {
+    sel.innerHTML = "<option value=\"\">Nenhum estabelecimento cadastrado</option>";
+    sel.disabled = true;
+  } else {
+    sel.innerHTML = "<option value=\"\">Todos os estabelecimentos</option>" + nomes.map(nome => "<option value=\"" + esc(nome) + "\">" + esc(nome) + "</option>").join("");
+    sel.disabled = false;
+    if ([...sel.options].some(opcao => opcao.value === anterior)) sel.value = anterior;
+  }
+}
 // Filtra pelo contrato, período e tipos selecionados. O relatório é uma
 // trilha patrimonial: inclui também pendentes e rejeitadas, sempre com o
 // respectivo status, para que o período reflita todas as solicitações.
 
 function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   const contrato = document.getElementById('rel-contrato')?.value || '';
+  const estabelecimento = document.getElementById('rel-estabelecimento')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
 
@@ -612,6 +669,7 @@ function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
 
   const base = (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
+    if (estabelecimento && !estabelecimentosMovimentoRel(m).has(estabelecimento)) return false;
     if (!tipos.includes(m.tipo) && !(m.tipo === 'realocar' && tipos.includes('desmontar'))) return false;
     const ts = m.criadoEm || m.createdAt || m.ts || 0;
     return ts >= ini && ts <= fim;
@@ -715,7 +773,8 @@ async function gerarRelMovPDF() {
     doc.text('RELATÓRIO DE MOVIMENTAÇÕES', REL_M, y); y += 7;
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     const per = de && ate ? `${de.split('-').reverse().join('/')} a ${ate.split('-').reverse().join('/')}` : 'período completo';
-    doc.text(`Contrato: ${contrato || 'todos'} · Período: ${per}`, REL_M, y); y += 5;
+    doc.text(`Contrato: ${contrato || 'todos'}`, REL_M, y); y += 5;
+    doc.text(`Estabelecimento: ${estabelecimento || 'todos'} · Período: ${per}`, REL_M, y); y += 5;
     doc.text(`Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, REL_M, y); y += 4;
     doc.setDrawColor(180); doc.setLineWidth(0.3);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 6;
