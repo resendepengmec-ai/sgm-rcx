@@ -170,6 +170,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
            style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
     </div>
 
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:8px 0 6px;font-size:11px;color:var(--text-2)">
+      <span>Itens da prévia</span>
+      <span style="display:flex;flex-wrap:wrap;gap:6px">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="marcarTodosRelMov()">☑ Marcar tudo</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="desmarcarTodosRelMov()">☐ Desmarcar tudo</button>
+      </span>
+    </div>
     <div id="rel-preview" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
     <button class="btn btn-primary" style="width:100%" onclick="gerarRelMovPDF(this)">📄 Gerar PDF</button>
   </div>
@@ -217,7 +224,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <!-- Form nova movimentação -->
 <div id="screen-form" style="padding:12px;display:none">
   <div style="background:var(--surface);border-radius:var(--radius);padding:16px">
-    <h2 style="font-size:17px;font-weight:700;margin-bottom:16px">Nova solicitação de movimentação</h2>
+    <h2 id="screen-form-title" style="font-size:17px;font-weight:700;margin-bottom:16px">Nova solicitação de movimentação</h2>
 
     <div class="field">
       <label>Tipo de movimentação *</label>
@@ -246,11 +253,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     </div>
 
     <!-- TAG existente (desmontagem / baixa) -->
-    <div id="field-tag-existente" style="display:none" class="field">
+    <div id="field-tag-existente" style="display:none;position:relative;z-index:20" class="field">
       <label>TAG do equipamento *</label>
-      <input id="f-tag" type="text" list="tag-suggestions" placeholder="Selecione o contrato primeiro…" autocomplete="off" disabled>
+      <input id="f-tag" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Selecione o contrato primeiro…" autocomplete="off" oninput="normalizarTagExistente(this)" disabled>
       <datalist id="tag-suggestions"></datalist>
-      <div id="tag-info" style="font-size:12px;color:var(--text-2);margin-top:4px;display:none"></div>
+      <div id="tag-autocomplete" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);max-height:220px;overflow:auto"></div>
+      <div id="tag-info" style="font-size:10.5px;color:var(--text-2);margin-top:4px;display:none;background:#f8fafc;border-radius:6px;padding:4px 7px;line-height:1.35"></div>
     </div>
 
     <!-- Campos para instalar / adicionar.
@@ -262,7 +270,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="fields-nova-tag" style="display:none">
       <div class="field">
         <label>Nova TAG * <span style="font-weight:400;color:var(--text-2)">(apenas números)</span></label>
-        <input id="f-nova-tag" type="text" inputmode="numeric" autocomplete="off"
+        <input id="f-nova-tag" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
                placeholder="Ex: 1408" oninput="conferirNovaTag()">
         <div id="f-tag-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
       </div>
@@ -380,6 +388,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 let user = getCurrentUser();
+let editingMovId = null;
 let canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
 else {
@@ -608,6 +617,19 @@ function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   return incluirExcluidos ? base : base.filter(m => !relExcluidos.has(String(m.id)));
 }
 
+function selecionarTodosRelMov(incluir) {
+  const candidatos = movimentosDoRelatorio({ incluirExcluidos: true });
+  candidatos.forEach(m => {
+    const chave = String(m.id);
+    if (incluir) relExcluidos.delete(chave);
+    else relExcluidos.add(chave);
+  });
+  previewRelMov();
+}
+
+function marcarTodosRelMov() { selecionarTodosRelMov(true); }
+function desmarcarTodosRelMov() { selecionarTodosRelMov(false); }
+
 function toggleRelMov(id, incluir) {
   const chave = String(id);
   if (incluir) relExcluidos.delete(chave);
@@ -616,6 +638,8 @@ function toggleRelMov(id, incluir) {
 }
 
 function previewRelMov() {
+  const relSelection = document.querySelector('[data-rel-selection-list]');
+  const relScrollTop = relSelection ? relSelection.scrollTop : 0;
   const el = document.getElementById('rel-preview');
   if (!el) return;
   const candidatos = movimentosDoRelatorio({ incluirExcluidos: true });
@@ -636,7 +660,7 @@ function previewRelMov() {
     : (candidatos.length ? 'Nenhuma movimentação selecionada.' : 'Nenhuma movimentação no período.');
 
   const itens = candidatos.length
-    ? '<div style="margin-top:8px;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">' +
+    ? '<div data-rel-selection-list="1" style="margin-top:8px;max-height:260px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px">' +
       candidatos.map(m => {
         const marcado = !relExcluidos.has(String(m.id));
         const tipo = rot[m.tipo] || m.tipo || 'movimentação';
@@ -650,7 +674,12 @@ function previewRelMov() {
       }).join('') + '</div>'
     : '';
   el.innerHTML = '<div style="color:' + (lista.length ? 'var(--text-2)' : 'var(--danger)') + '">' + resumo + '</div>' + itens;
+
+  const relSelectionAfter = document.querySelector("[data-rel-selection-list]");
+  if (relSelectionAfter) relSelectionAfter.scrollTop = relScrollTop;
 }
+
+
 
 async function gerarRelMovPDF() {
   if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
@@ -926,6 +955,7 @@ function renderList() {
     list.innerHTML = filtered.map(m=>{
       const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
       const canReview = canApproveMov && m.status==='pendente';
+      const canEditMov = canApproveMov && m.status==='pendente';
       const canExecute= canApproveMov && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
@@ -961,6 +991,7 @@ function renderList() {
           </div>` : ''}
         ${canReview ? `
           <div class="admin-actions">
+            ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}')">✏️ Editar</button>` : ''}
             <button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
             <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
           </div>` : ''}
@@ -996,6 +1027,7 @@ function renderSummary() {
 
 // ── Form ──────────────────────────────────────────────────────────
 function openNewMovimento() {
+  editingMovId = null;
   // `contracts` vem de GET /contratos, que já é filtrado pelo servidor de
   // acordo com o usuário autenticado. Nunca monta o seletor a partir de
   // todos os contratos que possam ter restado no cache local.
@@ -1008,6 +1040,8 @@ function openNewMovimento() {
   // exatamente o defeito do botão "Novo" dos chamados.
   const selTipo = document.getElementById('f-tipo-equip');
   if (selTipo) selTipo.value = 'Split Hi-Wall';     // padrão pedido
+  document.getElementById('screen-form-title').textContent = 'Nova solicitação de movimentação';
+  document.getElementById('btn-save-mov').textContent = '📤 Enviar solicitação';
   showScreen('form');
 }
 
@@ -1370,6 +1404,11 @@ function updateFormByTipo() {
   conferirNovaTag();
 }
 
+function normalizarTagExistente(campo) {
+  if (!campo) return;
+  const limpo = String(campo.value || '').replace(/[^0-9]/g, '');
+  if (campo.value !== limpo) campo.value = limpo;
+}
 function loadTagsByContract() {
   // Trocar de contrato muda TUDO: as TAGs existentes, as marcas usadas e
   // os estabelecimentos. Sem recarregar, a validação de TAG duplicada
@@ -1382,11 +1421,14 @@ function loadTagsByContract() {
   if (tagInput) {
     tagInput.disabled = !num || !['desmontar','baixar'].includes(document.getElementById('f-tipo')?.value);
     tagInput.placeholder = num ? 'Digite ou selecione a TAG…' : 'Selecione o contrato primeiro…';
-    if (!num) tagInput.value = '';
+    // Uma troca de contrato nunca pode reaproveitar a TAG e o rótulo anteriores.
+    tagInput.value = '';
   }
-  if (info && !num) { info.textContent = ''; info.style.display = 'none'; }
-  const db  = getEffDB() || {};
-  const equip = (db[num]||[]).filter(e=>equipamentoOperante(e));
+  if (info) { info.textContent = ''; info.style.display = 'none'; }
+  const autocompleteReset = document.getElementById('tag-autocomplete');
+  if (autocompleteReset) { autocompleteReset.innerHTML = ''; autocompleteReset.style.display = 'none'; }
+  // Usa os contratos recém-sincronizados em memória; o cache local não pode deixar TAGs antigas.
+  const equip = equipsDoContratoPat().filter(e => equipamentoOperante(e));
   const dl  = document.getElementById('tag-suggestions');
   dl.innerHTML = equip.map(e=>`<option value="${e.tag||e['tag']}">${e.tag||e['tag']} — ${esc(e.tipo||'')} ${esc(e.marca||'')}</option>`).join('');
 
@@ -1427,14 +1469,51 @@ function loadTagsByContract() {
     }
   }
 
-  document.getElementById('f-tag').oninput = function() {
-    const found = equip.find(e=>(e.tag||e['tag'])===this.value);
-    const info  = document.getElementById('tag-info');
-    if (found) {
-      info.style.display='';
-      info.textContent = `Estabelecimento: ${found.estabelecimento||'—'} · Recinto: ${found.recinto||'—'} · ${found.tipo||''} ${found.marca||''}`;
-    } else { info.style.display='none'; }
+  const autocomplete = document.getElementById("tag-autocomplete");
+  const atualizarInfoTag = found => {
+    if (!info) return;
+    if (!found) { info.textContent = ""; info.style.display = "none"; return; }
+    const est = found.estabelecimento || found["estabelecimento"] || "Sem estabelecimento";
+    const rec = found.recinto || found["recinto"] || "Sem recinto";
+    info.innerHTML = "📍 " + esc(est) + " · <strong>" + esc(rec) + "</strong>";
+    info.style.display = "";
   };
+  const esconderAutocomplete = () => {
+    if (autocomplete) autocomplete.style.display = "none";
+  };
+  const mostrarAutocomplete = () => {
+    if (!autocomplete) return;
+    const typed = String(tagInput.value || "").trim();
+    if (!typed) { autocomplete.innerHTML = ""; esconderAutocomplete(); return; }
+    const matches = equip.filter(e => String(e.tag || e["tag"]).trim().startsWith(typed)).slice(0, 8);
+    if (!matches.length) {
+      autocomplete.innerHTML = "<div style=\"padding:8px 10px;font-size:11px;color:var(--text-2)\">Nenhuma TAG iniciada por " + esc(typed) + ".</div>";
+      autocomplete.style.display = "";
+      return;
+    }
+    autocomplete.innerHTML = matches.map(e => {
+      const tag = String(e.tag || e["tag"]).trim();
+      const est = e.estabelecimento || e["estabelecimento"] || "Sem estabelecimento";
+      const rec = e.recinto || e["recinto"] || "Sem recinto";
+      return "<button type=\"button\" data-tag-choice=\"" + esc(tag) + "\" style=\"display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--border);background:transparent;color:var(--text);padding:7px 10px;cursor:pointer\">" +
+        "<strong style=\"font-size:12px\">TAG " + esc(tag) + "</strong><span style=\"display:block;font-size:10px;color:var(--text-2);margin-top:2px\">" + esc(est) + " · " + esc(rec) + "</span></button>";
+    }).join("");
+    autocomplete.querySelectorAll("[data-tag-choice]").forEach(btn => btn.addEventListener("mousedown", ev => {
+      ev.preventDefault();
+      tagInput.value = btn.dataset.tagChoice || "";
+      tagInput.dispatchEvent(new Event("input", { bubbles: true }));
+      tagInput.focus();
+    }));
+    autocomplete.style.display = "";
+  };
+  tagInput.oninput = function() {
+    this.value = this.value.replace(/[^0-9]/g, "");
+    const found = equip.find(e => String(e.tag || e["tag"]).trim() === this.value);
+    atualizarInfoTag(found);
+    if (found) esconderAutocomplete(); else mostrarAutocomplete();
+  };
+  tagInput.onfocus = function() { if (this.value) mostrarAutocomplete(); };
+  tagInput.onblur = function() { setTimeout(esconderAutocomplete, 160); };
   updateFormByTipo();
 }
 
@@ -1445,7 +1524,7 @@ function fillEstabDestino(estab) {
   showToast(`Estabelecimento "${estab}" selecionado`);
 }
 
-function cancelForm() { showScreen('list'); renderList(); }
+function cancelForm() { editingMovId = null; showScreen('list'); renderList(); }
 
 async function saveMovimento(btn) {
   if (salvandoMovimento) return;
@@ -1459,7 +1538,10 @@ async function saveMovimento(btn) {
 
   const tag      = document.getElementById('f-tag')?.value.trim() || '';
   const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
-  if (['desmontar','baixar'].includes(tipo) && !tag)     { showToast('Informe a TAG do equipamento'); return; }
+  if (['desmontar','baixar'].includes(tipo)) {
+    if (!tag) { showToast('Informe a TAG do equipamento'); return; }
+    if (!/^[0-9]+$/.test(tag)) { showToast('A TAG deve conter apenas números'); return; }
+  }
   if (['instalar','adicionar'].includes(tipo)) {
     if (!novaTag) { showToast('Informe a nova TAG'); return; }
     // O aviso ao vivo orienta; esta checagem é que impede. Duas máquinas
@@ -1474,7 +1556,7 @@ async function saveMovimento(btn) {
   }
 
   const mov = {
-    id:               'mov-'+Date.now()+'-'+Math.random().toString(36).slice(2,8),
+    id:               editingMovId || ('mov-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)),
     tipo, contrato,
     // Instalação não tem motivo. A regra também é reforçada pelo backend.
     motivo: tipo === 'instalar' ? '' : motivo,
@@ -1499,7 +1581,9 @@ async function saveMovimento(btn) {
     // Só atualiza a lista e zera o formulário depois que o servidor gravar
     // e devolver o registro canônico. Falhas mantêm o preenchimento intacto
     // para que o usuário possa corrigir ou tentar novamente.
-    const resposta = await DB.saveMovimentacao(mov);
+    const resposta = editingMovId
+      ? await DB.updateMovimentacao(mov)
+      : await DB.saveMovimentacao(mov);
     const salva = resposta?.movimentacao;
     if (!salva) throw new Error('O servidor não confirmou a movimentação');
     const i = movimentos.findIndex(m => m.id === salva.id);
@@ -1507,7 +1591,9 @@ async function saveMovimento(btn) {
     else movimentos.unshift(salva);
     salvarMovimentosNoCache();
     limparFormularioMovimento();
-    showToast('Solicitação enviada! Aguardando aprovação do admin.');
+    const foiEdicao = Boolean(editingMovId);
+    editingMovId = null;
+    showToast(foiEdicao ? 'Movimentação atualizada. Aguardando aprovação.' : 'Solicitação enviada! Aguardando aprovação do admin.');
     showScreen('list');
     renderList();
   } catch (e) {
@@ -1516,6 +1602,47 @@ async function saveMovimento(btn) {
     salvandoMovimento = false;
     restore();
   }
+}
+
+async function editMovimento(id) {
+  if (!canApproveMov) { showToast('Sem permissão para editar movimentações'); return; }
+  let m = movimentos.find(x => x.id === id);
+  if (!m || m.status !== 'pendente') {
+    showToast('Somente movimentações pendentes podem ser editadas'); return;
+  }
+  try {
+    const completos = await DB.getMovimentacoes();
+    const completo = Array.isArray(completos) && completos.find(x => x.id === id);
+    if (completo) m = completo;
+  } catch (e) {
+    showToast('Não foi possível carregar a movimentação para edição: ' + e.message, 7000);
+    return;
+  }
+  editingMovId = m.id;
+  const sel = document.getElementById('f-contrato');
+  sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+    contracts.map(c => '<option value="' + esc(c.numero) + '">' + esc(c.numero) + '</option>').join('');
+  const tipo = m.tipo === 'realocar' ? 'desmontar' : m.tipo;
+  document.getElementById('f-tipo').value = tipo;
+  sel.value = m.contrato || '';
+  loadTagsByContract();
+  document.getElementById('f-tag').value = m.tag || '';
+  document.getElementById('f-nova-tag').value = m.novaTag || '';
+  document.getElementById('f-motivo').value = m.motivo || '';
+  document.getElementById('f-marca').value = m.marca || '';
+  document.getElementById('f-tipo-equip').value = m.tipoEquip || 'Split Hi-Wall';
+  document.getElementById('f-capacidade').value = m.capacidade || '';
+  document.getElementById('f-estab-destino').value = m.estabelecimentoDestino || '';
+  document.getElementById('f-recinto-destino').value = m.recintoDestino || '';
+  fotosInstal = ['instalar','adicionar'].includes(tipo) && Array.isArray(m.fotos)
+    ? m.fotos.map(f => ({ ...f })) : [];
+  updateFormByTipo();
+  renderFotosInstal();
+  const tagInput = document.getElementById('f-tag');
+  if (tagInput?.oninput) tagInput.oninput();
+  document.getElementById('screen-form-title').textContent = 'Editar movimentação pendente';
+  document.getElementById('btn-save-mov').textContent = '💾 Salvar alterações';
+  showScreen('form');
 }
 
 // ── Review modal ──────────────────────────────────────────────────

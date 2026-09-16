@@ -580,7 +580,8 @@ const DB = {
   // Movimentações
   getMovimentacoes:   (query='') => API.get(`/movimentacoes${query || ''}`),
   saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),
-  deleteMovimentacao: id    => API.delete(`/movimentacoes/${id}`),
+  updateMovimentacao: m => API.patch('/movimentacoes/' + m.id, { movimentacao:m }),
+  deleteMovimentacao: id    => API.delete('/movimentacoes/' + id),
   updateMovStatus:    (id, status, motivoRejeicao) =>
                               API.patch(`/movimentacoes/${id}/status`, { status, motivoRejeicao }),
 
