@@ -397,8 +397,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 let user = getCurrentUser();
+const PAPEIS_EDICAO_MOVIMENTACAO = new Set(['admin','diretor','supervisor','gestor']);
+function papelMovimentacao(role) { return String(role || '').trim().toLowerCase(); }
+function podeEditarMovimentacao() { return PAPEIS_EDICAO_MOVIMENTACAO.has(papelMovimentacao(user?.role)); }
 let editingMovId = null;
-let canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user?.role); // quem pode aprovar/rejeitar/executar movimentações
+let canApproveMov = podeEditarMovimentacao(); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
 else {
   // A tela só é liberada depois de confirmar no servidor o perfil, os
@@ -477,7 +480,7 @@ async function iniciarPatrimonio() {
   const confirmado = await guardaDeModulo('patrimonio');
   if (!confirmado) return;
   user = confirmado;
-  canApproveMov = ['admin','diretor','supervisor','gestor'].includes(user.role);
+  canApproveMov = podeEditarMovimentacao();
   if (!['admin','diretor','supervisor','gestor','tecnico'].includes(user.role)) {
     showToast('Sem permissão para acessar este módulo');
     setTimeout(()=>window.location.href='index.html',1500);
@@ -1015,9 +1018,9 @@ function renderList() {
     empty.style.display='none';
     list.innerHTML = filtered.map(m=>{
       const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
-      const canReview = canApproveMov && m.status==='pendente';
-      const canEditMov = canApproveMov && m.status==='pendente';
-      const canExecute= canApproveMov && m.status==='aprovada';
+      const canReview = podeEditarMovimentacao() && m.status==='pendente';
+      const canEditMov = podeEditarMovimentacao() && m.status==='pendente';
+      const canExecute= podeEditarMovimentacao() && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
       const local = localMovimento(m);
@@ -1721,18 +1724,22 @@ async function saveMovimento(btn) {
 }
 
 async function editMovimento(id) {
-  if (!canApproveMov) { showToast('Sem permissão para editar movimentações'); return; }
+  if (!podeEditarMovimentacao()) { showToast('Sem permissão para editar movimentações'); return; }
   let m = movimentos.find(x => x.id === id);
   if (!m || m.status !== 'pendente') {
     showToast('Somente movimentações pendentes podem ser editadas'); return;
   }
   try {
-    const completos = await DB.getMovimentacoes();
-    const completo = Array.isArray(completos) && completos.find(x => x.id === id);
+    const completo = DB.getMovimentacao ? await DB.getMovimentacao(id) : null;
     if (completo) m = completo;
   } catch (e) {
-    showToast('Não foi possível carregar a movimentação para edição: ' + e.message, 7000);
-    return;
+    const temFotos = Number(m?.fotoCount || 0) > 0 ||
+      (Array.isArray(m?.fotos) && m.fotos.some(f => f?.dataUrl));
+    if (temFotos) {
+      showToast('Não foi possível carregar as fotos desta movimentação: ' + e.message, 7000);
+      return;
+    }
+    showToast('Servidor indisponível; usando os dados já sincronizados.', 4500);
   }
   editingMovId = m.id;
   const sel = document.getElementById('f-contrato');

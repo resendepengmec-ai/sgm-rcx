@@ -579,6 +579,7 @@ const DB = {
 
   // Movimentações
   getMovimentacoes:   (query='') => API.get(`/movimentacoes${query || ''}`),
+  getMovimentacao:    id => API.get('/movimentacoes/' + encodeURIComponent(id)),
   saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),
   updateMovimentacao: m => API.patch('/movimentacoes/' + m.id, { movimentacao:m }),
   deleteMovimentacao: id    => API.delete('/movimentacoes/' + id),
