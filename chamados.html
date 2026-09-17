@@ -210,7 +210,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" placeholder="Ex: 12, 325, 1450" oninput="this.value=this.value.replace(/[^0-9]/g,'');onTagInput()">
+      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -845,7 +845,7 @@ function cancelNew() { switchTab('list'); }
 
 async function saveChamado(btn) {
   const client = document.getElementById('f-client').value.trim();
-  const equip  = document.getElementById('f-equip').value.trim();
+  const equip  = normalizarTagNumero(document.getElementById('f-equip').value);
   const desc   = document.getElementById('f-desc').value.trim();
   if (!client) { showToast('Selecione o contrato'); return; }
   if (!equip)  { showToast('Informe a TAG do equipamento'); return; }
@@ -900,7 +900,7 @@ function editChamado(id) {
   const c=chamados.find(x=>x.id===id); if(!c) return;
   editingId=id; newPhotos=c.photos?[...c.photos]:[]; selectedMachine=c.machine||null;
   document.getElementById('f-client').value=c.client||'';
-  document.getElementById('f-equip').value=c.equip||'';
+  document.getElementById('f-equip').value=normalizarTagNumero(c.equip);
   document.getElementById('f-date').value=c.date||today();
   document.getElementById('f-priority').value=c.priority||'normal';
   document.getElementById('f-requester').value=c.requester||'';
@@ -1025,13 +1025,13 @@ const RECORRENCIA = {
 
 // Analisa o histórico daquela TAG naquele contrato.
 function analisarRecorrencia(tag, contrato, ignorarId) {
-  const alvo = String(tag || '').trim();
+  const alvo = normalizarTagNumero(tag);
   if (!alvo) return null;
   const agora = Date.now();
   const limite = agora - RECORRENCIA.janelaDias * 86400000;
 
   const doEquip = (chamados || []).filter(c =>
-    String(c.equip || '').trim() === alvo &&
+    normalizarTagNumero(c.equip) === alvo &&
     String(c.client || '') === String(contrato) &&
     c.id !== ignorarId &&
     (c.createdAt || 0) >= limite
@@ -1116,7 +1116,7 @@ function checarRecorrencia(tag, contrato) {
 
 // ── TAG lookup ──
 function onTagInput(){
-  const val=document.getElementById('f-equip').value.trim();
+  const val=normalizarTagNumero(document.getElementById('f-equip').value);
   clearTimeout(tagTimeout); hideMachineInfo();
   esconderRecorrencia();
   if(!val){document.getElementById('tag-suggestions').style.display='none';return;}
@@ -1125,7 +1125,7 @@ function onTagInput(){
     // Também checa quando a TAG é digitada por inteiro, sem passar pela
     // lista de sugestões — em campo, muita gente digita e ignora o dropdown.
     const contrato = document.getElementById('f-client').value;
-    if (contrato && (getEffDB()[contrato]||[]).some(m => String(m.tag||'')===val)) {
+    if (contrato && (getEffDB()[contrato]||[]).some(m => normalizarTagNumero(m.tag)===val)) {
       checarRecorrencia(val, contrato);
     }
   },150);
@@ -1134,9 +1134,9 @@ function showTagSuggestions(q){
   const contract=document.getElementById('f-client').value;
   if(!contract){showToast('Selecione o contrato primeiro');return;}
   const list=(getEffDB()[contract]||[]).filter(m=>equipamentoOperante(m));
-  const qLow = q.toLowerCase();
+  const qLow = normalizarTagNumero(q);
   const matches=list.filter(m=>{
-    const tag = (m.tag||'').toString().toLowerCase();
+    const tag = normalizarTagNumero(m.tag);
     const est = (m.estabelecimento||'').toLowerCase();
     const rec = (m.recinto||'').toLowerCase();
     return tag.startsWith(qLow) || est.includes(qLow) || rec.includes(qLow);
@@ -1160,9 +1160,10 @@ function showTagSuggestions(q){
 }
 function selectTag(tag){
   const contract=document.getElementById('f-client').value;
-  const m=(getEffDB()[contract]||[]).find(x=>(x.tag||'')===tag); if(!m)return;
+  const canonica = normalizarTagNumero(tag);
+  const m=(getEffDB()[contract]||[]).find(x=>normalizarTagNumero(x.tag)===canonica); if(!m)return;
   selectedMachine=m;
-  document.getElementById('f-equip').value=tag;
+  document.getElementById('f-equip').value=normalizarTagNumero(tag);
   document.getElementById('tag-suggestions').style.display='none';
   showMachineInfo(m);
   checarRecorrencia(tag, contract);

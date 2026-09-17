@@ -668,6 +668,13 @@ function getEffDB() {
 // ── Ciclo de vida dos equipamentos ────────────────────────────────
 // Compatibilidade com inventários antigos: ausência de status equivale a
 // operante, exceto quando o legado trazia `_inativo`.
+// TAG numérica canônica: zeros à esquerda não criam uma segunda identidade.
+// O limite de quatro dígitos também é aplicado no campo de entrada.
+function normalizarTagNumero(valor) {
+  const digitos = String(valor ?? '').replace(/\D/g, '').slice(0, 4);
+  return digitos.replace(/^0+(?=\d)/, '');
+}
+window.normalizarTagNumero = normalizarTagNumero;
 function statusEquipamento(equipamento) {
   const informado = String(equipamento?.status || '').trim().toLowerCase();
   if (informado === 'operante') return 'operante';
@@ -680,9 +687,9 @@ function equipamentoOperante(equipamento) {
   return statusEquipamento(equipamento) === 'operante' && equipamento?._inativo !== true;
 }
 function encontrarEquipamento(contrato, tag) {
-  const alvo = String(tag || '').trim();
+  const alvo = normalizarTagNumero(tag);
   if (!alvo) return null;
-  return (getEffDB()[contrato] || []).find(e => String(e?.tag || '').trim() === alvo) || null;
+  return (getEffDB()[contrato] || []).find(e => normalizarTagNumero(e?.tag) === alvo) || null;
 }
 function textoStatusEquipamento(equipamento) {
   const status = statusEquipamento(equipamento);

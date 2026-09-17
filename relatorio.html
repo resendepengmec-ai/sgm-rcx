@@ -80,7 +80,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       </div>
       <div class="field" style="min-width:140px;margin-bottom:0">
         <label>TAG (opcional)</label>
-        <input id="f-tag" list="f-tag-list" placeholder="Todas as TAGs" onchange="render()" style="width:100%">
+        <input id="f-tag" list="f-tag-list" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Todas as TAGs" oninput="this.value=normalizarTagNumero(this.value);render()" style="width:100%">
         <datalist id="f-tag-list"></datalist>
       </div>
       <div class="field" style="margin-bottom:0">

@@ -171,7 +171,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
   <select id="f-estab" onchange="render()">
     <option value="">Todos os estabelecimentos</option>
   </select>
-  <input id="f-tag" type="text" placeholder="TAG…" style="width:90px" oninput="render()">
+  <input id="f-tag" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="TAG…" style="width:90px" oninput="this.value=normalizarTagNumero(this.value);render()">
   <button class="btn btn-primary btn-sm btn-refresh" onclick="loadData(this)">↻ Atualizar</button>
 </div>
 

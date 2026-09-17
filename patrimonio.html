@@ -200,7 +200,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <select id="hist-contrato" onchange="loadHistTags()" style="flex:1;min-width:150px">
         <option value="">Selecione o contrato…</option>
       </select>
-      <input type="text" id="hist-tag" list="hist-tag-list" placeholder="TAG do equipamento" style="flex:1;min-width:150px">
+      <input type="text" id="hist-tag" list="hist-tag-list" placeholder="TAG do equipamento" inputmode="numeric" pattern="[0-9]*" maxlength="4" oninput="this.value=tagCanonicaPat(this.value)" style="flex:1;min-width:150px">
       <datalist id="hist-tag-list"></datalist>
       <button onclick="openEquipHistory()" style="padding:8px 16px;background:#1e40af;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
         Ver histórico
@@ -265,7 +265,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <!-- TAG existente (desmontagem / baixa) -->
     <div id="field-tag-existente" style="display:none;position:relative;z-index:20" class="field">
       <label>TAG do equipamento *</label>
-      <input id="f-tag" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="Selecione o contrato primeiro…" autocomplete="off" oninput="normalizarTagExistente(this)" disabled>
+      <input id="f-tag" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Selecione o contrato primeiro…" autocomplete="off" oninput="normalizarTagExistente(this)" disabled>
       <div id="tag-autocomplete" style="display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:var(--surface);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);max-height:220px;overflow:auto"></div>
       <div id="tag-info" style="font-size:10.5px;color:var(--text-2);margin-top:4px;display:none;background:#f8fafc;border-radius:6px;padding:4px 7px;line-height:1.35"></div>
     </div>
@@ -279,7 +279,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div id="fields-nova-tag" style="display:none">
       <div class="field">
         <label>Nova TAG * <span style="font-weight:400;color:var(--text-2)">(apenas números)</span></label>
-        <input id="f-nova-tag" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off"
+        <input id="f-nova-tag" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off"
                placeholder="Ex: 1408" oninput="conferirNovaTag()">
         <div id="f-tag-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
       </div>
@@ -1165,7 +1165,7 @@ function conferirNovaTag() {
 
   // Descarta tudo que não é dígito enquanto digita, em vez de reclamar
   // depois: o teclado numérico do celular ainda deixa passar símbolos.
-  const limpo = campo.value.replace(/\D/g, '');
+  const limpo = tagCanonicaPat(campo.value);
   if (limpo !== campo.value) campo.value = limpo;
 
   const contrato = document.getElementById('f-contrato')?.value;
@@ -1176,7 +1176,7 @@ function conferirNovaTag() {
   if (!limpo) { aviso.textContent = 'Informe o número da TAG.';
                 aviso.style.color = 'var(--text-2)'; return false; }
 
-  const existente = equipsDoContratoPat().find(e => String(e.tag).trim() === limpo);
+  const existente = equipsDoContratoPat().find(e => tagTextoPat(e) === limpo);
   const tipo = document.getElementById('f-tipo')?.value;
   if (existente && tipo === 'instalar' && !equipamentoOperante(existente)) {
     aviso.textContent = `↻ TAG ${limpo} será reativada como operante; o histórico será preservado.`;
@@ -1473,9 +1473,13 @@ function updateFormByTipo() {
 let patrimonioTagsAtuais = [];
 let patrimonioTagBlurTimer = null;
 
+function tagCanonicaPat(valor) {
+  const bruto = String(valor ?? "").trim();
+  return /^\d+$/.test(bruto) ? normalizarTagNumero(bruto) : bruto;
+}
 function tagTextoPat(equipamento) {
   if (!equipamento) return "";
-  return primeiroTextoPat(equipamento.tag, equipamento.TAG, equipamento.numeroTag);
+  return tagCanonicaPat(primeiroTextoPat(equipamento.tag, equipamento.TAG, equipamento.numeroTag));
 }
 function primeiroTextoPat(...valores) {
   for (const valor of valores) {
@@ -1495,7 +1499,7 @@ function localizacaoEquipamentoPat(equipamento) {
 }
 function normalizarTagExistente(campo) {
   if (!campo) return;
-  const limpo = String(campo.value || "").replace(/[^0-9]/g, "");
+  const limpo = tagCanonicaPat(campo.value);
   if (campo.value !== limpo) campo.value = limpo;
 }
 function esconderAutocompleteTagPat() {
@@ -1515,7 +1519,7 @@ function atualizarRotuloTagPat(equipamento) {
 function escolherTagPat(tag) {
   const input = document.getElementById("f-tag");
   if (!input) return;
-  input.value = String(tag || "").replace(/[^0-9]/g, "");
+  input.value = tagCanonicaPat(tag);
   input.dispatchEvent(new Event("input", { bubbles: true }));
   input.focus();
   esconderAutocompleteTagPat();
@@ -1524,7 +1528,7 @@ function renderAutocompleteTagPat() {
   const input = document.getElementById("f-tag");
   const box = document.getElementById("tag-autocomplete");
   if (!input || !box || input.disabled) { esconderAutocompleteTagPat(); return; }
-  const typed = String(input.value || "").trim();
+  const typed = tagCanonicaPat(input.value);
   if (!typed) { esconderAutocompleteTagPat(); return; }
   const matches = patrimonioTagsAtuais.filter(e => tagTextoPat(e).startsWith(typed)).slice(0, 8);
   if (!matches.length) {
@@ -1553,7 +1557,7 @@ function bindAutocompleteTagPat() {
   input.dataset.tagAutocompleteBound = "1";
   input.addEventListener("input", () => {
     normalizarTagExistente(input);
-    const typed = String(input.value || "").trim();
+    const typed = tagCanonicaPat(input.value);
     const found = typed ? patrimonioTagsAtuais.find(e => tagTextoPat(e) === typed) : null;
     atualizarRotuloTagPat(found);
     if (found) esconderAutocompleteTagPat(); else renderAutocompleteTagPat();
@@ -1649,12 +1653,12 @@ async function saveMovimento(btn) {
   // Instalação dispensa motivo; os demais tipos continuam exigindo.
   if (tipo !== 'instalar' && !motivo) { showToast('Informe o motivo'); return; }
 
-  const tag      = document.getElementById('f-tag')?.value.trim() || '';
-  const novaTag  = document.getElementById('f-nova-tag')?.value.trim() || '';
+  const tag      = tagCanonicaPat(document.getElementById('f-tag')?.value || '');
+  const novaTag  = tagCanonicaPat(document.getElementById('f-nova-tag')?.value || '');
   if (['desmontar','baixar'].includes(tipo)) {
     if (!tag) { showToast('Informe a TAG do equipamento'); return; }
-    if (!/^[0-9]+$/.test(tag)) { showToast('A TAG deve conter apenas números'); return; }
-    const equipamentoRetirada = equipsDoContratoPat().find(e => String(e?.tag ?? e?.TAG ?? '').trim() === tag);
+    if (!/^\d{1,4}$/.test(tag)) { showToast('A TAG deve conter apenas números (até 4 dígitos)'); return; }
+    const equipamentoRetirada = equipsDoContratoPat().find(e => tagTextoPat(e) === tag);
     if (!equipamentoRetirada) { showToast('A TAG não foi encontrada neste contrato'); return; }
     if (!equipamentoOperante(equipamentoRetirada)) {
       showToast('A TAG ' + tag + ' já está ' + textoStatusEquipamento(equipamentoRetirada) + ' e não pode ser retirada novamente.', 7000);
@@ -1666,8 +1670,8 @@ async function saveMovimento(btn) {
     // O aviso ao vivo orienta; esta checagem é que impede. Duas máquinas
     // com a mesma TAG no contrato quebram preventiva, orçamento e
     // qualquer busca por equipamento.
-    if (!/^\d+$/.test(novaTag)) { showToast('A TAG deve conter apenas números'); return; }
-    const existente = equipsDoContratoPat().find(e => String(e.tag).trim() === novaTag);
+    if (!/^\d{1,4}$/.test(novaTag)) { showToast('A TAG deve conter apenas números (até 4 dígitos)'); return; }
+    const existente = equipsDoContratoPat().find(e => tagTextoPat(e) === novaTag);
     if (existente && (tipo !== 'instalar' || equipamentoOperante(existente))) {
       showToast(`A TAG ${novaTag} já existe neste contrato. Use uma nova instalação apenas para reativar uma TAG inoperante.`, 7000);
       return;
@@ -1925,7 +1929,7 @@ function loadHistTags() {
 
 async function openEquipHistory() {
   const contrato = document.getElementById('hist-contrato').value.trim();
-  const tag = document.getElementById('hist-tag').value.trim().toUpperCase();
+  const tag = tagCanonicaPat(document.getElementById('hist-tag').value);
   if (!contrato) { showToast('Selecione o contrato'); return; }
   if (!tag) { showToast('Informe a TAG'); return; }
 
@@ -1934,7 +1938,7 @@ async function openEquipHistory() {
 
   // 1. Dados do equipamento no banco
   const db = getEffDB() || {};
-  const equipRaw = (db[contrato] || []).find(e => (e.tag||e['tag']||'').toUpperCase() === tag);
+  const equipRaw = (db[contrato] || []).find(e => tagTextoPat(e) === tag);
 
   if (!equipRaw) {
     showToast(`TAG "${tag}" não encontrada no contrato ${contrato}`);
@@ -1965,7 +1969,7 @@ async function openEquipHistory() {
   // 2. Chamados
   try {
     const chamados = safeLocalStorageGetJSON('chamados_list', []);
-    chamados.filter(c => c.client===contrato && (c.equip||'').toUpperCase()===tag).forEach(c => {
+    chamados.filter(c => c.client===contrato && tagCanonicaPat(c.equip)===tag).forEach(c => {
       events.push({ ts: c.createdAt || new Date(c.date||Date.now()).getTime(), type:'chamado', icon:'🔔', color:'#d97706',
         title: `Chamado — ${c.priority||'normal'}`,
         desc: c.desc || c.description || 'Sem descrição',
@@ -1976,7 +1980,7 @@ async function openEquipHistory() {
   // 3. Registros de manutenção
   try {
     const regs = safeLocalStorageGetJSON('registro_records', []);
-    regs.filter(r => (r.client||r.contract)===contrato && (r.equip||r.tag||'').toUpperCase()===tag).forEach(r => {
+    regs.filter(r => (r.client||r.contract)===contrato && tagCanonicaPat(r.equip||r.tag)===tag).forEach(r => {
       const svcs = (r.items||[]).map(i => i.name||i.service||String(i)).join(', ');
       events.push({ ts: r.createdAt || new Date(r.date||Date.now()).getTime(), type:'registro', icon:'🔧', color:'#0284c7',
         title: 'Manutenção executada',
@@ -1989,7 +1993,7 @@ async function openEquipHistory() {
   try {
     const plans = safeLocalStorageGetJSON('prev_plans', []);
     plans.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
-      (p.equipments||[]).filter(eq => (eq.tag||'').toUpperCase()===tag).forEach(eq => {
+      (p.equipments||[]).filter(eq => tagCanonicaPat(eq.tag)===tag).forEach(eq => {
         (p.execucoes||[]).forEach(ex => {
           events.push({ ts: new Date(ex.data||Date.now()).getTime(), type:'preventiva', icon:'📋', color:'#7c3aed',
             title: `Preventiva N${p.level||'?'} — ${p.period||''}`,
@@ -2001,7 +2005,7 @@ async function openEquipHistory() {
   } catch(e) {}
 
   // 5. Movimentações patrimoniais
-  const movsList = (movimentos||[]).filter(m => m.contrato===contrato && (m.tag||'').toUpperCase()===tag);
+  const movsList = (movimentos||[]).filter(m => m.contrato===contrato && tagCanonicaPat(m.tag)===tag);
   movsList.forEach(m => {
     const tipos = { instalar:'📥 Instalação', desmontar:'🧰 Desmontagem', realocar:'🧰 Desmontagem', baixar:'🔴 Baixa', adicionar:'➕ Adição' };
     events.push({ ts: m.createdAt || Date.now(), type:'movimentacao', icon:'📋', color:'#7c3aed',

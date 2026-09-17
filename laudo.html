@@ -151,8 +151,8 @@ function renderForm(){
       <div id="l-equip-scope">
         <div class="field"><label>TAG do equipamento</label>
           <div style="display:flex;gap:8px">
-            <input id="l-tag" inputmode="numeric" placeholder="Ex: 892" style="flex:1"
-              oninput="this.value=this.value.replace(/[^0-9]/g,'')"
+            <input id="l-tag" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 892" style="flex:1"
+              oninput="this.value=normalizarTagNumero(this.value)"
               onkeydown="if(event.key==='Enter'){event.preventDefault();addTag();}">
             <button class="btn btn-secondary" onclick="addTag()" style="white-space:nowrap">+ Adicionar</button>
           </div>
@@ -252,10 +252,10 @@ function onContractChange(){
 // Escopo equipamento: adiciona por TAG (busca tudo no banco do contrato)
 function addTag(){
   const inp = document.getElementById('l-tag');
-  const tag = String(inp.value||'').replace(/\D/g,'');
+  const tag = normalizarTagNumero(inp.value);
   if(!document.getElementById('l-contract').value){ showToast('Selecione o contrato primeiro'); return; }
   if(!tag){ showToast('Digite a TAG'); return; }
-  const norm = t => String(t||'').replace(/\D/g,'');
+  const norm = t => normalizarTagNumero(t);
   const numEq = (a,b) => { const na=parseInt(norm(a),10), nb=parseInt(norm(b),10); return !isNaN(na)&&na===nb; };
   const eqs = equipsDoContrato();
   let found = eqs.find(e => norm(e.tag) === tag) || eqs.find(e => numEq(e.tag, tag));

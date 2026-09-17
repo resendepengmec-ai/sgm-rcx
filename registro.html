@@ -143,7 +143,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field" id="field-equip">
       <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" placeholder="Ex: 12, 325, 1450" oninput="this.value=this.value.replace(/[^0-9]/g,'');onTagInput()">
+      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -544,7 +544,7 @@ function resolveEstab(r){
   if (r && r.machine && r.machine.estabelecimento) return r.machine.estabelecimento;
   try {
     const db = (typeof getEffDB === 'function' ? getEffDB() : {})[r.contract || r.client] || [];
-    const m = db.find(x => (x.tag||'') === (r.tag || r.equip));
+    const m = db.find(x => normalizarTagNumero(x.tag) === normalizarTagNumero(r.tag || r.equip));
     if (m && m.estabelecimento) return m.estabelecimento;
   } catch(e){}
   return '';
@@ -1029,7 +1029,7 @@ function saveRecord(btn) {
     };
   } else {
     client = document.getElementById('f-client').value.trim();
-    equip = document.getElementById('f-equip').value.trim();
+    equip = normalizarTagNumero(document.getElementById('f-equip').value);
     if (!client) { showToast('Selecione o contrato'); return; }
     if (!equip) { showToast('Informe a TAG do equipamento'); return; }
     const equipamento = encontrarEquipamento(client, equip);
@@ -1130,7 +1130,7 @@ function editRecord(id) {
   editingId = id; newItems = r.items.map(i=>({...i})); newPhotos = r.photos ? [...r.photos] : [];
   selectedMachine = r.machine || null;
   document.getElementById('f-client').value = r.client || '';
-  document.getElementById('f-equip').value = r.equip || '';
+  document.getElementById('f-equip').value = normalizarTagNumero(r.equip);
   document.getElementById('f-date').value = r.date || today();
   document.getElementById('f-date-sol').value = r.dateSolic || '';
   document.getElementById('f-tech').value = r.tech || '';
@@ -1510,7 +1510,7 @@ function closeLightbox(){ document.getElementById('lightbox').classList.add('hid
 
 // ── TAG lookup ──
 function onTagInput(){
-  const val = document.getElementById('f-equip').value.trim();
+  const val = normalizarTagNumero(document.getElementById('f-equip').value);
   clearTimeout(tagTimeout); hideMachineInfo();
   if(!val){ document.getElementById('tag-suggestions').style.display='none'; return; }
   tagTimeout = setTimeout(()=>showTagSuggestions(val), 150);
@@ -1521,7 +1521,7 @@ function showTagSuggestions(q){
   const list = (getEffDB()[contract]||[]).filter(m=>equipamentoOperante(m));
   const qLow = q.toLowerCase();
   const matches = list.filter(m=>{
-    const tag = (m.tag||'').toString().toLowerCase();
+    const tag = normalizarTagNumero(m.tag);
     const est = (m.estabelecimento||'').toLowerCase();
     const rec = (m.recinto||'').toLowerCase();
     return tag.startsWith(qLow) || est.includes(qLow) || rec.includes(qLow);
@@ -1540,10 +1540,11 @@ function showTagSuggestions(q){
 }
 function selectTag(tag){
   const contract = document.getElementById('f-client').value;
-  const m = (getEffDB()[contract]||[]).find(x=>(x.tag||'')===tag);
+  const canonica = normalizarTagNumero(tag);
+  const m = (getEffDB()[contract]||[]).find(x=>normalizarTagNumero(x.tag)===canonica);
   if(!m) return;
   selectedMachine = m;
-  document.getElementById('f-equip').value = tag;
+  document.getElementById('f-equip').value = normalizarTagNumero(tag);
   document.getElementById('tag-suggestions').style.display='none';
   showMachineInfo(m);
 }
@@ -2255,7 +2256,7 @@ function iniciarRegistroOS(osId) {
     // Resolve a máquina: da O.S. ou pela TAG no banco de equipamentos
     let mach = os.machine || null;
     if (!mach && contractNum && tagVal) {
-      try { mach = (getEffDB()[contractNum]||[]).find(x => String(x.tag) === tagVal) || null; } catch(e){}
+      try { mach = (getEffDB()[contractNum]||[]).find(x => normalizarTagNumero(x.tag) === normalizarTagNumero(tagVal)) || null; } catch(e){}
     }
     if (mach) { selectedMachine = mach; showMachineInfo(mach); }
 
