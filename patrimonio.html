@@ -764,6 +764,7 @@ async function gerarRelMovPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const contrato = document.getElementById('rel-contrato')?.value || '';
+  const estabelecimento = document.getElementById('rel-estabelecimento')?.value || '';
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
   const textoAdicionalPDF = document.getElementById('rel-texto-adicional')?.value.trim() || '';
@@ -923,7 +924,14 @@ async function gerarRelMovPDF() {
 
 const _gerarRelMovPDFOriginal = gerarRelMovPDF;
 gerarRelMovPDF = function(btn) {
-  return withActionBusy(btn, 'Gerando PDF…', () => _gerarRelMovPDFOriginal());
+  return withActionBusy(btn, 'Gerando PDF…', async () => {
+    try {
+      return await _gerarRelMovPDFOriginal();
+    } catch (e) {
+      console.error('Falha ao montar relatório patrimonial', e);
+      showToast('Não foi possível gerar o PDF: ' + (e?.message || e), 8000);
+    }
+  });
 };
 function setMovTab(tab) {
   currentTab = tab;
