@@ -669,8 +669,11 @@ function getEffDB() {
 // Compatibilidade com inventários antigos: ausência de status equivale a
 // operante, exceto quando o legado trazia `_inativo`.
 function statusEquipamento(equipamento) {
-  const status = String(equipamento?.status || '').trim().toLowerCase();
-  if (status) return status;
+  const informado = String(equipamento?.status || '').trim().toLowerCase();
+  if (informado === 'operante') return 'operante';
+  if (/^(baixad|inoper|inativ)/.test(informado)) return 'baixado/inoperante';
+  if (/^(desmont|desinstal|realoc)/.test(informado)) return 'desmontado/inoperante';
+  if (informado) return informado;
   return equipamento?._inativo ? 'baixado/inoperante' : 'operante';
 }
 function equipamentoOperante(equipamento) {
