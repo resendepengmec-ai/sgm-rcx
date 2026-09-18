@@ -48,9 +48,11 @@ p{font-size:13px;color:#94a3b8;}
   <div class="spinner" id="spinner"></div>
   <h2 id="msg">Autenticando com Google…</h2>
   <p id="sub">Aguarde um momento</p>
+  <button id="retry" hidden type="button">Tentar novamente</button>
+  <p><a id="return-login" href="index.html" hidden>Voltar ao início</a></p>
 </div>
 <script src="config.js"></script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <script>
 (async () => {
   // Support both implicit flow (access_token in hash) and
@@ -61,6 +63,7 @@ p{font-size:13px;color:#94a3b8;}
   const qParams = Object.fromEntries(new URLSearchParams(query));
 
   const token = hParams.access_token || qParams.access_token;
+  history.replaceState(null, '', location.pathname);
 
   if (!token) {
     const error = hParams.error || qParams.error || 'Token não encontrado';
@@ -72,6 +75,9 @@ p{font-size:13px;color:#94a3b8;}
     return;
   }
 
+  async function tentar() {
+  document.getElementById('retry').hidden = true;
+  document.getElementById('spinner').style.display = '';
   try {
     document.getElementById('msg').textContent = 'Verificando perfil…';
     const user = await loginWithGoogleToken(token);
@@ -80,11 +86,15 @@ p{font-size:13px;color:#94a3b8;}
     setTimeout(() => window.location.href = 'index.html', 800);
   } catch(e) {
     document.getElementById('spinner').style.display = 'none';
-    document.getElementById('msg').textContent = 'Acesso negado';
+    document.getElementById('msg').textContent = e.transient ? 'Servidor temporariamente indisponível' : (e.status === 403 ? 'Acesso negado' : 'Não foi possível entrar');
     document.getElementById('msg').className = 'error';
     document.getElementById('sub').textContent = e.message;
-    setTimeout(() => window.location.href = 'index.html', 4000);
+    document.getElementById('retry').hidden = !e.transient;
+    document.getElementById('return-login').hidden = false;
   }
+  }
+  document.getElementById('retry').onclick = tentar;
+  await tentar();
 })();
 </script>
 </body>

@@ -213,10 +213,11 @@ const ROLES = {
 };
 
 // ── HTTP client ───────────────────────────────────────────────────
-async function _call(method, path, body) {
+async function _call(method, path, body, options = {}) {
   const token   = sessionStorage.getItem(SESSION_KEY);
   const headers = { 'Content-Type':'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (options.operationId) headers['Idempotency-Key'] = options.operationId;
   // Timeout: em rede de campo instável, o fetch pode travar sem resolver
   // nem rejeitar. O AbortController garante que a chamada sempre termina.
   const ctrl = new AbortController();
@@ -232,24 +233,22 @@ async function _call(method, path, body) {
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
     });
-  } catch(e) {
-    if (e.name === 'AbortError')
-      throw new Error('Tempo esgotado ao falar com o servidor. Verifique a conexão e tente de novo.');
-    throw new Error('Sem conexão com o servidor. Verifique a internet e tente de novo.');
-  } finally {
-    clearTimeout(timer);
-  }
   let json;
   try {
     json = await res.json();
   } catch(e) {
     // O servidor não devolveu JSON (erro interno, instabilidade do
     // serviço, etc.) — mensagem clara em vez do erro de parse cru.
-    throw new Error(`O servidor não respondeu corretamente (status ${res.status}). Tente novamente em instantes.`);
+    if (ctrl.signal.aborted) throw e;
+    throw Object.assign(new Error(`O servidor não respondeu corretamente (status ${res.status}). Tente novamente em instantes.`), {status:res.status, code:'INVALID_RESPONSE', transient:res.status >= 500 || res.status === 429});
   }
-  if (!json.ok) {
+  if (!res.ok || !json.ok) {
     const e = new Error(json.error || `Erro ${res.status}`);
     e.status = res.status;
+    e.code = json.code || 'HTTP_ERROR'; e.ref = json.ref;
+    const retry = res.headers.get('Retry-After');
+    e.retryAfter = retry ? (Number.isFinite(Number(retry)) ? Number(retry)*1000 : Math.max(0,Date.parse(retry)-Date.now())) : 0;
+    e.transient = res.status >= 500 || [408,429].includes(res.status);
     throw e;
   }
 
@@ -274,6 +273,14 @@ async function _call(method, path, body) {
   } catch (e) { /* aviso nunca pode quebrar a chamada que já deu certo */ }
 
   return json.data;
+  } catch (e) {
+    if (e.status) throw e;
+    const timeout = ctrl.signal.aborted;
+    throw Object.assign(new Error(timeout
+      ? 'Tempo esgotado ao falar com o servidor. O envio não foi confirmado; tente novamente.'
+      : 'Sem conexão com o servidor. Verifique a internet e tente de novo.'),
+      {code:timeout?'TIMEOUT':'NETWORK_ERROR',transient:true});
+  } finally { clearTimeout(timer); }
 }
 const API = {
   get:    p     => _call('GET',    p),
@@ -281,6 +288,72 @@ const API = {
   patch:  (p,b) => _call('PATCH',  p, b),
   delete: p     => _call('DELETE', p),
 };
+
+let _outboxReady;
+function getOutbox() {
+  if (!_outboxReady) _outboxReady = new Promise((resolve,reject)=>{
+    const init=()=>resolve(window.SGMOutbox.create({user:getCurrentUser,call:_call,api:SMM_API_URL,notify:showOutboxStatus}));
+    if (window.SGMOutbox) {init();return;}
+    const script=document.createElement('script'); script.src='outbox.js?v=20260918.1';
+    script.onload=init; script.onerror=()=>{_outboxReady=null;reject(new Error('Não foi possível preparar os envios. Recarregue a página.'));};
+    document.head.appendChild(script);
+  });
+  return _outboxReady;
+}
+function showOutboxStatus(event) {
+  if (!getCurrentUser()) return;
+  let button=document.getElementById('sgm-outbox-status');
+  if (!button) {
+    button=document.createElement('button');button.id='sgm-outbox-status';button.type='button';
+    button.style.cssText='position:fixed;top:72px;right:8px;z-index:10010;max-width:85vw;padding:8px 12px;border:1px solid #94a3b8;border-radius:12px;background:white;color:#0f172a;font:12px sans-serif;box-shadow:0 2px 8px #0002';
+    button.onclick=openPendingSends; document.body.appendChild(button);
+  }
+  button.hidden=false;
+  button.textContent=event.state==='confirmed'?'✓ Confirmado no servidor':'Envios pendentes — '+(event.state==='sending'?'enviando…':'verificar');
+  button.title=event.message||'';
+  clearTimeout(button._hide);
+  if(event.state==='confirmed') button._hide=setTimeout(async()=>{if(!(await (await getOutbox()).list()).length)button.hidden=true;},4000);
+}
+async function openPendingSends() {
+  const outbox=await getOutbox(); const rows=await outbox.list();
+  document.getElementById('sgm-pending-panel')?.remove();
+  const panel=document.createElement('div');panel.id='sgm-pending-panel';
+  panel.style.cssText='position:fixed;inset:10%;z-index:11000;background:white;color:#0f172a;padding:20px;border:2px solid #0369a1;border-radius:12px;overflow:auto;box-shadow:0 0 0 100vmax #0007;font:14px sans-serif';
+  const title=document.createElement('h2');title.textContent='Envios pendentes neste aparelho';panel.appendChild(title);
+  const help=document.createElement('p');help.textContent='Não limpe os dados do navegador. A pendência só é removida após a confirmação. Conflitos precisam ser comparados com a versão atual do servidor.';panel.appendChild(help);
+  for (const row of rows) {
+    const item=document.createElement('div');item.style.cssText='border-top:1px solid #ddd;padding:12px 0';
+    const label=document.createElement('p'); label.textContent=row.entity+' — '+(row.error||row.state);item.appendChild(label);
+    const exportButton=document.createElement('button');exportButton.textContent='Baixar cópia para revisão';exportButton.onclick=()=>{
+      const url=URL.createObjectURL(new Blob([JSON.stringify(row.body,null,2)],{type:'application/json'}));
+      const a=document.createElement('a');a.href=url;a.download='pendencia-'+row.id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+    }; item.appendChild(exportButton);
+    const remove=document.createElement('button');remove.textContent='Descartar pendência';remove.onclick=async()=>{
+      if(confirm('Descartar esta cópia local? Isso não desfaz algo já gravado no servidor. Baixe uma cópia antes se precisar revisar.')) {await outbox.discard(row.id);item.remove();}
+    };item.appendChild(remove);panel.appendChild(item);
+  }
+  const retry=document.createElement('button');retry.textContent='Tentar reenviar';retry.onclick=async()=>{retry.disabled=true;try{await outbox.retry(true);}finally{panel.remove();}};
+  const close=document.createElement('button');close.textContent='Fechar';close.onclick=()=>panel.remove();panel.append(retry,close);document.body.appendChild(panel);
+}
+async function reliableWrite(method,path,body,entity) {
+  return (await getOutbox()).submit(method,path,body,entity);
+}
+function restoreLocalBytes(remote, local) {
+  if (!remote || typeof remote!=='object') return remote;
+  if (Array.isArray(remote)) return remote.map((item,i)=>restoreLocalBytes(item,local?.find?.(x=>x?.id && x.id===item?.id)||local?.[i]));
+  const result={...remote};
+  if (!result.dataUrl && local?.dataUrl && (!remote.id || remote.id===local.id)) result.dataUrl=local.dataUrl;
+  for(const key of Object.keys(result)) if(result[key] && typeof result[key]==='object')result[key]=restoreLocalBytes(result[key],local?.[key]);
+  return result;
+}
+async function retryPendingSends() {
+  if(!getCurrentUser())return;
+  try {const box=await getOutbox();const rows=await box.list();if(rows.length){showOutboxStatus({state:'pending'});await box.retry();}}
+  catch(e){console.warn('Pendências:',e.message);}
+}
+window.addEventListener('online',retryPendingSends);
+setTimeout(retryPendingSends,1500);
+setInterval(retryPendingSends,30000);
 
 // ── Session ───────────────────────────────────────────────────────
 let _currentUser = null;
@@ -329,7 +402,9 @@ async function guardaDeModulo(modulo, destino = 'index.html') {
     if (servidor) u = servidor;
     // Se a rede falhar, segue com o papel local: o servidor continua
     // sendo a barreira real em cada chamada de API.
-  } catch (e) { /* rede instável em campo — não bloqueia a tela */ }
+  } catch (e) {
+    if ([401,403].includes(e.status)) { window.location.href = destino; return null; }
+  }
   if (!u || !(ROLES[u.role]?.modules || []).includes(modulo)) {
     window.location.href = destino; return null;
   }
@@ -345,7 +420,10 @@ async function refreshCurrentUser() {
       _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active };
     }
     return _currentUser;
-  } catch(e) { return _currentUser; }
+  } catch(e) {
+    if ([401,403].includes(e.status)) { _currentUser = null; sessionStorage.removeItem(SESSION_KEY); throw e; }
+    return _currentUser;
+  }
 }
 
 // V20: o logout removia APENAS o token. Ficavam no localStorage os
@@ -373,6 +451,10 @@ function limparCachesLocais() {
 window.limparCachesLocais = limparCachesLocais;
 
 async function logout() {
+  try {
+    const pending=await (await getOutbox()).list();
+    if(pending.length && !confirm(`Existem ${pending.length} envios pendentes. Eles continuarão neste aparelho e só serão reenviados ao entrar com esta mesma conta. Deseja sair?`))return;
+  } catch(e) { if(!confirm('Não foi possível verificar os envios pendentes. Sair mesmo assim?'))return; }
   try { await DB.logout(); } catch(e) {}
   sessionStorage.removeItem(SESSION_KEY);
   limparCachesLocais();                 // V20
@@ -522,7 +604,12 @@ const DB = {
   getAll:    (col, query='') => API.get(`/${col}${query || ''}`),
   getRecord: (col, id) => API.get(`/${col}/${encodeURIComponent(id)}`),
   getPreventiva: id => API.get(`/preventiva/${encodeURIComponent(id)}`),
-  save:      (col, r)  => API.post(`/${col}`, { record:r }),
+  setPreventivaCheck: (id,change) => reliableWrite('POST',`/preventiva/${encodeURIComponent(id)}/check`,change,'preventiva:'+id),
+  save: async (col,r,effects) => {
+    const response=await reliableWrite('POST',`/${col}?compact=1`,{record:r,...(effects?{effects}:{})},col+':'+r.id);
+    if(response?.record) response.record=restoreLocalBytes(response.record,r);
+    return response;
+  },
   updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
 
   // Importação de pedido de orçamento em PDF. O servidor lê o arquivo com
@@ -556,7 +643,7 @@ const DB = {
   // Contratos
   getContratos:       (query='') => API.get(`/contratos${query || ''}`),
   getContrato:        id => API.get(`/contratos/id/${encodeURIComponent(id)}`),
-  saveContrato:       c     => API.post('/contratos', { contrato:c }),
+  saveContrato:       c     => reliableWrite('POST','/contratos',{contrato:c},'contratos:'+c.id),
   deleteContrato:     id    => API.delete(`/contratos/${id}`),
 
   // Responsáveis de estabelecimento (whitelist p/ assinatura do cliente)
@@ -574,24 +661,24 @@ const DB = {
   gerarLaudoTexto:    p     => API.post('/laudo/gerar-texto', p),
   getLaudos:          ()    => API.get('/laudos'),
   getLaudo:           id    => API.get(`/laudos/${id}`),
-  saveLaudo:          l     => API.post('/laudos', { laudo:l }),
+  saveLaudo: async l => restoreLocalBytes(await reliableWrite('POST','/laudos?compact=1',{laudo:l},'laudos:'+l.id),l),
   deleteLaudo:        id    => API.delete(`/laudos/${id}`),
 
   // Movimentações
   getMovimentacoes:   (query='') => API.get(`/movimentacoes${query || ''}`),
   getMovimentacao:    id => API.get('/movimentacoes/' + encodeURIComponent(id)),
-  saveMovimentacao:   m     => API.post('/movimentacoes', { movimentacao:m }),
-  updateMovimentacao: m => API.patch('/movimentacoes/' + m.id, { movimentacao:m }),
+  saveMovimentacao: async m => {const r=await reliableWrite('POST','/movimentacoes',{movimentacao:m},'movimentacoes:'+m.id);if(r?.movimentacao)r.movimentacao=restoreLocalBytes(r.movimentacao,m);return r;},
+  updateMovimentacao: async m => {const r=await reliableWrite('PATCH','/movimentacoes/'+m.id,{movimentacao:m},'movimentacoes:'+m.id);if(r?.movimentacao)r.movimentacao=restoreLocalBytes(r.movimentacao,m);return r;},
   deleteMovimentacao: id    => API.delete('/movimentacoes/' + id),
   updateMovStatus:    (id, status, motivoRejeicao) =>
-                              API.patch(`/movimentacoes/${id}/status`, { status, motivoRejeicao }),
+                              reliableWrite('PATCH',`/movimentacoes/${id}/status`, { status, motivoRejeicao },'movimentacoes:'+id),
 
   // Ordens de serviço
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),
   saveOrdem:          o     => API.post('/ordens-servico', { ordem:o }),
   iniciarOrdem:       id    => API.patch(`/ordens-servico/${id}/iniciar`, {}),
-  concluirOrdem:      (id, registroId) => API.patch(`/ordens-servico/${id}/concluir`, { registroId }),
+  concluirOrdem:      (id, registroId) => reliableWrite('PATCH',`/ordens-servico/${id}/concluir`, { registroId },'ordens-servico:'+id),
 
   // Machine DB
   getMachineDB:       ()    => API.get('/machine-db'),
@@ -619,11 +706,15 @@ const DB = {
   verifySignatures:(recordId)              => API.get(`/sign/${recordId}/verify`),
 
   // Técnico dono/atribuído anexa foto (assinada) a um registro já criado
-  addRegistroFoto: (id, photo) => API.post(`/registros/${id}/foto`, { photo }),
+  addRegistroFoto: async (id,photo,local) => {
+    const r=await reliableWrite('POST',`/registros/${id}/foto`,{photo},'registros:'+id);
+    if(r?.record)r.record=restoreLocalBytes(r.record,{...(local||{}),photos:[...(local?.photos||[]),photo]});
+    return r;
+  },
 
   // Upload incremental de UMA foto de preventiva (por equipamento), sem
   // reenviar o plano inteiro
-  addPreventivaFoto: (id, ei, photo) => API.post(`/preventiva/${id}/equip/${ei}/foto`, { photo }),
+  addPreventivaFoto: async (id,ei,photo) => {const r=await reliableWrite('POST',`/preventiva/${id}/equip/${ei}/foto`,{photo},'preventiva:'+id);if(r?.photo)r.photo=restoreLocalBytes(r.photo,photo);return r;},
 
   // Remoção incremental e determinística de UMA foto de preventiva
   delPreventivaFoto: (id, ei, photoId) => API.delete(`/preventiva/${id}/equip/${ei}/foto/${encodeURIComponent(photoId)}`),
@@ -730,7 +821,7 @@ async function signRecord(recordId, action, module) {
       role: user?.role  || '?',
       email:user?.email || '?',
       at:   ts,
-      hash: Math.random().toString(36).slice(2,8),
+      hash: null,
       offline: true,
     };
   }
@@ -741,6 +832,7 @@ function renderSignatures(sigs) {
   if (!sigs || !sigs.length) return '';
   return '<div class="sig-trail">' +
     sigs.map(s => {
+      if(s.offline) return '<span class="sig-entry">⏳ Assinatura pendente de confirmação no servidor</span>';
       const icon = SIG_ICONS[s.action] || '•';
       const role = SIG_ROLES[s.role]   || s.role;
       const dt   = new Date(s.at).toLocaleString('pt-BR',

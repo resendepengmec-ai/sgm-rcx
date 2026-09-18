@@ -341,7 +341,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </nav>
 
 <script src="config.js"></script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <script src="db.js"></script>
 <script>
 (function() {
@@ -830,7 +830,9 @@ function renderList() {
 }
 
 // ── New / Edit ──
+let pendingChamadoId = null;
 function startNew() {
+  pendingChamadoId = null;
   editingId=null; newPhotos=[]; selectedMachine=null;
   const clientSel = document.getElementById('f-client');
   if (!clientSel.disabled) clientSel.value=''; // não zera se travado num único contrato permitido
@@ -844,6 +846,7 @@ function startNew() {
 function cancelNew() { switchTab('list'); }
 
 async function saveChamado(btn) {
+  if (btn?.dataset.busy === '1') return;
   const client = document.getElementById('f-client').value.trim();
   const equip  = normalizarTagNumero(document.getElementById('f-equip').value);
   const desc   = document.getElementById('f-desc').value.trim();
@@ -855,7 +858,7 @@ async function saveChamado(btn) {
     showToast('A TAG ' + equip + ' está ' + textoStatusEquipamento(equipamento) + ' e não pode receber chamados.', 7000); return;
   }
   const c = {
-    id: editingId || genId(),
+    id: editingId || (pendingChamadoId ||= genId()),
     client, equip,
     machine: selectedMachine||null,
     date: document.getElementById('f-date').value,
@@ -864,17 +867,17 @@ async function saveChamado(btn) {
     desc,
     photos: newPhotos,
     status: editingId ? (chamados.find(x=>x.id===editingId)?.status||'aberto') : 'aberto',
-    createdAt: editingId ? (chamados.find(x=>x.id===editingId)?.createdAt||Date.now()) : Date.now(),
+    createdAt: chamados.find(x=>x.id===(editingId||pendingChamadoId))?.createdAt || Date.now(),
+    _version: editingId ? chamados.find(x=>x.id===editingId)?._version : undefined,
   };
   const isNew = !editingId;
-  if (editingId) { const i=chamados.findIndex(x=>x.id===editingId); chamados[i]=c; }
-  else { chamados.unshift(c); }
+  const existingIndex = chamados.findIndex(x=>x.id===c.id);
+  if (existingIndex >= 0) chamados[existingIndex] = c;
+  else chamados.unshift(c);
   const restore = setActionBusy(btn || document.querySelector('#screen-new .btn-primary'), true,
     editingId ? 'Salvando alterações…' : 'Enviando chamado…');
   try {
     // A assinatura precisa terminar antes do envio ao servidor.
-    const sig = await signRecord(c.id, isNew ? 'criado' : 'editado', 'chamados');
-    c._signatures = c._signatures||[]; c._signatures.push(sig);
     await persist(c);
     showToast(isNew ? 'Chamado aberto!' : 'Chamado atualizado!');
     if (isNew) {
@@ -888,7 +891,7 @@ async function saveChamado(btn) {
         }
       }).catch(()=>{});
     }
-    editingId=null; newPhotos=[]; switchTab('list');
+    editingId=null; pendingChamadoId=null; newPhotos=[]; switchTab('list');
   } catch (e) {
     showToast('Erro ao enviar chamado: ' + e.message, 5000);
   } finally {
@@ -949,7 +952,7 @@ function persist(record) {
   renderList();
   // Sync backend (registro explícito, se informado; senão o mais recente)
   const last = record || chamados[0];
-  if (last) return DB.save('chamados', last).catch(e => console.warn('Sync chamado:', e.message));
+  if (last) return DB.save('chamados', last);
   return Promise.resolve();
 }
 

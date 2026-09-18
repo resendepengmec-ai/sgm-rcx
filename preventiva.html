@@ -348,7 +348,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <script src="db.js"></script>
 <script>
 // ── Checklist definitions ──
@@ -392,7 +392,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-15.1';
+const APP_BUILD = '2026-09-18.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -611,22 +611,56 @@ function setSync(state, msg, onRetry){
 // Marca o plano como "sujo" (não sincronizado) até o servidor confirmar, e
 // manda as fotos JÁ sincronizadas sem os bytes (o servidor as preserva) —
 // assim um check não reenvia megabytes de foto.
+const planSaves = new Map();
+window.addEventListener('sgm:confirmed',event=>{
+  const {entity,response}=event.detail||{};
+  if(!entity?.startsWith('preventiva:'))return;
+  const plan=plans.find(p=>p.id===entity.slice('preventiva:'.length));
+  if(!plan)return;
+  plan._version=Math.max(plan._version||0,response?.version||response?.record?._version||0);
+  if(response?.photo && response.ei!==undefined) {
+    const eq=plan.equipments?.[response.ei];
+    const photo=eq?.photos?.find(p=>p.id===response.photo.id);
+    if(photo)Object.assign(photo,response.photo);
+  }
+  if(response?.record?.updatedAt===plan.updatedAt && response?.record?.id===plan.id){
+    plan._dirty=false;plan.finalizedAt=response.record.finalizedAt;
+    plan._signatures=response.record._signatures||plan._signatures;
+  }
+  if(response?.tag && response.level!==undefined && typeof response.value==='boolean'){
+    const eq=plan.equipments?.find(e=>String(e.tag)===String(response.tag));
+    if(eq){eq.checks=eq.checks||{};eq.checks[response.level]=response.value;}
+    if(currentPlanId===plan.id){renderExecList(plan);updatePlanSummary(plan);}
+  }
+  saveLocal();
+});
 async function persist(record) {
   const last = record || plans.find(p => p.id === currentPlanId) || plans[0];
   if (last) { last.updatedAt = Date.now(); last._dirty = true; }
   saveLocal(); // cache local nunca falha
   if (!last) return true;
+  const revision = last._localRevision = (last._localRevision || 0) + 1;
+  const snapshot = JSON.parse(JSON.stringify(stripSyncedPhotos(last)));
+  delete snapshot._localRevision; delete snapshot._summary;
+  const previous = planSaves.get(last.id) || Promise.resolve();
+  const pending = previous.catch(() => {}).then(async () => {
   setSync('saving', 'Enviando ao servidor…');
   try {
-    await DB.save('preventiva', stripSyncedPhotos(last));
-    last._dirty = false;
+    snapshot._version = last._version;
+    const response = await DB.save('preventiva', snapshot);
+    if (response?.record?._version !== undefined) last._version = Math.max(last._version||0,response.record._version);
+    if (last._localRevision === revision) last._dirty = false;
     saveLocal(); // grava flag limpa
-    setSync('saved', 'Enviado');
+    if (!last._dirty) setSync('saved', 'Confirmado no servidor');
     return true;
   } catch(e) {
-    setSync('error', 'Não enviado: ' + (e.message || 'falha de rede'), () => persist(last));
+    setSync('error', 'Não enviado: ' + (e.message || 'falha de rede'), openPendingSends);
     return false;
   }
+  });
+  planSaves.set(last.id, pending);
+  try { return await pending; }
+  finally { if (planSaves.get(last.id) === pending) planSaves.delete(last.id); }
 }
 
 // Clona o plano trocando as fotos JÁ enviadas (com sig) por metadados leves
@@ -670,11 +704,9 @@ function saveLocal() {
   try {
     localStorage.setItem('prev_plans', JSON.stringify(plans.map(p => _cacheClone(p, false))));
   } catch(e) {
-    try { // cache cheio: tira TODAS as fotos do cache (thumbnails voltam do servidor)
-      localStorage.setItem('prev_plans', JSON.stringify(plans.map(p => _cacheClone(p, true))));
-    } catch(e2) {
-      console.warn('cache local cheio — seguindo sem cache:', e2.message);
-    }
+    // Não substituir o último cache válido por fotos vazias. A fila IndexedDB
+    // preserva cada envio; falha nela é exibida e nunca é confirmada como salvo.
+    console.warn('Cache de visualização cheio; mantenha a página aberta até confirmar o envio.');
   }
 }
 
@@ -714,15 +746,17 @@ function mergePlans(local, server) {
     if (!sp) { byId.set(lp.id, lp); return; }               // só local: mantém
     const lu = lp.updatedAt || 0;
     const su = sp.updatedAt || sp.finalizedAt || sp.createdAt || 0;
-    if (lp._dirty || lu > su) byId.set(lp.id, hidratarPlanoLocal(lp, sp)); // local vence
+    if (lp._dirty) byId.set(lp.id, hidratarPlanoLocal(lp, sp));
   });
   return Array.from(byId.values());
 }
 
 // Reenvia em silêncio os planos que ficaram sujos (capturados offline).
 async function resyncDirty() {
+  const box=await getOutbox();await box.retry();
+  const pending=new Set((await box.list()).map(r=>r.entity));
   const dirty = plans.filter(p => p && p._dirty);
-  for (const p of dirty) { const ok = await persist(p); if (!ok) break; }
+  for (const p of dirty) { if(pending.has('preventiva:'+p.id))continue;const ok = await persist(p); if (!ok) break; }
 }
 
 function showToast(msg) {
@@ -751,7 +785,7 @@ try { guardaDeModulo('preventiva'); } catch (e) {}
     saveLocal();
     if (currentPlanId) { const p = plans.find(x=>x.id===currentPlanId); if (p) renderExecList(p); }
     renderPlansList();
-    resyncDirty();
+    resyncDirty().catch(e=>setSync('error',e.message,openPendingSends));
   }).catch(() => {});
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
@@ -1296,19 +1330,22 @@ function toggleExecBody(ei) {
   else _openExecCards.delete(ei);
 }
 
-function setLevelCheck(ei, level, value) {
+async function setLevelCheck(ei, level, value) {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
   const equip = plan.equipments[ei];
+  const expected=!!equip.checks[level];
+  if(expected===value)return;
   equip.checks[level] = value;
   renderExecList(plan);
   updatePlanSummary(plan);
-  // Salva o check AGORA (local + servidor), independente da assinatura.
-  persist();
-  // Assinatura é secundária: se a rede falhar, o check NÃO se perde.
-  signRecord(plan.id, `nivel_${level}_${value?'concluido':'reaberto'}`, 'preventiva')
-    .then(sig => { equip._signatures = equip._signatures||[]; equip._signatures.push(sig); persist(); })
-    .catch(e => console.warn('Assinatura do check adiada:', e.message));
+  saveLocal();
+  setSync('saving','Enviando marcação…');
+  try {
+    const result=await DB.setPreventivaCheck(plan.id,{tag:equip.tag,level:Number(level),value,expected});
+    plan._version=Math.max(plan._version||0,result.version||0);
+    saveLocal();setSync('saved','Marcação confirmada no servidor');
+  } catch(e) {setSync('error',e.message,openPendingSends);}
 }
 
 // Modal somente-leitura com a relação de itens do checklist (referência
@@ -1517,7 +1554,8 @@ async function uploadEquipPhoto(plan, ei, photo) {
     if (resp && resp.photo) {                                   // adota a versão assinada
       const eq = plan.equipments[ei];
       const idx = (eq.photos||[]).findIndex(p => p && p.id === photo.id);
-      if (idx >= 0) eq.photos[idx] = resp.photo;
+      if (idx >= 0) eq.photos[idx] = {...photo,...resp.photo,dataUrl:photo.dataUrl};
+      if(resp.version!==undefined)plan._version=Math.max(plan._version||0,resp.version);
       saveLocal();
       renderExecList(plan);
     }
@@ -1577,6 +1615,7 @@ function updatePlanSummary(plan) {
 async function finalizePlan(btn) {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
+  try {await assertPlanConfirmed(plan);}catch(e){setSync('error',e.message,openPendingSends);return;}
   const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
   const total = plan.equipments.length;
   if (done < total) {
@@ -1590,10 +1629,9 @@ async function finalizePlan(btn) {
   setSync('saving', 'Finalizando e enviando ao servidor…');
   try {
     // 1) Sobe o plano (fotos já sincronizadas vão sem bytes) e CONFIRMA
-    await DB.save('preventiva', stripSyncedPhotos(plan));
-    // 2) Registra a assinatura de finalização
-    const sig = await signRecord(plan.id, 'finalizado', 'preventiva');
-    plan._signatures = plan._signatures || []; plan._signatures.push(sig);
+    const response=await DB.save('preventiva', stripSyncedPhotos(plan));
+    if(response?.record?._version!==undefined)plan._version=response.record._version;
+    if(response?.record?._signatures)plan._signatures=response.record._signatures;
     plan._dirty = false;
     saveLocal();
     setSync('saved', 'Preventiva finalizada e enviada');
@@ -1603,8 +1641,8 @@ async function finalizePlan(btn) {
     // Não subiu: NÃO marca como finalizada; nada é perdido, dá pra repetir.
     plan.finalizedAt = null;
     saveLocal();
-    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), () => finalizePlan(btn));
-    showToast('⚠️ Falha ao finalizar — nada foi perdido, tente novamente');
+    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), openPendingSends);
+    showToast('⚠️ Finalização não confirmada. Verifique os envios pendentes antes de tentar novamente.');
   } finally {
     restore();
   }
@@ -1651,27 +1689,22 @@ function renderHistory() {
 }
 
 // ── PDF: individual plan ──
-async function atualizarFotosParaPdf() {
-  const faltamBytes = plans.some(p => (p.equipments||[]).some(eq =>
-    (eq.photos||[]).some(photo => !fotoTemBytes(photo))));
-  if (!faltamBytes) return true;
+async function assertPlanConfirmed(plan) {
+  if ((await (await getOutbox()).list()).some(r=>r.entity==='preventiva:'+plan.id))
+    throw new Error('Este plano possui envios pendentes. Confirme-os em “Envios pendentes” antes de continuar.');
+}
+async function atualizarFotosParaPdf(plan) {
+  if (!plan) throw new Error('Selecione um plano para o relatório.');
+  await assertPlanConfirmed(plan);
+  if (plan._dirty) throw new Error('Este plano possui alterações pendentes. Confirme o envio antes de gerar o PDF.');
   setSync('saving', 'Carregando fotos do servidor…');
-  try {
-    const server = await DB.getAll('preventiva');
-    plans = mergePlans(plans, server || []);
-    saveLocal();
-    setSync('saved', 'Fotos carregadas');
-    return true;
-  } catch (e) {
-    setSync('error', 'Não foi possível carregar as fotos: ' + (e.message || 'falha de rede'));
-    return false;
-  }
+  return DB.getPreventiva(plan.id);
 }
 async function printExecPDF() {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
-  if (!await atualizarFotosParaPdf()) return;
-  generatePlanPDF(plan);
+  try { generatePlanPDF(await atualizarFotosParaPdf(plan)); setSync('saved','PDF gerado'); }
+  catch(e) { setSync('error', e.message); }
 }
 
 function generatePlanPDF(plan, sharedDoc) {
@@ -1837,10 +1870,29 @@ function generatePlanPDF(plan, sharedDoc) {
 }
 
 // ── PDF: filtered report ──
+let pdfRunning = false, pdfCancelled = false;
 async function printFilteredPDF() {
+  if (pdfRunning) return;
+  const selected = getFiltered();
+  if (!selected.length) { showToast('Nenhum plano para o relatório'); return; }
+  if (selected.length > 10 && !confirm(`Serão gerados ${Math.ceil(selected.length/10)} volumes, com até 10 planos cada, para limitar o uso de memória. Continuar?`)) return;
+  pdfRunning = true; pdfCancelled = false;
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancelar relatório'; cancel.type = 'button';
+  cancel.style.cssText = 'position:fixed;bottom:135px;left:20px;z-index:10000;padding:12px;background:white;border:1px solid #0369a1;border-radius:8px';
+  cancel.onclick = () => { pdfCancelled = true; cancel.textContent = 'Cancelando…'; };
+  document.body.appendChild(cancel);
+  try {
+    for (let i=0;i<selected.length;i+=10) {
+      if (pdfCancelled) throw new Error('Geração cancelada. Os volumes já baixados foram mantidos.');
+      await printFilteredVolume(selected.slice(i,i+10), Math.floor(i/10)+1);
+    }
+    setSync('saved','Relatório gerado');
+  } catch(e) { setSync('error', e.message); }
+  finally { pdfRunning = false; cancel.remove(); }
+}
+async function printFilteredVolume(filtered, volume) {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
-  if (!await atualizarFotosParaPdf()) return;
-  const filtered = getFiltered();
   if (!filtered.length) { showToast('Nenhum plano para o relatório'); return; }
   if (filtered.length > 15 && !confirm(`Isso vai gerar um relatório completo de ${filtered.length} planos (pode ficar longo e demorar um pouco). Continuar?`)) return;
   const {jsPDF} = window.jspdf;
@@ -1908,10 +1960,14 @@ async function printFilteredPDF() {
 
   // Detalhamento completo de cada plano filtrado — o mesmo relatório
   // completo já usado individualmente na aba Histórico, consolidado aqui.
-  filtered.forEach(p => {
+  for (const [i,p] of filtered.entries()) {
+    if (pdfCancelled) throw new Error('Geração cancelada. Nenhum dado foi alterado.');
+    const detail = await atualizarFotosParaPdf(p);
+    setSync('saving', `Montando volume ${volume}: plano ${i+1}/${filtered.length}…`);
     doc.addPage();
-    generatePlanPDF(p, doc);
-  });
+    generatePlanPDF(detail, doc);
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
 
   drawPdfFooters(doc, contFilter);
 
@@ -1923,7 +1979,7 @@ async function printFilteredPDF() {
               `(formato não suportado ou arquivo corrompido).`, 9000);
     _fotosFalhadasPdf = 0;
   }
-  try { doc.save(`relatorio-preventiva-completo-${new Date().toISOString().slice(0,7)}.pdf`); }
+  try { doc.save(`relatorio-preventiva-${new Date().toISOString().slice(0,7)}-volume-${volume}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   showToast('Relatório completo gerado!');
 }

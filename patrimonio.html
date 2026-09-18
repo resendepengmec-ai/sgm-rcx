@@ -392,7 +392,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script src="config.js"></script>
 <!-- jsPDF auto-hospedado (V12/V18) — nunca de CDN. -->
 <script src="vendor/jspdf.umd.min.js"></script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
@@ -401,6 +401,7 @@ const PAPEIS_EDICAO_MOVIMENTACAO = new Set(['admin','diretor','supervisor','gest
 function papelMovimentacao(role) { return String(role || '').trim().toLowerCase(); }
 function podeEditarMovimentacao() { return PAPEIS_EDICAO_MOVIMENTACAO.has(papelMovimentacao(user?.role)); }
 let editingMovId = null;
+let draftMovId = null;
 let canApproveMov = podeEditarMovimentacao(); // quem pode aprovar/rejeitar/executar movimentações
 if (!user) { window.location.href = 'index.html'; }
 else {
@@ -1118,6 +1119,7 @@ function openNewMovimento() {
 }
 
 function limparFormularioMovimento() {
+  draftMovId = null;
   ['f-tipo', 'f-motivo', 'f-contrato', 'f-tag', 'f-nova-tag', 'f-marca',
    'f-capacidade', 'f-estab-destino', 'f-recinto-destino']
     .forEach(id => {
@@ -1687,7 +1689,7 @@ async function saveMovimento(btn) {
   }
 
   const mov = {
-    id:               editingMovId || ('mov-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)),
+    id:               editingMovId || (draftMovId ||= ('mov-'+Date.now()+'-'+Math.random().toString(36).slice(2,8))),
     tipo, contrato,
     // Instalação não tem motivo. A regra também é reforçada pelo backend.
     motivo: tipo === 'instalar' ? '' : motivo,

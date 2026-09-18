@@ -36,7 +36,7 @@
 <script src="config.js"></script>
 <link rel="stylesheet" href="shared.css">
 <script src="vendor/jspdf.umd.min.js"></script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <style>
   .laudo-wrap{ max-width:820px; margin:0 auto; padding:0 14px 40px; }
   .card{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px; margin-top:14px; }
@@ -66,7 +66,7 @@
 
 <script>
 'use strict';
-const LAUDO_BUILD='2026-09-15.1';
+const LAUDO_BUILD='2026-09-18.1';
 let prestadora = {};
 let fotos = [];           // { dataUrl, geo, capturedAt }
 let laudosCache = [];
@@ -85,19 +85,9 @@ function showToast(msg){
 // API do laudo — INDEPENDENTE do api-client (não quebra se aquele estiver defasado)
 const _SMM_URL = (typeof window.SMM_API!=='undefined') ? window.SMM_API : (localStorage.getItem('smm_api_url')||'');
 async function laudoAPI(method, path, body){
-  const token = sessionStorage.getItem('smm_jwt');
-  let res;
-  try{
-    res = await fetch(`${_SMM_URL}/api${path}`, {
-      method, headers:{'Content-Type':'application/json', ...(token?{'Authorization':'Bearer '+token}:{})},
-      body: body?JSON.stringify(body):undefined
-    });
-  }catch(e){ throw new Error('Sem conexão com o servidor. Verifique a internet.'); }
-  let json; try{ json = await res.json(); }catch(e){ throw new Error(`O servidor não respondeu corretamente (status ${res.status}).`); }
-  if(!json.ok) throw new Error(json.error || `Erro ${res.status}`);
-  return json.data;
+  return _call(method,path,body);
 }
-const laudoSave  = l  => laudoAPI('POST','/laudos',{laudo:l});
+const laudoSave  = l  => DB.saveLaudo(l);
 const laudoList  = () => laudoAPI('GET','/laudos?resumo=1');
 const laudoDetalhe = id => laudoAPI('GET', `/laudos/${encodeURIComponent(id)}`);
 const laudoDel   = id => laudoAPI('DELETE',`/laudos/${id}`);
@@ -710,6 +700,7 @@ async function gerarLaudo(btn){
   if(scope==='equipamento' && !(d.itens||[]).length){ showToast('Adicione ao menos uma TAG'); return; }
   if(scope==='unidade' && !d.unidade){ showToast('Selecione o estabelecimento'); return; }
   if(!d.texto){ showToast('Gere o texto técnico antes de gerar o laudo'); return; }
+  d.id = currentLaudoId ||= 'laudo-'+(crypto.randomUUID ? crypto.randomUUID() : Date.now()+'-'+Math.random().toString(36).slice(2));
   const restore = setActionBusy(btn, true, 'Salvando laudo…');
   showToast('Salvando no acervo…');
   try{
@@ -733,7 +724,7 @@ async function gerarLaudo(btn){
   }catch(e){
     showToast('Falha ao salvar: '+(e.message||e));
   }finally{
-    if(btn){ btn.disabled=false; btn.textContent=t0; }
+    restore();
   }
 }
 async function loadLaudos(merge){

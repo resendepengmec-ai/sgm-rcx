@@ -171,7 +171,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
   window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
 </script>
-<script src="api-client.js"></script>
+<script src="api-client.js?v=20260918.1"></script>
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
@@ -444,18 +444,32 @@ async function loadReportData() {
 }
 
 async function loadReportDetails() {
-  if (_reportDetailsLoaded) return;
-  const [ch, reg, prev, mov] = await Promise.all([
-    DB.getAll('chamados'),
-    DB.getAll('registros'),
-    DB.getAll('preventiva'),
-    DB.getMovimentacoes(),
-  ]);
-  if (Array.isArray(ch)) _dados.chamados = ch;
-  if (Array.isArray(reg)) _dados.registros = reg;
-  if (Array.isArray(prev)) _dados.preventiva = prev;
-  if (Array.isArray(mov)) _dados.movimentacoes = mov;
-  _reportDetailsLoaded = true;
+  const ini=document.getElementById('f-periodo-ini').value;
+  const fim=document.getElementById('f-periodo-fim').value;
+  const contrato=document.getElementById('f-contrato').value;
+  const tag=document.getElementById('f-tag').value.trim().toUpperCase();
+  if(!ini || !fim || fim<ini)throw new Error('Selecione um período válido antes de gerar o PDF.');
+  const selected={chamados:[],registros:[],preventiva:[],movimentacoes:[]};
+  for(const col of Object.keys(selected)) {
+    for(const record of _dados[col]||[]) {
+      const month=col==='preventiva'?prevPeriodOf(record):col==='movimentacoes'?(record.criadoEm?new Date(record.criadoEm).toISOString().slice(0,7):''):String(record.date||'').slice(0,7);
+      if(!month || month<ini || month>fim || (contrato && (record.client||record.contract||record.contrato)!==contrato))continue;
+      if(tag && !(col==='preventiva'?(record.equipments||[]).some(e=>String(e.tag||'').toUpperCase()===tag):String(record.equip||record.tag||record.novaTag||'').toUpperCase()===tag))continue;
+      selected[col].push(record);
+    }
+  }
+  const total=Object.values(selected).reduce((n,items)=>n+items.length,0);
+  if(!total)throw new Error('Nenhum item corresponde aos filtros.');
+  if(total>100 && !confirm(`Este relatório contém ${total} itens. Para reduzir o uso de memória, prefira um período menor. Continuar?`))throw new Error('Geração cancelada.');
+  let done=0;
+  for(const col of Object.keys(selected)) {
+    for(let i=0;i<selected[col].length;i++) {
+      showToast(`Carregando anexos ${++done}/${total}…`);
+      const id=selected[col][i].id;
+      selected[col][i]=col==='movimentacoes'?await DB.getMovimentacao(id):await DB.getRecord(col,id);
+    }
+  }
+  return selected;
 }
 
 async function render() {
@@ -988,7 +1002,8 @@ function renderPreventivaPlanDetail(doc, plan) {
 async function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
-  try { await loadReportDetails(); }
+  let details;
+  try { details=await loadReportDetails(); }
   catch (e) { showToast('Não foi possível carregar os anexos completos: ' + e.message, 7000); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
@@ -1023,19 +1038,19 @@ async function generatePDF() {
     return ym >= periodoIni && ym <= periodoFim;
   };
   const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
-  const chamados  = _dados.chamados.filter(c=>
+  const chamados  = details.chamados.filter(c=>
     inPeriodPdf(c.date) &&
     (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
     inTagPdf(c.equip||c.tag));
-  const registros = _dados.registros.filter(r=>
+  const registros = details.registros.filter(r=>
     inPeriodPdf(r.date) &&
     (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
     inTagPdf(r.equip||r.tag));
-  const preventiva= _dados.preventiva.filter(p=>{
+  const preventiva= details.preventiva.filter(p=>{
     const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
     return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
   });
-  const movimentos = _dados.movimentacoes.filter(m=>{
+  const movimentos = details.movimentacoes.filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
     return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag);
   });
@@ -1157,8 +1172,14 @@ async function generatePDF() {
 }
 
 const _generatePDFOriginal = generatePDF;
-generatePDF = function(btn) {
-  return withActionBusy(btn, 'Gerando PDF…', () => _generatePDFOriginal());
+let reportPdfBusy=false;
+generatePDF = async function(btn) {
+  if(reportPdfBusy)return;
+  reportPdfBusy=true;
+  const filters=['f-periodo-ini','f-periodo-fim','f-contrato','f-tag'].map(id=>document.getElementById(id)).filter(Boolean);
+  const disabled=filters.map(el=>el.disabled);filters.forEach(el=>el.disabled=true);
+  try{return await withActionBusy(btn, 'Gerando PDF…', () => _generatePDFOriginal());}
+  finally{filters.forEach((el,i)=>el.disabled=disabled[i]);reportPdfBusy=false;}
 };
 if (_authorized) init();
 </script>
