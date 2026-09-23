@@ -1,7 +1,7 @@
 // Pendências pertencem ao usuário e à API. Tokens nunca são persistidos aqui.
 (function () {
   'use strict';
-  function create({ user, call, api, notify = () => {} }) {
+  function create({ user, call, api, notify = () => {}, timeoutMs = 30000 }) {
     let database;
     const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'op-'+Date.now()+'-'+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
     const owner = () => { const u=user(); if (!u?.id) throw new Error('Entre novamente para recuperar seus envios.'); return api+'|'+u.id; };
@@ -52,9 +52,23 @@
     }
     async function locked(who, task) {
       const token=uuid();
-      if (!await lease(who,token)) throw Object.assign(new Error('Outro envio está em andamento. Sua pendência continua guardada.'),{transient:true});
-      const renewal=setInterval(()=>lease(who,token,'renew').catch(()=>{}),20000);
-      try {return await task();} finally {clearInterval(renewal);await lease(who,token,true);}
+      if (!await lease(who,token)) throw Object.assign(new Error('Este registro já tem um envio em andamento. Sua pendência continua guardada.'),{transient:true,pending:true});
+      try {return await task();} finally {await lease(who,token,true);}
+    }
+    // Prazo finito mesmo se o transporte não rejeitar; ao retomar a aba,
+    // confere o relógio, pois timers podem ficar suspensos em segundo plano.
+    async function boundedCall(row) {
+      const ctrl = new AbortController(), deadline = Date.now() + timeoutMs;
+      let timer, check;
+      const timeout = new Promise((resolve,reject) => {
+        const expire = () => {ctrl.abort();reject(Object.assign(new Error('Tempo de envio esgotado. A cópia local foi preservada.'),{transient:true,code:'TIMEOUT'}));};
+        timer=setTimeout(expire,timeoutMs);
+        check=()=>{if(Date.now()>=deadline)expire();};
+        window.document?.addEventListener('visibilitychange',check);
+        window.addEventListener?.('pageshow',check);
+      });
+      try {return await Promise.race([call(row.method,row.path,row.body,{operationId:row.id,signal:ctrl.signal}),timeout]);}
+      finally {clearTimeout(timer);window.document?.removeEventListener('visibilitychange',check);window.removeEventListener?.('pageshow',check);}
     }
     function announce(state,row,message) { notify({state,id:row?.id,entity:row?.entity,message}); }
     async function transmit(row) {
@@ -62,7 +76,7 @@
       row.state='sending'; row.attempts=(row.attempts||0)+1; await put(row);
       announce('sending',row,'Enviando ao servidor…');
       try {
-        const response=await call(row.method,row.path,row.body,{operationId:row.id});
+        const response=await boundedCall(row);
         // Se a limpeza local falhar, o recibo do servidor torna a repetição segura.
         await access('readwrite',s=>s.delete(row.id));
         if(!user() || owner()!==row.owner)return response;
@@ -85,9 +99,10 @@
       // Guardar ANTES de disputar a rede: outro upload nunca impede o rascunho.
       const row=await enqueue({id:uuid(),owner:who,entity,method,path,body:snapshot,fingerprint,createdAt:Date.now(),state:'pending',attempts:0});
       announce('pending',row,'Guardado neste aparelho; aguardando confirmação');
-      return locked(who,async()=>{
+      return locked(who+'|'+entity,async()=>{
         const first=(await list(who)).filter(x=>x.entity===entity).sort((a,b)=>a.createdAt-b.createdAt)[0];
         if (first?.id!==row.id) throw Object.assign(new Error('Alteração guardada. Confirme o envio anterior deste item em “Envios pendentes”.'),{pending:true});
+        if(row.state==='review')throw Object.assign(new Error(row.error||'Este envio precisa de revisão; não será repetido à força.'),{pending:true,status:409});
         return transmit(row);
       });
     }
@@ -97,22 +112,25 @@
       replaying=true;
       try {
         const who=owner();
-        await locked(who,async()=>{
           const rows=(await list(who)).sort((a,b)=>a.createdAt-b.createdAt);
           const blocked=new Set();
           for (const row of rows) {
             if (owner()!==who) break;
             if(blocked.has(row.entity))continue;
             if (row.state==='review' || (!force && (row.state==='auth' || row.nextAttempt>Date.now()))) {blocked.add(row.entity);continue;}
-            try {await transmit(row);} catch(e){blocked.add(row.entity);if (e.status===401 || e.transient) break;}
+            try {await locked(who+'|'+row.entity,async()=>{
+              const current=await access('readonly',s=>s.get(row.id));
+              if(current && current.state!=='review')await transmit(current);
+            });} catch(e){blocked.add(row.entity);if (e.status===401) break;}
           }
-        });
       } catch(e) { if (!e.transient) notify({state:'error',message:e.message}); }
       finally {replaying=false;}
     }
     async function discard(id) {
       const who=owner();
-      return locked(who,async()=>{
+      const target=await access('readonly',s=>s.get(id));
+      if(target?.owner!==who)return;
+      return locked(who+'|'+target.entity,async()=>{
         const row=await access('readonly',s=>s.get(id));
         if (row?.owner===who) await access('readwrite',s=>s.delete(id));
       });

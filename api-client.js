@@ -221,6 +221,9 @@ async function _call(method, path, body, options = {}) {
   // Timeout: em rede de campo instável, o fetch pode travar sem resolver
   // nem rejeitar. O AbortController garante que a chamada sempre termina.
   const ctrl = new AbortController();
+  const abortExternal=()=>ctrl.abort();
+  options.signal?.addEventListener('abort',abortExternal,{once:true});
+  if(options.signal?.aborted)ctrl.abort();
   // 60s serve para tudo, MENOS leitura de PDF por IA: um pedido com muitas
   // páginas leva mais que isso, e abortar no meio desperdiça uma chamada
   // paga que já estava quase pronta. Só esta rota tem folga maior.
@@ -272,7 +275,7 @@ async function _call(method, path, body, options = {}) {
     }
   } catch (e) { /* aviso nunca pode quebrar a chamada que já deu certo */ }
 
-  return json.data;
+  return options.envelope ? json : json.data;
   } catch (e) {
     if (e.status) throw e;
     const timeout = ctrl.signal.aborted;
@@ -280,7 +283,7 @@ async function _call(method, path, body, options = {}) {
       ? 'Tempo esgotado ao falar com o servidor. O envio não foi confirmado; tente novamente.'
       : 'Sem conexão com o servidor. Verifique a internet e tente de novo.'),
       {code:timeout?'TIMEOUT':'NETWORK_ERROR',transient:true});
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); options.signal?.removeEventListener('abort',abortExternal); }
 }
 const API = {
   get:    p     => _call('GET',    p),
@@ -294,7 +297,7 @@ function getOutbox() {
   if (!_outboxReady) _outboxReady = new Promise((resolve,reject)=>{
     const init=()=>resolve(window.SGMOutbox.create({user:getCurrentUser,call:_call,api:SMM_API_URL,notify:showOutboxStatus}));
     if (window.SGMOutbox) {init();return;}
-    const script=document.createElement('script'); script.src='outbox.js?v=20260918.1';
+    const script=document.createElement('script'); script.src='outbox.js?v=20260923.1';
     script.onload=init; script.onerror=()=>{_outboxReady=null;reject(new Error('Não foi possível preparar os envios. Recarregue a página.'));};
     document.head.appendChild(script);
   });
@@ -328,11 +331,28 @@ async function openPendingSends() {
       const url=URL.createObjectURL(new Blob([JSON.stringify(row.body,null,2)],{type:'application/json'}));
       const a=document.createElement('a');a.href=url;a.download='pendencia-'+row.id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
     }; item.appendChild(exportButton);
+    if(row.state==='review' && row.entity.startsWith('preventiva:')) {
+      const compare=document.createElement('button');compare.textContent='Comparar com servidor';
+      compare.onclick=async()=>{
+        compare.disabled=true;
+        try {
+          const current=await DB.getPreventiva(row.entity.slice('preventiva:'.length));
+          const report={operacao:row.id,erro:row.error,pendencia:row.body,servidor:current};
+          const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'}));
+          const a=document.createElement('a');a.href=url;a.download='comparacao-'+row.id+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
+          label.textContent=row.entity+' — Versão local: '+(row.body?.record?._version??'operação incremental')+'; servidor: '+(current._version??0)+'. Cópias baixadas para revisão. Nada foi sobrescrito.';
+        } catch(e){label.textContent='Não foi possível consultar o servidor: '+e.message;}
+        finally {compare.disabled=false;}
+      };
+      item.appendChild(compare);
+    }
     const remove=document.createElement('button');remove.textContent='Descartar pendência';remove.onclick=async()=>{
-      if(confirm('Descartar esta cópia local? Isso não desfaz algo já gravado no servidor. Baixe uma cópia antes se precisar revisar.')) {await outbox.discard(row.id);item.remove();}
+      if(confirm('Descartar definitivamente o trabalho não sincronizado deste item? Não pode ser desfeito. Isso não desfaz algo já gravado no servidor. Baixe uma cópia antes.')) {
+        try {await outbox.discard(row.id);item.remove();} catch(e){label.textContent=e.message;}
+      }
     };item.appendChild(remove);panel.appendChild(item);
   }
-  const retry=document.createElement('button');retry.textContent='Tentar reenviar';retry.onclick=async()=>{retry.disabled=true;try{await outbox.retry(true);}finally{panel.remove();}};
+  const retry=document.createElement('button');retry.textContent='Reenviar itens sem conflito';retry.onclick=async()=>{retry.disabled=true;try{await outbox.retry(true);await openPendingSends();}finally{retry.disabled=false;}};
   const close=document.createElement('button');close.textContent='Fechar';close.onclick=()=>panel.remove();panel.append(retry,close);document.body.appendChild(panel);
 }
 async function reliableWrite(method,path,body,entity) {
@@ -352,6 +372,7 @@ async function retryPendingSends() {
   catch(e){console.warn('Pendências:',e.message);}
 }
 window.addEventListener('online',retryPendingSends);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')retryPendingSends();});
 setTimeout(retryPendingSends,1500);
 setInterval(retryPendingSends,30000);
 
@@ -599,9 +620,37 @@ async function getAdminContact() {
 }
 
 // ── Data API ──────────────────────────────────────────────────────
+async function getCollectionPages(col, query = '') {
+  const params = new URLSearchParams(query.replace(/^\?/, ''));
+  // Chamadas explicitamente paginadas continuam devolvendo somente aquela página.
+  if (params.has('limit') || params.has('offset') || !['chamados','registros','orcamentos','preventiva'].includes(col))
+    return API.get(`/${col}${query || ''}`);
+  params.set('limit', '100');
+  const records = [], seen = new Set();
+  let offset = 0, revision;
+  for (;;) {
+    params.set('offset', String(offset));
+    const response = await _call('GET', `/${col}?${params}`, undefined, {envelope:true});
+    if (!Array.isArray(response.data)) throw new Error('Lista inválida recebida do servidor.');
+    if (offset === 0) revision = response.pagination?.revision;
+    else if (revision !== undefined && revision !== response.pagination?.revision)
+      throw new Error('Os dados foram atualizados durante a consulta. Recarregue a lista para obter todos os registros.');
+    for (const record of response.data) {
+      if (!seen.has(record.id)) { records.push(record); seen.add(record.id); }
+    }
+    const next = response.pagination?.nextOffset;
+    if (response.pagination && next === null) return records;
+    // Compatível com o backend anterior, que oferece limit/offset sem envelope.
+    if (!response.pagination && response.data.length < 100) return records;
+    const nextOffset = response.pagination ? next : offset + response.data.length;
+    if (!Number.isInteger(nextOffset) || nextOffset <= offset || !response.data.length)
+      throw new Error('Paginação inválida. Recarregue a lista.');
+    offset = nextOffset;
+  }
+}
 const DB = {
   // Coleções
-  getAll:    (col, query='') => API.get(`/${col}${query || ''}`),
+  getAll:    (col, query='') => getCollectionPages(col, query),
   getRecord: (col, id) => API.get(`/${col}/${encodeURIComponent(id)}`),
   getPreventiva: id => API.get(`/preventiva/${encodeURIComponent(id)}`),
   setPreventivaCheck: (id,change) => reliableWrite('POST',`/preventiva/${encodeURIComponent(id)}/check`,change,'preventiva:'+id),
@@ -717,7 +766,7 @@ const DB = {
   addPreventivaFoto: async (id,ei,photo) => {const r=await reliableWrite('POST',`/preventiva/${id}/equip/${ei}/foto`,{photo},'preventiva:'+id);if(r?.photo)r.photo=restoreLocalBytes(r.photo,photo);return r;},
 
   // Remoção incremental e determinística de UMA foto de preventiva
-  delPreventivaFoto: (id, ei, photoId) => API.delete(`/preventiva/${id}/equip/${ei}/foto/${encodeURIComponent(photoId)}`),
+  delPreventivaFoto: (id, ei, photoId) => reliableWrite('DELETE',`/preventiva/${id}/equip/${ei}/foto/${encodeURIComponent(photoId)}`,null,'preventiva:'+id),
 
 };
 

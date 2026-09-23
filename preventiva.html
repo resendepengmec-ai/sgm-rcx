@@ -348,7 +348,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <div class="toast" id="toast"></div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20260918.1"></script>
+<script src="api-client.js?v=20260923.1"></script>
 <script src="db.js"></script>
 <script>
 // ── Checklist definitions ──
@@ -392,7 +392,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-18.1';
+const APP_BUILD = '2026-09-23.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -947,6 +947,8 @@ function renderPlansList() {
 
 // ── New plan ──
 function startNew() {
+  if(creatingPlans){switchTab('list');showToast('A criação anterior ainda está sendo processada.');return;}
+  creationFinished=false;creationDrafts.clear();completedCreationIds.clear();
   batchMode = true; batchAssignments = {};
   const clientSelP = document.getElementById('f-client');
   if (!clientSelP.disabled) clientSelP.value=''; // não zera se travado num único contrato permitido
@@ -1034,60 +1036,102 @@ function setBatchLevel(estab, level) {
   renderBatchPanel();
 }
 
-function saveBatchPlans(btn) {
-  const client = document.getElementById('f-client').value;
-  const period = document.getElementById('f-period').value;
-  const tech   = document.getElementById('f-tech').value;
-  const techName = document.getElementById('f-tech').selectedOptions[0]?.dataset?.name || tech;
-  const obs    = document.getElementById('f-obs').value;
-  if (!client) { showToast('Selecione o contrato'); return; }
-  if (!period) { showToast('Informe o período'); return; }
-  if (!tech)   { showToast('Selecione o técnico responsável'); return; }
-  const entries = Object.entries(batchAssignments).filter(([,l])=>l);
-  if (!entries.length) { showToast('Defina o nível para pelo menos um estabelecimento'); return; }
-  const restore = setActionBusy(btn, true, 'Enviando planos…');
 
-  const db = getEffDB();
-  const equips = (db[client] || []).filter(e=>equipamentoOperante(e));
-  let created = 0;
-  entries.forEach(([est, level]) => {
-    const items = equips.filter(e => (e.estabelecimento||'Sem estabelecimento') === est);
-    if (!items.length) return;
-    const plan = {
-      id: genId(),
-      client, period, level, tech, techName, techEmail: tech, obs,
-      createdAt: Date.now(),
-      _batchEstab: est,
-      equipments: items.map(e => ({
-        tag: e.tag, marca: e.marca, tipo: e.tipo,
-        capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
-        checks: {}, photos: [],
-      })),
-    };
-    plans.unshift(plan);
-    created++;
+let creatingPlans=false, creationFinished=false;
+const creationDrafts=new Map();
+const completedCreationIds=new Set();
+function confirmPreventiva(message) {
+  return new Promise(resolve=>{
+    const dialog=document.createElement('dialog');
+    dialog.style.cssText='max-width:480px;width:90%;border:0;border-radius:16px;padding:24px';
+    const text=document.createElement('p');text.textContent=message;
+    const cancel=document.createElement('button');cancel.textContent='Cancelar';cancel.autofocus=true;
+    const proceed=document.createElement('button');proceed.textContent='Criar mesmo assim';
+    cancel.className='btn btn-secondary';proceed.className='btn btn-primary';
+    const done=value=>{dialog.close();dialog.remove();resolve(value);};
+    cancel.onclick=()=>done(false);proceed.onclick=()=>done(true);
+    dialog.oncancel=e=>{e.preventDefault();done(false);};
+    dialog.append(text,cancel,proceed);document.body.append(dialog);dialog.showModal();cancel.focus();
   });
-
-  // Assina e sincroniza cada plano criado individualmente — persist() só
-  // manda o mais recente, e aqui pode ter vários criados de uma vez.
-  const newPlans = plans.slice(0, created);
-  Promise.all(newPlans.map(p =>
-    signRecord(p.id, 'criado', 'preventiva').then(sig => {
-      p._signatures = p._signatures||[]; p._signatures.push(sig);
-      return DB.save('preventiva', p);
-    })
-  )).then(() => {
-    try { saveLocal(); } catch(e) {}
-    renderPlansList();
-    showToast(`✅ ${created} plano(s) criado(s) por estabelecimento`);
-    batchAssignments = {};
-    batchMode = true;
-    switchTab('list');
-    restore();
-  }).catch(e => {
-    showToast('⚠️ Não foi possível enviar os planos: ' + e.message, 7000);
-    restore();
-  });
+}
+function planEstablishments(plan) {
+  return new Set([plan._batchEstab,...(plan.equipments||[]).map(e=>e.estabelecimento||'Sem estabelecimento')].filter(Boolean));
+}
+function duplicatePlans(candidate, records) {
+  const establishments=planEstablishments(candidate);
+  return records.filter(p=>p.id!==candidate.id && p.client===candidate.client && p.period===candidate.period &&
+    [...planEstablishments(p)].some(est=>establishments.has(est)));
+}
+async function createPreventivaPlans(candidates,btn) {
+  if(creatingPlans || creationFinished)return;
+  creatingPlans=true;
+  const restore=setActionBusy(btn,true,'Enviando planos…');
+  let queued=false,completed=0;
+  try {
+    const drafts=candidates.map(candidate=>{
+      const key=JSON.stringify([candidate.client,candidate.period,candidate._batchEstab,candidate.level,candidate.tech,candidate.obs,candidate.equipments.map(e=>e.tag)]);
+      if(!creationDrafts.has(key))creationDrafts.set(key,candidate);
+      return creationDrafts.get(key);
+    });
+    let current;
+    try {current=await DB.getAll('preventiva','?resumo=1&contract='+encodeURIComponent(drafts[0].client));}
+    catch(e) {
+      if(!e.transient)throw e;
+      if(!await confirmPreventiva('Sem conexão para verificar planos existentes no servidor. A consulta local pode estar desatualizada. Deseja criar uma cópia neste aparelho mesmo assim?'))return;
+      current=[];
+    }
+    const existing=[...current,...plans.filter(p=>p._dirty)];
+    for(const plan of drafts) {
+      if(completedCreationIds.has(plan.id))continue;
+      const duplicates=duplicatePlans(plan,existing);
+      if(duplicates.length && !await confirmPreventiva('Este estabelecimento já tem plano para '+fmtMonth(plan.period)+': '+duplicates.map(p=>'N'+p.level+' (criado em '+fmtDate(p.createdAt)+')').join(', ')+'. Deseja criar outro plano para o mesmo período?'))return;
+      existing.push(plan);
+    }
+    for(const plan of drafts) {
+      if(completedCreationIds.has(plan.id)){completed++;if(plan._dirty)queued=true;continue;}
+      if(!plans.some(p=>p.id===plan.id))plans.unshift(plan);
+      plan._dirty=true;saveLocal();
+      try {
+        const response=await DB.save('preventiva',stripSyncedPhotos(plan));
+        if(response?.record)Object.assign(plan,response.record);
+        plan._dirty=false;completedCreationIds.add(plan.id);completed++;
+      } catch(e) {
+        if(e.pending && (e.transient || !e.status)){queued=true;completedCreationIds.add(plan.id);completed++;}
+        else {setSync('error',e.message,openPendingSends);throw e;}
+      }
+      saveLocal();
+    }
+    creationFinished=true;
+    renderPlansList();switchTab('list');
+    showToast(queued?'Plano(s) guardado(s) neste aparelho. Envio ainda não confirmado.':completed+' plano(s) confirmado(s) no servidor.');
+    if(queued)setSync('error','Envios pendentes — verificar',openPendingSends);
+  } catch(e) {showToast('Não foi possível concluir: '+e.message);}
+  finally {creatingPlans=false;restore();}
+}
+function orderedEquipments(equipments) {
+  const compare=(a,b)=>{
+    const ta=String(a.tag??'').trim(),tb=String(b.tag??'').trim();
+    const na=/^\d+$/.test(ta),nb=/^\d+$/.test(tb);
+    return na&&nb ? Number(ta)-Number(tb) : na ? -1 : nb ? 1 : ta.localeCompare(tb,'pt-BR');
+  };
+  return equipments.map((equip,ei)=>({equip,ei})).sort((a,b)=>
+    String(a.equip.estabelecimento||'').localeCompare(String(b.equip.estabelecimento||''),'pt-BR') || compare(a.equip,b.equip));
+}
+async function saveBatchPlans(btn) {
+  if(creatingPlans || creationFinished)return;
+  const client=document.getElementById('f-client').value,period=document.getElementById('f-period').value;
+  const selected=document.getElementById('f-tech'),tech=selected.value;
+  const techName=selected.selectedOptions[0]?.dataset?.name||tech,obs=document.getElementById('f-obs').value;
+  if(!client || !period || !tech){showToast('Informe contrato, período e técnico responsável.');return;}
+  const equips=(getEffDB()[client]||[]).filter(e=>equipamentoOperante(e));
+  const candidates=Object.entries(batchAssignments).filter(([,level])=>level).map(([est,level])=>({
+    id:genId(),client,period,level,tech,techName,techEmail:tech,obs,createdAt:Date.now(),_batchEstab:est,
+    equipments:equips.filter(e=>(e.estabelecimento||'Sem estabelecimento')===est).map(e=>({
+      tag:e.tag,marca:e.marca,tipo:e.tipo,capacidade:e.capacidade,estabelecimento:e.estabelecimento,recinto:e.recinto,checks:{},photos:[]
+    }))
+  })).filter(p=>p.equipments.length);
+  if(!candidates.length){showToast('Defina o nível para pelo menos um estabelecimento.');return;}
+  return createPreventivaPlans(candidates,btn);
 }
 function onContractChange() {
   const contract = document.getElementById('f-client').value;
@@ -1108,7 +1152,7 @@ function renderEquipList(filter='') {
     !q || e.tag.includes(q) || e.marca.toLowerCase().includes(q) ||
     e.estabelecimento.toLowerCase().includes(q) || e.recinto.toLowerCase().includes(q)
   );
-  list.innerHTML = items.map(e => `
+  list.innerHTML = orderedEquipments(items).map(({equip:e}) => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--border)">
       <div onclick="toggleEquip('${esc(e.tag)}')" style="width:22px;height:22px;border:2px solid ${selectedEquip.has(e.tag)?'var(--primary)':'var(--border)'};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;background:${selectedEquip.has(e.tag)?'var(--primary)':'var(--surface)'}">
         ${selectedEquip.has(e.tag)?'<span style="color:#fff;font-size:12px;font-weight:700">✓</span>':''}
@@ -1133,55 +1177,17 @@ function updateEquipCount() {
 }
 function filterEquipList() { renderEquipList(document.getElementById('equip-search').value); }
 
-function savePlan(btn) {
-  const client = document.getElementById('f-client').value;
-  const period = document.getElementById('f-period').value;
-  if (!client) { showToast('Selecione o contrato'); return; }
-  if (!period) { showToast('Informe o período'); return; }
-  const _techSel = document.getElementById('f-tech');
-  const _tech = _techSel.value;
-  const _techName = _techSel.selectedOptions[0]?.dataset?.name || _tech;
-  if (!_tech) { showToast('Selecione o técnico responsável'); return; }
-  if (!selectedLevel) { showToast('Selecione o nível de manutenção'); return; }
-  if (!selectedEquip.size) { showToast('Selecione pelo menos um equipamento'); return; }
-  const restore = setActionBusy(btn, true, 'Enviando plano…');
-
-  const db = getEffDB();
-  const equipList = (db[client]||[]).filter(e => selectedEquip.has(e.tag));
-
-  const plan = {
-    id: genId(),
-    client, period,
-    level: selectedLevel,
-    tech: _tech,
-    techName: _techName,
-    techEmail: _tech,
-    obs: document.getElementById('f-obs').value,
-    createdAt: Date.now(),
-    equipments: equipList.map(e => ({
-      tag: e.tag, marca: e.marca, tipo: e.tipo,
-      capacidade: e.capacidade, estabelecimento: e.estabelecimento, recinto: e.recinto,
-      checks: {}, photos: [],
-    })),
-  };
-
-  plans.unshift(plan);
-  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
-  // senão a assinatura só existe localmente e nunca é persistida de fato.
-  const _sid_plan = plan.id;
-  signRecord(_sid_plan, 'criado', 'preventiva').then(sig => {
-    plan._signatures = plan._signatures||[]; plan._signatures.push(sig);
-    return persist(plan);
-  }).then(() => {
-    showToast('Plano criado! Iniciando execução…');
-    openPlan(plan.id);
-    restore();
-  }).catch(e => {
-    plans = plans.filter(p => p.id !== plan.id);
-    saveLocal();
-    showToast('⚠️ Não foi possível enviar o plano: ' + e.message, 7000);
-    restore();
-  });
+async function savePlan(btn) {
+  if(creatingPlans || creationFinished)return;
+  const client=document.getElementById('f-client').value,period=document.getElementById('f-period').value;
+  const selected=document.getElementById('f-tech'),tech=selected.value,techName=selected.selectedOptions[0]?.dataset?.name||tech;
+  if(!client || !period || !tech || !selectedLevel || !selectedEquip.size){showToast('Informe contrato, período, técnico, nível e equipamentos.');return;}
+  const equipments=(getEffDB()[client]||[]).filter(e=>selectedEquip.has(e.tag)&&equipamentoOperante(e)).map(e=>({
+    tag:e.tag,marca:e.marca,tipo:e.tipo,capacidade:e.capacidade,estabelecimento:e.estabelecimento,recinto:e.recinto,checks:{},photos:[]
+  }));
+  if(!equipments.length){showToast('Selecione equipamentos operantes.');return;}
+  return createPreventivaPlans([{id:genId(),client,period,level:selectedLevel,tech,techName,techEmail:tech,
+    obs:document.getElementById('f-obs').value,createdAt:Date.now(),equipments}],btn);
 }
 
 // ── Execution ──
@@ -1260,7 +1266,7 @@ function renderExecList(plan) {
 
   document.getElementById('exec-total').textContent = plan.equipments.length;
 
-  document.getElementById('exec-list').innerHTML = plan.equipments.map((equip, ei) => {
+  document.getElementById('exec-list').innerHTML = orderedEquipments(plan.equipments).map(({equip, ei}) => {
     const prog = getEquipProgress(equip, plan.level);
     const done = isEquipDone(equip, plan.level);
     if (done) totalDone++;
@@ -1578,7 +1584,7 @@ function removeEquipPhoto(ei, pi) {
   // Remove no servidor AGORA, liberando a vaga das 3 de forma determinística
   const doDelete = async () => {
     setSync('saving', 'Removendo foto…');
-    try { await DB.delPreventivaFoto(plan.id, ei, photo.id); setSync('saved', 'Foto removida'); }
+    try { const response=await DB.delPreventivaFoto(plan.id, ei, photo.id);plan._version=Math.max(plan._version||0,response.version||0);saveLocal();setSync('saved', 'Foto removida'); }
     catch(e) { setSync('error', 'Não removeu no servidor: ' + (e.message||'falha'), doDelete); }
   };
   doDelete();
@@ -1612,40 +1618,36 @@ function updatePlanSummary(plan) {
   document.getElementById('exec-pct').textContent = pct+'%';
 }
 
+const finalizingPlans=new Set();
 async function finalizePlan(btn) {
-  const plan = plans.find(p=>p.id===currentPlanId);
-  if (!plan) return;
-  try {await assertPlanConfirmed(plan);}catch(e){setSync('error',e.message,openPendingSends);return;}
-  const done = plan.equipments.filter(e=>isEquipDone(e,plan.level)).length;
-  const total = plan.equipments.length;
-  if (done < total) {
-    if (!confirm(`${total-done} equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?`)) return;
-  }
-  const restore = setActionBusy(btn, true, 'Finalizando…');
-
-  plan.finalizedAt = Date.now();
-  plan.updatedAt = Date.now();
-  plan._dirty = true;
-  setSync('saving', 'Finalizando e enviando ao servidor…');
+  const plan=plans.find(p=>p.id===currentPlanId);
+  if(!plan || finalizingPlans.has(plan.id))return;
+  finalizingPlans.add(plan.id);
+  const restore=setActionBusy(btn,true,'Finalizando…');
+  const previousFinalizedAt=plan.finalizedAt;
   try {
-    // 1) Sobe o plano (fotos já sincronizadas vão sem bytes) e CONFIRMA
-    const response=await DB.save('preventiva', stripSyncedPhotos(plan));
-    if(response?.record?._version!==undefined)plan._version=response.record._version;
-    if(response?.record?._signatures)plan._signatures=response.record._signatures;
-    plan._dirty = false;
-    saveLocal();
-    setSync('saved', 'Preventiva finalizada e enviada');
-    showToast('Preventiva finalizada!');
-    switchTab('list');
-  } catch(e) {
-    // Não subiu: NÃO marca como finalizada; nada é perdido, dá pra repetir.
-    plan.finalizedAt = null;
-    saveLocal();
-    setSync('error', 'Não finalizou: ' + (e.message || 'falha de rede'), openPendingSends);
-    showToast('⚠️ Finalização não confirmada. Verifique os envios pendentes antes de tentar novamente.');
-  } finally {
-    restore();
-  }
+    await assertPlanConfirmed(plan);
+    const missing=plan.equipments.filter(e=>!isEquipDone(e,plan.level)).length;
+    if(missing && !confirm(missing+' equipamento(s) ainda não foram concluídos. Finalizar mesmo assim?'))return;
+    plan.finalizedAt=Date.now();plan.updatedAt=Date.now();plan._dirty=true;
+    saveLocal();setSync('saving','Finalizando e enviando ao servidor…');
+    try {
+      const response=await DB.save('preventiva',stripSyncedPhotos(plan));
+      if(response?.record?._version!==undefined)plan._version=response.record._version;
+      if(response?.record?._signatures)plan._signatures=response.record._signatures;
+      plan._dirty=false;saveLocal();setSync('saved','Preventiva finalizada e enviada');
+      showToast('Preventiva finalizada!');switchTab('list');
+    } catch(e) {
+      if(e.pending && (e.transient || !e.status)) {
+        saveLocal();switchTab('list');
+        setSync('error','Finalização guardada neste aparelho; aguardando confirmação.',openPendingSends);
+        showToast('Finalização pendente de envio. Não é necessário criar outro plano.');
+      } else {
+        plan.finalizedAt=previousFinalizedAt;saveLocal();throw e;
+      }
+    }
+  } catch(e) {setSync('error','Não finalizou: '+e.message,openPendingSends);showToast(e.message);}
+  finally {finalizingPlans.delete(plan.id);restore();}
 }
 
 async function deletePlan(id, btn) {
@@ -1755,7 +1757,7 @@ function generatePlanPDF(plan, sharedDoc) {
   doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
   y+=8;
 
-  plan.equipments.forEach((eq,idx) => {
+  orderedEquipments(plan.equipments).forEach(({equip:eq},idx) => {
     if(y>272){doc.addPage();y=M;header('(continuação)');}
     if(idx%2===0){doc.setFillColor(240,249,255); doc.rect(M,y,CW,7,'F');}
     const prog = getEquipProgress(eq, plan.level);
@@ -1772,7 +1774,7 @@ function generatePlanPDF(plan, sharedDoc) {
   });
 
   // Detail pages per equipment
-  plan.equipments.forEach(eq => {
+  orderedEquipments(plan.equipments).forEach(({equip:eq}) => {
     doc.addPage(); y=M; header(`TAG ${eq.tag}`);
     doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
     doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
