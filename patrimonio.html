@@ -117,9 +117,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="field">
       <label>Estabelecimento <span style="font-weight:400;color:var(--text-2)">(opcional)</span></label>
-      <select id="rel-estabelecimento" onchange="previewRelMov()" disabled>
-        <option value="">Selecione o contrato primeiro</option>
-      </select>
+      <input id="rel-estabelecimento-busca" type="search" placeholder="Buscar estabelecimento" oninput="renderEstabelecimentosRel()">
+      <div id="rel-estabelecimento" style="max-height:180px;overflow:auto"></div>
+      <small>Nenhum marcado = todos os estabelecimentos.</small>
       <div style="font-size:10.5px;color:var(--text-2);margin-top:4px">Selecione um contrato para filtrar pelos estabelecimentos vinculados.</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -163,9 +163,10 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     </div>
 
     <div class="field">
-      <label>Fotos adicionais <span style="font-weight:400;color:var(--text-2)">(até 3)</span></label>
+      <label>Fotos adicionais <span style="font-weight:400;color:var(--text-2)">(até 2 por estabelecimento)</span></label>
+      <select id="rel-foto-estabelecimento" onchange="renderRelFotosAdicionais()"></select>
       <div id="rel-fotos-adicionais-info"
-           style="font-size:11px;color:var(--text-2);margin-bottom:6px">0 de 3</div>
+           style="font-size:11px;color:var(--text-2);margin-bottom:6px">0 de 2</div>
       <input type="file" id="rel-foto-adicional-cam" accept="image/*" capture="environment"
              style="display:none" onchange="addFotoRelAdicional(event)">
       <input type="file" id="rel-foto-adicional-gal" accept="image/*" multiple
@@ -183,8 +184,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:8px 0 6px;font-size:11px;color:var(--text-2)">
       <span>Itens da prévia</span>
       <span style="display:flex;flex-wrap:wrap;gap:6px">
-        <button type="button" class="btn btn-secondary btn-sm" onclick="marcarTodosRelMov()">☑ Marcar tudo</button>
-        <button type="button" class="btn btn-secondary btn-sm" onclick="desmarcarTodosRelMov()">☐ Desmarcar tudo</button>
+        <label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" id="rel-todos" onchange="selecionarTodosRelMov(this.checked)"> Selecionar todos</label>
       </span>
     </div>
     <div id="rel-preview" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
@@ -400,6 +400,27 @@ let user = getCurrentUser();
 const PAPEIS_EDICAO_MOVIMENTACAO = new Set(['admin','diretor','supervisor','gestor']);
 function papelMovimentacao(role) { return String(role || '').trim().toLowerCase(); }
 function podeEditarMovimentacao() { return PAPEIS_EDICAO_MOVIMENTACAO.has(papelMovimentacao(user?.role)); }
+function podeEditarEstaMovimentacao(m) {return podeEditarMovimentacao() || (papelMovimentacao(user?.role)==='tecnico' && m?.solicitanteEmail===user?.email);}
+let consultaTagTimer,consultaTagSeq=0;
+async function consultarTagPendente(contrato,tag) {
+  return API.get('/movimentacoes/tag-disponibilidade?'+new URLSearchParams({contrato,tag,excluirId:editingMovId||''}));
+}
+function agendarConferenciaPendente() {
+  clearTimeout(consultaTagTimer);const seq=++consultaTagSeq;
+  const tipo=document.getElementById('f-tipo').value;
+  const campo=document.getElementById(['instalar','adicionar'].includes(tipo)?'f-nova-tag':'f-tag');
+  let aviso=document.getElementById('tag-pendente-aviso');
+  if(!aviso){aviso=document.createElement('div');aviso.id='tag-pendente-aviso';aviso.style.cssText='font-size:12px;color:var(--danger)';}
+  campo.after(aviso);aviso.textContent='';
+  const contrato=document.getElementById('f-contrato').value,tag=tagCanonicaPat(campo.value);
+  if(!contrato||!tag)return;
+  const local=movimentos.find(m=>m.id!==editingMovId && m.status==='pendente' && String(m.contrato)===contrato && [m.tag,m.novaTag].some(v=>tagCanonicaPat(v)===tag));
+  if(local)aviso.textContent='A TAG '+tag+' já possui solicitação pendente: '+(local.solicitanteNome||local.solicitanteEmail||'consulte os pendentes')+'.';
+  consultaTagTimer=setTimeout(async()=>{
+    try {const resultado=await consultarTagPendente(contrato,tag);if(seq===consultaTagSeq)aviso.textContent=resultado.mensagem||'';}
+    catch(e){if(seq===consultaTagSeq)aviso.textContent='Não foi possível verificar pendências agora. O envio será validado novamente.';console.warn('Consulta de TAG:',e.message);}
+  },300);
+}
 let editingMovId = null;
 let draftMovId = null;
 let canApproveMov = podeEditarMovimentacao(); // quem pode aprovar/rejeitar/executar movimentações
@@ -524,68 +545,69 @@ const REL_M = 14, REL_W = 210, REL_H = 297;
 // IDs excluídos apenas da prévia atual; nada é removido do histórico.
 let relExcluidos = new Set();
 
-const MAX_FOTOS_REL_ADICIONAIS = 3;
-let relFotosAdicionais = [];
-
-function addFotoRelAdicional(ev) {
-  const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
-  if (!f) return;
-  if (relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS) {
-    showToast('Limite de 3 fotos adicionais por relatório'); return;
-  }
-  comprimirFotoInstal(f).then(dataUrl => {
-    relFotosAdicionais.push({ dataUrl, capturedAt: Date.now() });
-    renderRelFotosAdicionais();
-    previewRelMov();
-  }).catch(e => showToast('Erro ao processar a foto adicional: ' + e.message));
+const ROTULO_SINGULAR={instalar:'Instalação',adicionar:'Adição',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixa'};
+const ROTULO_PLURAL={instalar:'Instalações',adicionar:'Adições',desmontar:'Desmontagens',realocar:'Desmontagens',baixar:'Baixas'};
+const MAX_FOTOS_REL_ADICIONAIS=2;
+let relFotosAdicionais=Object.create(null),relEstabelecimentos=new Set(),relContratoAnterior='',relProcessandoFotos=false;
+const tipoRel=m=>m.tipo==='realocar'?'desmontar':m.tipo;
+const contagemTipoRel=(tipo,n)=>n+' '+((n===1?ROTULO_SINGULAR[tipo]:ROTULO_PLURAL[tipo])||tipo||'movimentação').toLocaleLowerCase('pt-BR');
+function estabelecimentoDoGrupoRel(m) {
+  const principal=['instalar','adicionar'].includes(m.tipo)?m.estabelecimentoDestino:m.estabelecimentoOrigem;
+  if(String(principal||'').trim())return String(principal).trim();
+  if(String(m.estabelecimento||'').trim())return String(m.estabelecimento).trim();
+  const contrato=contracts.find(c=>String(c.numero)===String(m.contrato));
+  const eq=(contrato?.equipamentos||[]).find(e=>tagTextoPat(e)===tagCanonicaPat(m.tag||m.novaTag));
+  return (eq && localizacaoEquipamentoPat(eq).estabelecimento)||'Estabelecimento não informado';
 }
-
+function compararRelMov(a,b) {
+  const ea=estabelecimentoDoGrupoRel(a),eb=estabelecimentoDoGrupoRel(b),unknown='Estabelecimento não informado';
+  const group=ea===eb?0:ea===unknown?1:eb===unknown?-1:ea.localeCompare(eb,'pt-BR');
+  const order=['instalar','adicionar','desmontar','baixar'];
+  return group || order.indexOf(tipoRel(a))-order.indexOf(tipoRel(b)) ||
+    String(a.tag||a.novaTag||'').localeCompare(String(b.tag||b.novaTag||''),'pt-BR',{numeric:true}) ||
+    String(a.id).localeCompare(String(b.id));
+}
+function gruposRelMov(lista) {
+  const grupos=new Map();
+  [...lista].sort(compararRelMov).forEach(m=>{const nome=estabelecimentoDoGrupoRel(m);if(!grupos.has(nome))grupos.set(nome,[]);grupos.get(nome).push(m);});
+  return grupos;
+}
+function gruposFotosRel() {return [...gruposRelMov(movimentosDoRelatorio()).keys()].filter(n=>!relEstabelecimentos.size||relEstabelecimentos.has(n));}
+function addFotoRelAdicional(ev) {return addFotosRelAdicionais(ev);}
 async function addFotosRelAdicionais(ev) {
-  const arquivos = Array.from(ev.target.files || []); ev.target.value = '';
-  if (!arquivos.length) return;
-  let incluidas = 0, fora = 0;
-  for (const arquivo of arquivos) {
-    if (relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS) { fora++; continue; }
-    try {
-      const dataUrl = await comprimirFotoInstal(arquivo);
-      relFotosAdicionais.push({ dataUrl, capturedAt: Date.now() });
-      incluidas++;
-    } catch (e) { fora++; }
-  }
-  renderRelFotosAdicionais();
-  previewRelMov();
-  showToast(incluidas + ' foto(s) adicional(is) incluída(s)' + (fora ? ' · ' + fora + ' fora do limite' : ''));
+  const arquivos=Array.from(ev.target.files||[]);ev.target.value='';
+  const estab=document.getElementById('rel-foto-estabelecimento').value,contrato=document.getElementById('rel-contrato').value;
+  if(!arquivos.length)return;
+  if(!estab || relProcessandoFotos){showToast('Selecione o estabelecimento e aguarde o processamento atual.');return;}
+  relProcessandoFotos=true;renderRelFotosAdicionais();
+  try {
+    for(const arquivo of arquivos) {
+      if((relFotosAdicionais[estab]||[]).length>=MAX_FOTOS_REL_ADICIONAIS){showToast('Limite de 2 fotos adicionais por estabelecimento.');break;}
+      const dataUrl=await comprimirFotoInstal(arquivo);
+      if(contrato!==document.getElementById('rel-contrato').value || !gruposFotosRel().includes(estab)){
+        showToast('O filtro mudou durante o processamento. Selecione novamente a foto.');break;
+      }
+      (relFotosAdicionais[estab]||=[]).push({dataUrl,capturedAt:Date.now()});
+    }
+  } catch(e){showToast('Erro ao processar foto adicional: '+e.message);}
+  finally {relProcessandoFotos=false;previewRelMov();}
 }
-
-function removerFotoRelAdicional(i) {
-  relFotosAdicionais.splice(i, 1);
-  renderRelFotosAdicionais();
-  previewRelMov();
-}
-
+function removerFotoRelAdicional(estab,i) {relFotosAdicionais[estab]?.splice(i,1);previewRelMov();}
 function renderRelFotosAdicionais() {
-  const info = document.getElementById('rel-fotos-adicionais-info');
-  const grid = document.getElementById('rel-fotos-adicionais-grid');
-  const cheio = relFotosAdicionais.length >= MAX_FOTOS_REL_ADICIONAIS;
-  if (info) {
-    const mb = relFotosAdicionais.reduce((total, f) => total + (f.dataUrl?.length || 0), 0) / 1048576;
-    info.textContent = relFotosAdicionais.length + ' de ' + MAX_FOTOS_REL_ADICIONAIS +
-      (mb >= 0.5 ? ' · ' + mb.toFixed(1) + ' MB' : '');
-    info.style.color = cheio ? 'var(--danger)' : 'var(--text-2)';
-  }
-  ['rel-btn-foto-cam','rel-btn-foto-gal'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) { btn.disabled = cheio; btn.style.opacity = cheio ? '.5' : ''; }
-  });
-  if (!grid) return;
-  grid.innerHTML = relFotosAdicionais.map((f, i) =>
-    '<div style="position:relative">' +
-      '<img src="' + imgSrc(f.dataUrl) + '" alt="Foto adicional ' + (i + 1) + '"' +
-           ' style="width:76px;height:76px;object-fit:cover;border-radius:8px;border:1px solid var(--border)">' +
-      '<button type="button" onclick="removerFotoRelAdicional(' + i + ')"' +
-        ' style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;' +
-               'border:none;background:var(--danger);color:#fff;font-size:14px;line-height:1;cursor:pointer">×</button>' +
-    '</div>').join('');
+  const select=document.getElementById('rel-foto-estabelecimento'),before=select.value,nomes=gruposFotosRel();
+  select.innerHTML=nomes.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');
+  if(nomes.includes(before))select.value=before;
+  const estab=select.value,fotos=relFotosAdicionais[estab]||[];
+  document.getElementById('rel-fotos-adicionais-info').textContent=fotos.length+' de 2 neste estabelecimento';
+  for(const id of ['rel-btn-foto-cam','rel-btn-foto-gal'])document.getElementById(id).disabled=!estab||fotos.length>=2||relProcessandoFotos;
+  document.getElementById('rel-fotos-adicionais-grid').innerHTML=fotos.map((f,i)=>
+    '<div><img src="'+imgSrc(f.dataUrl)+'" alt="Foto adicional" style="width:76px;height:76px;object-fit:cover;border-radius:8px">'+
+    '<button type="button" data-estab="'+esc(estab)+'" onclick="removerFotoRelAdicional(this.dataset.estab,'+i+')">Remover</button></div>').join('');
+}
+function sincronizarTodosRelMov() {
+  const c=document.getElementById('rel-todos'),cand=movimentosDoRelatorio({incluirExcluidos:true});
+  const sel=cand.filter(m=>!relExcluidos.has(String(m.id))).length;
+  c.disabled=!cand.length;c.checked=cand.length>0&&sel===cand.length;c.indeterminate=sel>0&&sel<cand.length;
 }
 
 function prepararRelMov() {
@@ -639,22 +661,31 @@ function estabelecimentosDoContratoRel(numero) {
 }
 
 function atualizarFiltroEstabelecimentoRel() {
-  const contrato = document.getElementById("rel-contrato")?.value || "";
-  const sel = document.getElementById("rel-estabelecimento");
-  if (!sel) return;
-  const anterior = sel.value;
-  const nomes = estabelecimentosDoContratoRel(contrato);
-  if (!contrato) {
-    sel.innerHTML = "<option value=\"\">Selecione o contrato primeiro</option>";
-    sel.disabled = true;
-  } else if (!nomes.length) {
-    sel.innerHTML = "<option value=\"\">Nenhum estabelecimento cadastrado</option>";
-    sel.disabled = true;
-  } else {
-    sel.innerHTML = "<option value=\"\">Todos os estabelecimentos</option>" + nomes.map(nome => "<option value=\"" + esc(nome) + "\">" + esc(nome) + "</option>").join("");
-    sel.disabled = false;
-    if ([...sel.options].some(opcao => opcao.value === anterior)) sel.value = anterior;
+  const select=document.getElementById('rel-contrato'),contrato=select.value;
+  if(contrato!==relContratoAnterior) {
+    if(Object.values(relFotosAdicionais).some(f=>f.length) && !confirm('Trocar contrato descarta as fotos adicionais deste relatório. Continuar?')){
+      select.value=relContratoAnterior;return;
+    }
+    relFotosAdicionais=Object.create(null);relEstabelecimentos.clear();relContratoAnterior=contrato;
   }
+  renderEstabelecimentosRel();
+}
+function renderEstabelecimentosRel() {
+  const contrato=document.getElementById('rel-contrato').value;
+  const busca=document.getElementById('rel-estabelecimento-busca').value.toLocaleLowerCase('pt-BR');
+  const nomes=estabelecimentosDoContratoRel(contrato);
+  document.getElementById('rel-estabelecimento').innerHTML=nomes.filter(n=>n.toLocaleLowerCase('pt-BR').includes(busca)).map(n=>
+    '<label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" value="'+esc(n)+'" '+(relEstabelecimentos.has(n)?'checked':'')+
+    ' onchange="selecionarEstabelecimentoRel(this.value,this.checked)"> '+esc(n)+'</label>').join('') || '<small>Nenhum estabelecimento disponível.</small>';
+}
+function selecionarEstabelecimentoRel(nome,checked) {
+  const anterior=new Set(relEstabelecimentos);
+  if(checked)relEstabelecimentos.add(nome);else relEstabelecimentos.delete(nome);
+  const permitidos=new Set(gruposFotosRel());
+  const remover=Object.keys(relFotosAdicionais).filter(n=>!permitidos.has(n)&&relFotosAdicionais[n].length);
+  if(remover.length && !confirm('Esta seleção descarta as fotos adicionais de: '+remover.join(', ')+'. Continuar?'))relEstabelecimentos=anterior;
+  else remover.forEach(n=>delete relFotosAdicionais[n]);
+  renderEstabelecimentosRel();previewRelMov();
 }
 // Filtra pelo contrato, período e tipos selecionados. O relatório é uma
 // trilha patrimonial: inclui também pendentes e rejeitadas, sempre com o
@@ -662,7 +693,7 @@ function atualizarFiltroEstabelecimentoRel() {
 
 function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   const contrato = document.getElementById('rel-contrato')?.value || '';
-  const estabelecimento = document.getElementById('rel-estabelecimento')?.value || '';
+  const estabelecimentos = relEstabelecimentos;
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
 
@@ -673,11 +704,11 @@ function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
 
   const base = (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
-    if (estabelecimento && !estabelecimentosMovimentoRel(m).has(estabelecimento)) return false;
+    if (estabelecimentos.size && ![...estabelecimentosMovimentoRel(m)].some(n=>estabelecimentos.has(n))) return false;
     if (!tipos.includes(m.tipo) && !(m.tipo === 'realocar' && tipos.includes('desmontar'))) return false;
     const ts = m.criadoEm || m.createdAt || m.ts || 0;
     return ts >= ini && ts <= fim;
-  }).sort((a, b) => (a.criadoEm || a.createdAt || 0) - (b.criadoEm || b.createdAt || 0));
+  }).sort(compararRelMov);
   return incluirExcluidos ? base : base.filter(m => !relExcluidos.has(String(m.id)));
 }
 
@@ -710,6 +741,7 @@ function previewRelMov() {
   const lista = candidatos.filter(m => !relExcluidos.has(String(m.id)));
   const comFotos = document.getElementById('rel-fotos')?.checked;
   const nFotos = comFotos ? lista.reduce((a, m) => a + (m.fotos?.length || 0), 0) : 0;
+  const nFotosAdicionais = [...gruposRelMov(lista).keys()].reduce((n, nome) => n + (relFotosAdicionais[nome]?.length || 0), 0);
   const textoAdicional = document.getElementById('rel-texto-adicional')?.value.trim() || '';
   const porTipo = {};
   lista.forEach(m => { porTipo[m.tipo] = (porTipo[m.tipo] || 0) + 1; });
@@ -717,9 +749,9 @@ function previewRelMov() {
 
   const resumo = lista.length
     ? '<strong>' + lista.length + '</strong> de ' + candidatos.length + ' movimentação(ões) selecionada(s): ' +
-      Object.entries(porTipo).map(([t, n]) => n + ' ' + (rot[t] || t)).join(' · ') +
+      Object.entries(porTipo).map(([t,n])=>esc(contagemTipoRel(t,n))).join(' · ') +
       (nFotos ? ' · ' + nFotos + ' foto(s)' : '') +
-      (relFotosAdicionais.length ? ' · ' + relFotosAdicionais.length + ' foto(s) adicional(is)' : '') +
+      (nFotosAdicionais ? ' · ' + nFotosAdicionais + ' foto(s) adicional(is)' : '') +
       (textoAdicional ? ' · texto adicional' : '')
     : (candidatos.length ? 'Nenhuma movimentação selecionada.' : 'Nenhuma movimentação no período.');
 
@@ -741,11 +773,13 @@ function previewRelMov() {
 
   const relSelectionAfter = document.querySelector("[data-rel-selection-list]");
   if (relSelectionAfter) relSelectionAfter.scrollTop = relScrollTop;
+  sincronizarTodosRelMov();renderRelFotosAdicionais();
 }
 
 
 
 async function gerarRelMovPDF() {
+  if(relProcessandoFotos){showToast('Aguarde o processamento das fotos adicionais antes de gerar o PDF.');return;}
   if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
   const comFotos = document.getElementById('rel-fotos')?.checked;
   if (comFotos) {
@@ -765,11 +799,11 @@ async function gerarRelMovPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const contrato = document.getElementById('rel-contrato')?.value || '';
-  const estabelecimento = document.getElementById('rel-estabelecimento')?.value || '';
+  const estabelecimento = [...relEstabelecimentos].join(', ');
   const de  = document.getElementById('rel-de')?.value || '';
   const ate = document.getElementById('rel-ate')?.value || '';
   const textoAdicionalPDF = document.getElementById('rel-texto-adicional')?.value.trim() || '';
-  const fotosAdicionaisPDF = relFotosAdicionais.slice();
+  const fotosAdicionaisPDF = Object.fromEntries(Object.entries(relFotosAdicionais).map(([n,f])=>[n,f.slice(0,2)]));
   const CW = REL_W - REL_M * 2;
   let y = REL_M, falhas = 0;
 
@@ -779,7 +813,8 @@ async function gerarRelMovPDF() {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
     const per = de && ate ? `${de.split('-').reverse().join('/')} a ${ate.split('-').reverse().join('/')}` : 'período completo';
     doc.text(`Contrato: ${contrato || 'todos'}`, REL_M, y); y += 5;
-    doc.text(`Estabelecimento: ${estabelecimento || 'todos'} · Período: ${per}`, REL_M, y); y += 5;
+    const filtroLinhas=doc.splitTextToSize(`Estabelecimento: ${estabelecimento || 'todos'} · Período: ${per}`,CW);
+    doc.text(filtroLinhas,REL_M,y);y+=filtroLinhas.length*5;
     doc.text(`Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, REL_M, y); y += 4;
     doc.setDrawColor(180); doc.setLineWidth(0.3);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 6;
@@ -814,9 +849,9 @@ async function gerarRelMovPDF() {
   // Tabelas-resumo para leitura rápida do relatório.
   const porTipo = {};
   const porUsuario = {};
-  const rotulo = { instalar: 'Instalações', desmontar: 'Desmontagens', realocar: 'Desmontagens', baixar: 'Baixas', adicionar: 'Adições' };
+  const rotulo = ROTULO_PLURAL;
   lista.forEach(m => {
-    const tipo = rotulo[m.tipo] || m.tipo || 'Não informado';
+    const tipo = tipoRel(m);
     const usuario = m.solicitante || m.solicitanteEmail || 'Não informado';
     porTipo[tipo] = (porTipo[tipo] || 0) + 1;
     porUsuario[usuario] = (porUsuario[usuario] || 0) + 1;
@@ -846,10 +881,10 @@ async function gerarRelMovPDF() {
     y += 4;
   };
 
-  desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo));
+  desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo).map(([t,n])=>[n===1?ROTULO_SINGULAR[t]:ROTULO_PLURAL[t],n]));
   desenharTabelaResumo('Resumo por usuário', Object.entries(porUsuario).sort((a, b) => b[1] - a[1]));
 
-  if (textoAdicionalPDF || fotosAdicionaisPDF.length) {
+  if (textoAdicionalPDF) {
     cabe(16);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
     doc.text('Informações adicionais do relatório', REL_M, y); y += 5;
@@ -858,13 +893,29 @@ async function gerarRelMovPDF() {
       const textoLinhas = doc.splitTextToSize(textoAdicionalPDF, CW - 4);
       textoLinhas.forEach(t => { cabe(5); doc.text(t, REL_M + 2, y); y += 4; });
     }
-    if (fotosAdicionaisPDF.length) desenharFotosPDF(fotosAdicionaisPDF);
+    // Fotos adicionais são desenhadas no respectivo estabelecimento.
     y += 3;
     doc.setDrawColor(225); doc.setLineWidth(0.2);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
   }
 
-  lista.forEach((m, idx) => {
+  let idx=0;
+  for(const [nome,grupo] of gruposRelMov(lista)) {
+    doc.setFont('helvetica','bold');doc.setFontSize(11);
+    const titulo=doc.splitTextToSize(nome,CW-4);
+    cabe(75+titulo.length*5);
+    doc.setTextColor(0,0,0);doc.text(titulo,REL_M,y);y+=titulo.length*5;
+    const contagens={};grupo.forEach(m=>{const t=tipoRel(m);contagens[t]=(contagens[t]||0)+1;});
+    doc.setFont('helvetica','normal');doc.setFontSize(9);
+    const resumoGrupo=doc.splitTextToSize(Object.entries(contagens).map(([t,n])=>contagemTipoRel(t,n)).join(' · '),CW);
+    doc.text(resumoGrupo,REL_M,y);y+=resumoGrupo.length*5+3;
+    let anterior='';
+    grupo.forEach(m => {
+    if(tipoRel(m)!==anterior) {
+      cabe(45);anterior=tipoRel(m);
+      doc.setFont('helvetica','bold');doc.setFontSize(10);
+      doc.text(ROTULO_SINGULAR[anterior]||anterior,REL_M,y);y+=7;
+    }
     cabe(34);
     const cor = { instalar: [5, 150, 105], desmontar: [37, 99, 235], realocar: [37, 99, 235],
                   baixar: [220, 38, 38], adicionar: [124, 58, 237] }[m.tipo] || [80, 80, 80];
@@ -872,7 +923,7 @@ async function gerarRelMovPDF() {
     doc.rect(REL_M, y - 3.5, 1.6, 12, 'F');      // marca colorida do tipo
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
-    doc.text(`${idx + 1}. ${(rotulo[m.tipo] || m.tipo).replace(/s$/, '')} — TAG ${m.tag || m.novaTag || '—'}`,
+    doc.text(`${++idx}. ${ROTULO_SINGULAR[m.tipo] || m.tipo} — TAG ${m.tag || m.novaTag || '—'}`,
              REL_M + 4, y); y += 5;
 
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
@@ -905,7 +956,14 @@ async function gerarRelMovPDF() {
     y += 3;
     doc.setDrawColor(225); doc.setLineWidth(0.2);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
-  });
+    });
+    if(fotosAdicionaisPDF[nome]?.length) {
+      cabe(45);doc.setFont('helvetica','bold');doc.setFontSize(10);
+      doc.text('Fotos adicionais do estabelecimento',REL_M,y);y+=5;
+      desenharFotosPDF(fotosAdicionaisPDF[nome]);
+    }
+    y+=6;
+  }
 
   // Paginação
   const tot = doc.internal.getNumberOfPages();
@@ -1026,9 +1084,9 @@ function renderList() {
   else {
     empty.style.display='none';
     list.innerHTML = filtered.map(m=>{
-      const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'}[m.tipo]||m.tipo;
+      const tipoLabel = ROTULO_SINGULAR[m.tipo]||m.tipo;
       const canReview = podeEditarMovimentacao() && m.status==='pendente';
-      const canEditMov = podeEditarMovimentacao() && m.status==='pendente';
+      const canEditMov = podeEditarEstaMovimentacao(m) && m.status==='pendente';
       const canExecute= podeEditarMovimentacao() && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
@@ -1037,7 +1095,7 @@ function renderList() {
       <div class="mov-card ${m.status}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <span class="tipo-badge ${m.tipo}">${tipoLabel}</span>
+            <span class="tipo-badge ${esc(m.tipo)}">${esc(tipoLabel)}</span>
             <span class="badge ${m.status}">${{pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',executada:'Executada'}[m.status]||m.status}</span>
           </div>
           <span style="font-size:11px;color:var(--text-3)">${dataStr}</span>
@@ -1049,7 +1107,7 @@ function renderList() {
           🏢 Estabelecimento: ${esc(local.estabelecimento)||'—'} · Recinto: ${esc(local.recinto)||'—'}
         </div>
         <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
-          Solicitado por: ${m.solicitanteNome||'—'}
+          Solicitado por: ${esc(m.solicitanteNome)||'—'}
         </div>
         ${m.motivo ? `<div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
           ${esc(m.motivo)}
@@ -1062,11 +1120,11 @@ function renderList() {
           <div style="font-size:12px;color:var(--success);margin-top:4px">
             ✅ Executado em ${new Date(m.executadoEm).toLocaleDateString('pt-BR')} · Banco atualizado
           </div>` : ''}
-        ${canReview ? `
+        ${canReview || canEditMov ? `
           <div class="admin-actions">
             ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}')">✏️ Editar</button>` : ''}
-            <button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
-            <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>
+            ${canReview ? `<button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
+            <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>` : ''}
           </div>` : ''}
         ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}', this)">⚙️ Executar no banco</button>` : ''}
         ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}', this)">🗑️ Excluir</button>` : ''}
@@ -1169,6 +1227,7 @@ function equipsDoContratoPat() {
 
 // ── TAG: apenas números e inédita no contrato ─────────────────────
 function conferirNovaTag() {
+  agendarConferenciaPendente();
   const campo = document.getElementById('f-nova-tag');
   const aviso = document.getElementById('f-tag-aviso');
   if (!campo || !aviso) return true;
@@ -1511,6 +1570,7 @@ function normalizarTagExistente(campo) {
   if (!campo) return;
   const limpo = tagCanonicaPat(campo.value);
   if (campo.value !== limpo) campo.value = limpo;
+  agendarConferenciaPendente();
 }
 function esconderAutocompleteTagPat() {
   const box = document.getElementById("tag-autocomplete");
@@ -1714,6 +1774,10 @@ async function saveMovimento(btn) {
     // Só atualiza a lista e zera o formulário depois que o servidor gravar
     // e devolver o registro canônico. Falhas mantêm o preenchimento intacto
     // para que o usuário possa corrigir ou tentar novamente.
+    const recentes=await DB.getMovimentacoes('?semFotos=1');
+    if(Array.isArray(recentes))movimentos=recentes;
+    const disponibilidade=await consultarTagPendente(contrato,mov.novaTag||mov.tag);
+    if(!disponibilidade.disponivel)throw new Error(disponibilidade.mensagem);
     const resposta = editingMovId
       ? await DB.updateMovimentacao(mov)
       : await DB.saveMovimentacao(mov);
@@ -1738,8 +1802,8 @@ async function saveMovimento(btn) {
 }
 
 async function editMovimento(id) {
-  if (!podeEditarMovimentacao()) { showToast('Sem permissão para editar movimentações'); return; }
   let m = movimentos.find(x => x.id === id);
+  if (!podeEditarEstaMovimentacao(m)) { showToast('Sem permissão para editar esta movimentação'); return; }
   if (!m || m.status !== 'pendente') {
     showToast('Somente movimentações pendentes podem ser editadas'); return;
   }
@@ -1755,6 +1819,7 @@ async function editMovimento(id) {
     }
     showToast('Servidor indisponível; usando os dados já sincronizados.', 4500);
   }
+  if(!podeEditarEstaMovimentacao(m) || m.status!=='pendente'){showToast('Esta movimentação não pode mais ser editada.');return;}
   editingMovId = m.id;
   const sel = document.getElementById('f-contrato');
   sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
