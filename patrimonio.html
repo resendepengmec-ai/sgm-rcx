@@ -1122,7 +1122,7 @@ function renderList() {
           </div>` : ''}
         ${canReview || canEditMov ? `
           <div class="admin-actions">
-            ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}')">✏️ Editar</button>` : ''}
+            ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}', this)">✏️ Editar</button>` : ''}
             ${canReview ? `<button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
             <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>` : ''}
           </div>` : ''}
@@ -1675,9 +1675,8 @@ function loadTagsByContract() {
   });
   const estabs = Object.keys(byEstab).sort();
 
-  // Datalist para autocomplete
-  const dlE = document.getElementById('estab-suggestions');
-  dlE.innerHTML = estabs.map(e=>`<option value="${e}">`).join('');
+  // O destino usa a lista própria estab-pat-sugestoes; o datalist antigo
+  // não existe mais e não deve interromper a abertura da edição.
 
   // Painel visível
   const panel = document.getElementById('contract-info-panel');
@@ -1801,7 +1800,20 @@ async function saveMovimento(btn) {
   }
 }
 
-async function editMovimento(id) {
+async function editMovimento(id, btn) {
+  if (btn?.dataset.busy === '1') return;
+  const restore = setActionBusy(btn, true, 'Carregando…');
+  try {
+    await carregarMovimentoParaEdicao(id);
+  } catch (e) {
+    editingMovId = null;
+    showToast('Não foi possível abrir a edição: ' + e.message, 7000);
+  } finally {
+    restore();
+  }
+}
+
+async function carregarMovimentoParaEdicao(id) {
   let m = movimentos.find(x => x.id === id);
   if (!podeEditarEstaMovimentacao(m)) { showToast('Sem permissão para editar esta movimentação'); return; }
   if (!m || m.status !== 'pendente') {
@@ -1845,6 +1857,7 @@ async function editMovimento(id) {
   document.getElementById('screen-form-title').textContent = 'Editar movimentação pendente';
   document.getElementById('btn-save-mov').textContent = '💾 Salvar alterações';
   showScreen('form');
+  window.scrollTo(0, 0);
 }
 
 // ── Review modal ──────────────────────────────────────────────────
