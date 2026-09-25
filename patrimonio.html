@@ -118,9 +118,14 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div class="field">
       <label>Estabelecimento <span style="font-weight:400;color:var(--text-2)">(opcional)</span></label>
       <input id="rel-estabelecimento-busca" type="search" placeholder="Buscar estabelecimento" oninput="renderEstabelecimentosRel()">
+      <label><input type="checkbox" id="rel-estabelecimentos-todos" onchange="selecionarTodosEstabelecimentosRel(this.checked)"> Marcar todos</label>
       <div id="rel-estabelecimento" style="max-height:180px;overflow:auto"></div>
       <small>Nenhum marcado = todos os estabelecimentos.</small>
       <div style="font-size:10.5px;color:var(--text-2);margin-top:4px">Selecione um contrato para filtrar pelos estabelecimentos vinculados.</div>
+    </div>
+    <div class="field">
+      <label for="rel-instalador">Instalador (autor do lançamento)</label>
+      <select id="rel-instalador" onchange="previewRelMov()"><option value="">Todos os instaladores</option></select>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="field">
@@ -164,21 +169,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
     <div class="field">
       <label>Fotos adicionais <span style="font-weight:400;color:var(--text-2)">(até 2 por estabelecimento)</span></label>
-      <select id="rel-foto-estabelecimento" onchange="renderRelFotosAdicionais()"></select>
-      <div id="rel-fotos-adicionais-info"
-           style="font-size:11px;color:var(--text-2);margin-bottom:6px">0 de 2</div>
       <input type="file" id="rel-foto-adicional-cam" accept="image/*" capture="environment"
              style="display:none" onchange="addFotoRelAdicional(event)">
       <input type="file" id="rel-foto-adicional-gal" accept="image/*" multiple
              style="display:none" onchange="addFotosRelAdicionais(event)">
-      <div style="display:flex;gap:8px">
-        <button type="button" class="btn btn-secondary btn-sm" id="rel-btn-foto-cam" style="flex:1"
-                onclick="document.getElementById('rel-foto-adicional-cam').click()">📷 Câmera</button>
-        <button type="button" class="btn btn-secondary btn-sm" id="rel-btn-foto-gal" style="flex:1"
-                onclick="document.getElementById('rel-foto-adicional-gal').click()">🖼️ Galeria</button>
-      </div>
-      <div id="rel-fotos-adicionais-grid"
-           style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px"></div>
+      <div id="rel-fotos-adicionais-grupos"></div>
     </div>
 
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:8px 0 6px;font-size:11px;color:var(--text-2)">
@@ -342,7 +337,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
              box-shadow:var(--shadow-md);max-height:220px;overflow:auto"></div>
       </div>
       <div class="field">
-        <label>Recinto destino</label>
+        <label for="f-recinto-destino" id="label-recinto-destino">Recinto destino</label>
         <input id="f-recinto-destino" type="text" placeholder="Ex: Sala de reuniões">
       </div>
     </div>
@@ -569,7 +564,7 @@ function gruposFotosRel() {return [...gruposRelMov(movimentosDoRelatorio()).keys
 function addFotoRelAdicional(ev) {return addFotosRelAdicionais(ev);}
 async function addFotosRelAdicionais(ev) {
   const arquivos=Array.from(ev.target.files||[]);ev.target.value='';
-  const estab=document.getElementById('rel-foto-estabelecimento').value,contrato=document.getElementById('rel-contrato').value;
+  const estab=ev.target.dataset.estab,contrato=document.getElementById('rel-contrato').value;
   if(!arquivos.length)return;
   if(!estab || relProcessandoFotos){showToast('Selecione o estabelecimento e aguarde o processamento atual.');return;}
   relProcessandoFotos=true;renderRelFotosAdicionais();
@@ -586,16 +581,21 @@ async function addFotosRelAdicionais(ev) {
   finally {relProcessandoFotos=false;previewRelMov();}
 }
 function removerFotoRelAdicional(estab,i) {relFotosAdicionais[estab]?.splice(i,1);previewRelMov();}
+function abrirFotosRel(estab, camera) {
+  const input=document.getElementById(camera?'rel-foto-adicional-cam':'rel-foto-adicional-gal');
+  input.dataset.estab=estab;input.click();
+}
 function renderRelFotosAdicionais() {
-  const select=document.getElementById('rel-foto-estabelecimento'),before=select.value,nomes=gruposFotosRel();
-  select.innerHTML=nomes.map(n=>'<option value="'+esc(n)+'">'+esc(n)+'</option>').join('');
-  if(nomes.includes(before))select.value=before;
-  const estab=select.value,fotos=relFotosAdicionais[estab]||[];
-  document.getElementById('rel-fotos-adicionais-info').textContent=fotos.length+' de 2 neste estabelecimento';
-  for(const id of ['rel-btn-foto-cam','rel-btn-foto-gal'])document.getElementById(id).disabled=!estab||fotos.length>=2||relProcessandoFotos;
-  document.getElementById('rel-fotos-adicionais-grid').innerHTML=fotos.map((f,i)=>
-    '<div><img src="'+imgSrc(f.dataUrl)+'" alt="Foto adicional" style="width:76px;height:76px;object-fit:cover;border-radius:8px">'+
-    '<button type="button" data-estab="'+esc(estab)+'" onclick="removerFotoRelAdicional(this.dataset.estab,'+i+')">Remover</button></div>').join('');
+  document.getElementById('rel-fotos-adicionais-grupos').innerHTML=gruposFotosRel().map(estab=>{
+    const fotos=relFotosAdicionais[estab]||[],disabled=fotos.length>=2||relProcessandoFotos?'disabled':'';
+    return '<div style="margin:8px 0;padding:8px;border:1px solid var(--border);border-radius:8px">'+
+      '<strong>'+esc(estab)+'</strong><small style="display:block">'+fotos.length+' de 2 fotos</small>'+
+      '<button type="button" class="btn btn-secondary btn-sm" data-estab="'+esc(estab)+'" onclick="abrirFotosRel(this.dataset.estab,true)" '+disabled+'>📷 Câmera</button> '+
+      '<button type="button" class="btn btn-secondary btn-sm" data-estab="'+esc(estab)+'" onclick="abrirFotosRel(this.dataset.estab,false)" '+disabled+'>🖼️ Galeria</button>'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+fotos.map((f,i)=>
+        '<div><img src="'+imgSrc(f.dataUrl)+'" alt="Foto adicional" style="width:76px;height:76px;object-fit:cover;border-radius:8px">'+
+        '<button type="button" data-estab="'+esc(estab)+'" onclick="removerFotoRelAdicional(this.dataset.estab,'+i+')">Remover</button></div>').join('')+'</div></div>';
+  }).join('') || '<small>Nenhum estabelecimento com movimentos selecionados.</small>';
 }
 function sincronizarTodosRelMov() {
   const c=document.getElementById('rel-todos'),cand=movimentosDoRelatorio({incluirExcluidos:true});
@@ -662,6 +662,7 @@ function atualizarFiltroEstabelecimentoRel() {
     relFotosAdicionais=Object.create(null);relEstabelecimentos.clear();relContratoAnterior=contrato;
   }
   renderEstabelecimentosRel();
+  atualizarInstaladoresRel();
 }
 function renderEstabelecimentosRel() {
   const contrato=document.getElementById('rel-contrato').value;
@@ -670,10 +671,20 @@ function renderEstabelecimentosRel() {
   document.getElementById('rel-estabelecimento').innerHTML=nomes.filter(n=>n.toLocaleLowerCase('pt-BR').includes(busca)).map(n=>
     '<label style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" value="'+esc(n)+'" '+(relEstabelecimentos.has(n)?'checked':'')+
     ' onchange="selecionarEstabelecimentoRel(this.value,this.checked)"> '+esc(n)+'</label>').join('') || '<small>Nenhum estabelecimento disponível.</small>';
+  const todos=document.getElementById('rel-estabelecimentos-todos'),n=nomes.filter(nome=>relEstabelecimentos.has(nome)).length;
+  todos.checked=nomes.length>0&&n===nomes.length;todos.indeterminate=n>0&&n<nomes.length;todos.disabled=!nomes.length;
 }
 function selecionarEstabelecimentoRel(nome,checked) {
   const anterior=new Set(relEstabelecimentos);
   if(checked)relEstabelecimentos.add(nome);else relEstabelecimentos.delete(nome);
+  confirmarSelecaoEstabelecimentosRel(anterior);
+}
+function selecionarTodosEstabelecimentosRel(marcar) {
+  const anterior=new Set(relEstabelecimentos);
+  relEstabelecimentos=new Set(marcar?estabelecimentosDoContratoRel(document.getElementById('rel-contrato').value):[]);
+  confirmarSelecaoEstabelecimentosRel(anterior);
+}
+function confirmarSelecaoEstabelecimentosRel(anterior) {
   const permitidos=new Set(gruposFotosRel());
   const remover=Object.keys(relFotosAdicionais).filter(n=>!permitidos.has(n)&&relFotosAdicionais[n].length);
   if(remover.length && !confirm('Esta seleção descarta as fotos adicionais de: '+remover.join(', ')+'. Continuar?'))relEstabelecimentos=anterior;
@@ -684,6 +695,19 @@ function selecionarEstabelecimentoRel(nome,checked) {
 // trilha patrimonial: inclui também pendentes e rejeitadas, sempre com o
 // respectivo status, para que o período reflita todas as solicitações.
 
+function autorRel(m) {
+  const email=String(m.solicitanteEmail||'').trim().toLowerCase();
+  return email?'email:'+email:'nome:'+String(m.solicitanteNome||'Não informado').trim();
+}
+function atualizarInstaladoresRel() {
+  const sel=document.getElementById('rel-instalador'),antes=sel.value,contrato=document.getElementById('rel-contrato').value;
+  const autores=new Map();
+  movimentos.filter(m=>!contrato||String(m.contrato)===contrato).forEach(m=>{
+    autores.set(autorRel(m),(m.solicitanteNome||m.solicitanteEmail||'Não informado')+(m.solicitanteNome&&m.solicitanteEmail?' — '+m.solicitanteEmail:''));
+  });
+  sel.innerHTML='<option value="">Todos os instaladores</option>'+[...autores].sort((a,b)=>a[1].localeCompare(b[1],'pt-BR')).map(([id,nome])=>'<option value="'+esc(id)+'">'+esc(nome)+'</option>').join('');
+  if(autores.has(antes))sel.value=antes;
+}
 function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
   const contrato = document.getElementById('rel-contrato')?.value || '';
   const estabelecimentos = relEstabelecimentos;
@@ -697,6 +721,8 @@ function movimentosDoRelatorio({ incluirExcluidos = false } = {}) {
 
   const base = (movimentos || []).filter(m => {
     if (contrato && String(m.contrato) !== contrato) return false;
+    const instalador=document.getElementById('rel-instalador')?.value;
+    if(instalador && autorRel(m)!==instalador)return false;
     if (estabelecimentos.size && ![...estabelecimentosMovimentoRel(m)].some(n=>estabelecimentos.has(n))) return false;
     if (!tipos.includes(m.tipo) && !(m.tipo === 'realocar' && tipos.includes('desmontar'))) return false;
     const ts = m.criadoEm || m.createdAt || m.ts || 0;
@@ -1515,6 +1541,8 @@ function updateFormByTipo() {
   const showExistente = ['desmontar','baixar'].includes(tipo);
   const showNova      = ['instalar','adicionar'].includes(tipo);
   const showDestino   = ['instalar','adicionar'].includes(tipo);
+  document.getElementById('f-recinto-destino').required = tipo === 'instalar';
+  document.getElementById('label-recinto-destino').textContent = tipo === 'instalar' ? 'Recinto destino *' : 'Recinto destino';
   document.getElementById('field-tag-existente').style.display = showExistente ? '' : 'none';
   document.getElementById('fields-nova-tag').style.display     = showNova      ? '' : 'none';
   document.getElementById('fields-destino').style.display      = showDestino   ? '' : 'none';
@@ -1668,6 +1696,11 @@ async function saveMovimento(btn) {
   const motivo   = document.getElementById('f-motivo').value.trim();
   if (!tipo)     { showToast('Selecione o tipo de movimentação'); return; }
   if (!contrato) { showToast('Selecione o contrato'); return; }
+  if (tipo === 'instalar' && !document.getElementById('f-recinto-destino').value.trim()) {
+    showToast('Informe o recinto destino para a instalação');
+    document.getElementById('f-recinto-destino').focus();
+    return;
+  }
   // Instalação dispensa motivo; os demais tipos continuam exigindo.
   if (tipo !== 'instalar' && !motivo) { showToast('Informe o motivo'); return; }
 
