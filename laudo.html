@@ -111,7 +111,7 @@ function cidadeDoEndereco(end){
     document.getElementById('root').innerHTML='<div class="card">Este módulo é restrito a gestor ou acima.</div>'; return;
   }
   const bm=document.getElementById('l-build'); if(bm) bm.textContent='v'+LAUDO_BUILD;
-  try{ prestadora = await DB.getPrestadoraConfig() || {}; }catch(e){ prestadora = {}; }
+  try{ prestadora = await DB.getPrestadoraConfig() || {}; prestadora.logo = await resolverLogoDataUrl(prestadora); }catch(e){ prestadora = {}; }
   try{ const cs = await DB.getContratos(); if(Array.isArray(cs)) safeLocalStorageSetJSON('smm_contracts', cs, { stripBinaries: true }); }catch(e){}
   renderForm();
   renderItens();
@@ -470,12 +470,14 @@ function atualizarLimiteFotos() {
 
 function renderFotos(){
   atualizarLimiteFotos();
-  document.getElementById('l-fotos').innerHTML = fotos.map((f,i)=>`
+  const fotosEl = document.getElementById('l-fotos');
+  fotosEl.innerHTML = fotos.map((f,i)=>`
     <div class="foto-thumb">
-      <img src="${imgSrc(f.dataUrl)}">
+      <img ${fotoAttrs(f)}>
       <button class="foto-del" onclick="fotos.splice(${i},1);renderFotos()">×</button>
       ${f.geo?`<a href="https://maps.google.com/?q=${f.geo.lat},${f.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${esc(f.geo.shortAddress||f.geo.address||'')}" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📍 ${esc(f.geo.shortAddress ? f.geo.shortAddress.split(',')[0] : 'mapa')}</a>`:''}
     </div>`).join('');
+  hidratarFotosDOM(fotosEl);
 }
 
 function unidadeDoLaudo(){
@@ -584,7 +586,7 @@ function desenharFotoPdf(doc, dataUrl, x, y, w, h) {
   }
 }
 
-function gerarPDF(d){
+async function gerarPDF(d){
   if(!window.jspdf){ showToast('Biblioteca de PDF não carregou.'); return; }
   d = d || coletar();
   if(!d.contract){ showToast('Selecione o contrato'); return; }
@@ -642,17 +644,18 @@ function gerarPDF(d){
     }
   }
 
-  const validas = (d.photos||[]).filter(f=>f.dataUrl);
+  const validas = (d.photos||[]).filter(f=>f && (f.dataUrl || f.sha));
+  const validasUrls = await Promise.all(validas.map(fotoParaDataUrlPdf));
   if(validas.length){
     ensure(doc, yO, 20);
     doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text(`Registro fotográfico (${validas.length})`, PDF_M, yO.y); yO.y+=6;
     const cols=3, gap=6, cellW=(CW-gap*(cols-1))/cols;
     for(let i=0;i<validas.length;i+=cols){
-      const row=validas.slice(i,i+cols); let hMax=0;
-      const sized=row.map(f=>{ let w=cellW,h=cellW*0.75; try{ const p=doc.getImageProperties(f.dataUrl); h=cellW*(p.height/p.width); if(h>70){h=70;w=70*(p.width/p.height);} }catch(e){} hMax=Math.max(hMax,h); return {f,w,h}; });
+      const row=validas.slice(i,i+cols); const rowUrls=validasUrls.slice(i,i+cols); let hMax=0;
+      const sized=row.map((f,ri)=>{ let w=cellW,h=cellW*0.75; try{ const p=doc.getImageProperties(rowUrls[ri]); h=cellW*(p.height/p.width); if(h>70){h=70;w=70*(p.width/p.height);} }catch(e){} hMax=Math.max(hMax,h); return {f,url:rowUrls[ri],w,h}; });
       ensure(doc, yO, hMax+10);
       sized.forEach((it,c)=>{ const cx=PDF_M+c*(cellW+gap)+(cellW-it.w)/2;
-        desenharFotoPdf(doc, it.f.dataUrl, cx, yO.y, it.w, it.h);
+        desenharFotoPdf(doc, it.url, cx, yO.y, it.w, it.h);
         if(it.f.geo){ doc.setFontSize(6); doc.setTextColor(37,99,235);
           const lb=it.f.geo.shortAddress||`${it.f.geo.lat.toFixed(5)}, ${it.f.geo.lng.toFixed(5)}`;
           doc.textWithLink(doc.splitTextToSize(lb, cellW)[0], PDF_M+c*(cellW+gap), yO.y+hMax+3, {url:`https://maps.google.com/?q=${it.f.geo.lat},${it.f.geo.lng}`});
@@ -711,7 +714,7 @@ async function gerarLaudo(btn){
     if(!rec.createdAt) rec.createdAt = Date.now();
     // OTIMISTA: o laudo já entra no acervo a partir do retorno do POST
     laudosCache = [rec, ...laudosCache.filter(x=>x.id!==rec.id)];
-    gerarPDF(rec);                          // gera e baixa o PDF (com a assinatura HMAC)
+    await gerarPDF(rec);                    // gera e baixa o PDF (com a assinatura HMAC)
     novoLaudo(true);                        // limpa o formulário
     switchView('realizados');               // MOSTRA o acervo já com o laudo no topo
     showToast('Salvo no acervo ✓ ('+laudosCache.length+' no acervo)');
@@ -814,7 +817,7 @@ async function gerarPDFde(id, btn){
     if(!l) throw new Error('Laudo não encontrado');
     const idx=laudosCache.findIndex(x=>x.id===id);
     if(idx>=0) laudosCache[idx]={...laudosCache[idx],...l};
-    gerarPDF(l);
+    await gerarPDF(l);
   }catch(e){ showToast('Erro ao gerar PDF: '+(e.message||e)); }
   finally{ restore(); }
 }

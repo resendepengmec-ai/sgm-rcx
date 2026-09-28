@@ -376,7 +376,9 @@ function renderList() {
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span class="tag-count">📊 ${equipCount} equipamentos</span>
-        ${docs.map(d=>`<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
+        ${docs.map(d=>d.sha
+          ? `<span class="doc-chip" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" title="Baixar documento">📄 ${esc(d.name)}</span>`
+          : `<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
         ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
       ${_sigTrail(c._signatures)}
       </div>
@@ -387,7 +389,7 @@ function renderList() {
 // ── PDF do contrato ──────────────────────────────────────────────
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 const PDF_M = 20, PDF_W = 210;
@@ -514,11 +516,17 @@ async function generateContractPDF(id) {
     doc.setFontSize(10);
     for (const d of docs) {
       if (y > 250) { doc.addPage(); y = 28; }
-      if ((d.type||'').startsWith('image/') && d.data) {
+      // Fase 2: bytes não vêm mais no JSON (`d.data`) — busca sob demanda
+      // pelo sha quando é imagem (documento incorporado ao PDF).
+      let src = d.data || null;
+      if (!src && d.sha && (d.type||'').startsWith('image/')) {
+        try { src = await _blobParaDataUrl(await arquivoBytes(d.sha)); } catch (e) { src = null; }
+      }
+      if ((d.type||'').startsWith('image/') && src) {
         try {
           doc.text(`📄 ${d.name}`, PDF_M, y); y += 5;
           const fmt = d.type.includes('png') ? 'PNG' : 'JPEG';
-          doc.addImage(d.data, fmt, PDF_M, y, 60, 42);
+          doc.addImage(src, fmt, PDF_M, y, 60, 42);
           y += 46;
         } catch(e) { doc.text(`📄 ${d.name} (não foi possível incluir a imagem)`, PDF_M, y); y += 6; }
       } else {

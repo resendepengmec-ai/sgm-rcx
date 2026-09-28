@@ -410,7 +410,7 @@ let allEquipForContract = [];
 let fMonth='', fContract='', fStatus='', fLevel='';
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
@@ -1260,45 +1260,42 @@ function openPlan(id) {
 
 let _openExecCards = new Set([0]); // cards abertos na tela de execução (sobrevive a re-renders)
 
-function renderExecList(plan) {
-  const items = getChecklistItems(plan.level);
-  let totalDone = 0;
+// Extraído de renderExecList para ser reaproveitado por atualizarExecCard:
+// adicionar/remover/marcar UM equipamento não precisa mais refazer a
+// lista inteira (que pode ter até ~1500 cards num plano grande) — só o
+// card daquele equipamento. A ordem dos cards (orderedEquipments) é por
+// estabelecimento/TAG, que essas ações nunca alteram, então trocar um
+// card no lugar nunca desalinha a lista.
+function renderExecCardHtml(plan, ei) {
+  const equip = plan.equipments[ei];
+  const prog = getEquipProgress(equip, plan.level);
+  const done = isEquipDone(equip, plan.level);
+  const pct = Math.round(prog.done/prog.total*100);
 
-  document.getElementById('exec-total').textContent = plan.equipments.length;
+  const levels = getLevelsFor(plan.level);
+  let checkHtml = levels.map(lv => {
+    const doneLv = equip.checks && equip.checks[lv] === true;
+    return `
+      <div class="chk-level-title">
+        <span style="width:16px;height:16px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
+        ${LEVEL_LABEL[lv]}
+      </div>
+      <button class="chk-btn ${doneLv?'active-ok':''}" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-bottom:10px" onclick="setLevelCheck(${ei},${lv},${!doneLv})">
+        ${doneLv?'✅ Nível concluído':'☐ Marcar nível como concluído'}
+      </button>`;
+  }).join('');
 
-  document.getElementById('exec-list').innerHTML = orderedEquipments(plan.equipments).map(({equip, ei}) => {
-    const prog = getEquipProgress(equip, plan.level);
-    const done = isEquipDone(equip, plan.level);
-    if (done) totalDone++;
-    const pct = Math.round(prog.done/prog.total*100);
+  const photos = equip.photos || [];
+  const photosHtml = photos.length ? `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0" id="exec-photos-${ei}">
+      ${photos.map((p,pi)=>`<div style="position:relative">
+        <img ${fotoAttrs(p)} style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="abrirLightboxDeImg(this,showPhotoZoom)">
+        <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
+        ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
+      </div>`).join('')}
+    </div>${photos.some(p=>p&&p.sig)?`<div style="margin:-2px 0 10px;display:flex;flex-direction:column;gap:2px">${photos.map((p,pi)=>p&&p.sig?_photoSigLine(pi,p.sig):'').join('')}</div>`:''}` : '';
 
-    // Nível(s) do plano — um toggle "Feito" por nível, sem item a item
-    const levels = getLevelsFor(plan.level);
-    let checkHtml = levels.map(lv => {
-      const doneLv = equip.checks && equip.checks[lv] === true;
-      return `
-        <div class="chk-level-title">
-          <span style="width:16px;height:16px;border-radius:50%;background:${LEVEL_COLOR[lv]};display:inline-block"></span>
-          ${LEVEL_LABEL[lv]}
-        </div>
-        <button class="chk-btn ${doneLv?'active-ok':''}" style="width:100%;justify-content:center;padding:12px;font-size:14px;margin-bottom:10px" onclick="setLevelCheck(${ei},${lv},${!doneLv})">
-          ${doneLv?'✅ Nível concluído':'☐ Marcar nível como concluído'}
-        </button>`;
-    }).join('');
-
-    const photos = equip.photos || [];
-    const photosHtml = photos.length ? `
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
-        ${photos.map((p,pi)=>`<div style="position:relative">
-          ${p && p.dataUrl
-            ? `<img src="${imgSrc(p.dataUrl)}" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="showPhotoZoom('${p.dataUrl}')">`
-            : `<div title="Foto salva no servidor" style="width:56px;height:56px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:16px;color:#94a3b8">🗂️</div>`}
-          <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
-          ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
-        </div>`).join('')}
-      </div>${photos.some(p=>p&&p.sig)?`<div style="margin:-2px 0 10px;display:flex;flex-direction:column;gap:2px">${photos.map((p,pi)=>p&&p.sig?_photoSigLine(pi,p.sig):'').join('')}</div>`:''}` : '';
-
-    return `<div class="exec-card">
+  return { done, html: `<div class="exec-card" id="exec-card-${ei}">
       <div class="exec-header" onclick="toggleExecBody(${ei})">
         <div class="exec-equip-name">
           <div class="exec-equip-tag">TAG ${esc(equip.tag)}</div>
@@ -1321,9 +1318,40 @@ function renderExecList(plan) {
         ${photosHtml}
         ${checkHtml}
       </div>
-    </div>`;
-  }).join('');
+    </div>` };
+}
 
+function renderExecList(plan) {
+  let totalDone = 0;
+
+  document.getElementById('exec-total').textContent = plan.equipments.length;
+
+  const list = document.getElementById('exec-list');
+  list.innerHTML = orderedEquipments(plan.equipments).map(({ei}) => {
+    const { done, html } = renderExecCardHtml(plan, ei);
+    if (done) totalDone++;
+    return html;
+  }).join('');
+  hidratarFotosDOM(list);
+
+  const pct = plan.equipments.length ? Math.round(totalDone/plan.equipments.length*100) : 0;
+  document.getElementById('exec-done').textContent = totalDone;
+  document.getElementById('exec-pct').textContent = pct + '%';
+}
+
+// Atualiza SÓ o card de um equipamento (foto adicionada/removida, nível
+// marcado) — sem refazer a lista inteira. Recalcula também os contadores
+// agregados (feitos/pct), que são O(n) mas leves (só leem checks, não
+// tocam o DOM de cada card).
+function atualizarExecCard(plan, ei) {
+  const card = document.getElementById(`exec-card-${ei}`);
+  if (!card) { renderExecList(plan); return; } // card não existe ainda: fallback seguro
+  const { html } = renderExecCardHtml(plan, ei);
+  card.outerHTML = html;
+  hidratarFotosDOM(document.getElementById(`exec-card-${ei}`));
+
+  let totalDone = 0;
+  plan.equipments.forEach(equip => { if (isEquipDone(equip, plan.level)) totalDone++; });
   const pct = plan.equipments.length ? Math.round(totalDone/plan.equipments.length*100) : 0;
   document.getElementById('exec-done').textContent = totalDone;
   document.getElementById('exec-pct').textContent = pct + '%';
@@ -1343,7 +1371,7 @@ async function setLevelCheck(ei, level, value) {
   const expected=!!equip.checks[level];
   if(expected===value)return;
   equip.checks[level] = value;
-  renderExecList(plan);
+  atualizarExecCard(plan, ei);
   updatePlanSummary(plan);
   saveLocal();
   setSync('saving','Enviando marcação…');
@@ -1536,7 +1564,7 @@ function addEquipPhoto(ei, file) {
             name: file.name, addedAt: Date.now(), capturedAt: Date.now(), geo
           };
           equip.photos.push(photo);                              // local imediato: miniatura aparece
-          renderExecList(plan);
+          atualizarExecCard(plan, ei);
           showToast(`📷 Foto adicionada${geo?' (com localização)':''}`);
           uploadEquipPhoto(plan, ei, photo);                     // dispara o upload PRIMEIRO
           saveLocal();                                           // cache por último (nunca bloqueia o upload)
@@ -1563,7 +1591,7 @@ async function uploadEquipPhoto(plan, ei, photo) {
       if (idx >= 0) eq.photos[idx] = {...photo,...resp.photo,dataUrl:photo.dataUrl};
       if(resp.version!==undefined)plan._version=Math.max(plan._version||0,resp.version);
       saveLocal();
-      renderExecList(plan);
+      atualizarExecCard(plan, ei);
     }
     setSync('saved', 'Foto enviada');
   } catch(e) {
@@ -1579,7 +1607,7 @@ function removeEquipPhoto(ei, pi) {
   if (!photo) return;
   eq.photos.splice(pi, 1);                                  // feedback local imediato
   saveLocal();
-  renderExecList(plan);
+  atualizarExecCard(plan, ei);
   if (!photo.id) { persist(); return; }                     // foto legada (sem id): reconcilia pelo plano
   // Remove no servidor AGORA, liberando a vaga das 3 de forma determinística
   const doDelete = async () => {
@@ -1705,11 +1733,11 @@ async function atualizarFotosParaPdf(plan) {
 async function printExecPDF() {
   const plan = plans.find(p=>p.id===currentPlanId);
   if (!plan) return;
-  try { generatePlanPDF(await atualizarFotosParaPdf(plan)); setSync('saved','PDF gerado'); }
+  try { await generatePlanPDF(await atualizarFotosParaPdf(plan)); setSync('saved','PDF gerado'); }
   catch(e) { setSync('error', e.message); }
 }
 
-function generatePlanPDF(plan, sharedDoc) {
+async function generatePlanPDF(plan, sharedDoc) {
   if (!sharedDoc && !window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const {jsPDF} = window.jspdf;
   const doc = sharedDoc || new jsPDF({unit:'mm', format:'a4'});
@@ -1774,7 +1802,7 @@ function generatePlanPDF(plan, sharedDoc) {
   });
 
   // Detail pages per equipment
-  orderedEquipments(plan.equipments).forEach(({equip:eq}) => {
+  for (const {equip:eq} of orderedEquipments(plan.equipments)) {
     doc.addPage(); y=M; header(`TAG ${eq.tag}`);
     doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
     doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
@@ -1819,7 +1847,10 @@ function generatePlanPDF(plan, sharedDoc) {
       doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(30,30,30);
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
       const cols=3, gap=6, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=90;
-      const sized = eq.photos.map(p => ({ p, dataUrl: fotoDataUrl(p), ...photoFit(doc, p, cellW, maxH) }));
+      // Fase 2: fotos podem chegar como referência ({sha}), sem dataUrl —
+      // resolve os bytes antes de medir/desenhar.
+      const eqUrls = await Promise.all(eq.photos.map(fotoParaDataUrlPdf));
+      const sized = eq.photos.map((p,pi) => ({ p, dataUrl: eqUrls[pi], ...photoFit(doc, eqUrls[pi], cellW, maxH) }));
       for (let i=0; i<sized.length; i+=cols) {
         const rowItems = sized.slice(i, i+cols);
         const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
@@ -1852,7 +1883,7 @@ function generatePlanPDF(plan, sharedDoc) {
         doc.setTextColor(0,0,0); y+=2;
       }
     }
-  });
+  }
 
   if (!sharedDoc) {
     drawPdfFooters(doc, cont);
@@ -1967,7 +1998,7 @@ async function printFilteredVolume(filtered, volume) {
     const detail = await atualizarFotosParaPdf(p);
     setSync('saving', `Montando volume ${volume}: plano ${i+1}/${filtered.length}…`);
     doc.addPage();
-    generatePlanPDF(detail, doc);
+    await generatePlanPDF(detail, doc);
     await new Promise(resolve => setTimeout(resolve, 0));
   }
 

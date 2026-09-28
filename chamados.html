@@ -399,7 +399,7 @@ let chamados = safeLocalStorageGetJSON('chamados_list', []);
 let settings = safeLocalStorageGetJSON('chamados_settings', {});
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
@@ -808,7 +808,7 @@ function renderList() {
       header=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${ml}</div>`;
     }
     const thumb = c.photos&&c.photos[0]
-      ? `<div class="cc-thumb"><img src="${imgSrc(c.photos[0].dataUrl)}" alt="foto"></div>`
+      ? `<div class="cc-thumb"><img ${fotoAttrs(c.photos[0])} alt="foto"></div>`
       : `<div class="cc-thumb">📷</div>`;
     return header + `<div class="chamado-card" onclick="openDetail('${esc(c.id)}')">
       <div class="cc-bar ${p.bar}"></div>
@@ -827,6 +827,7 @@ function renderList() {
 </div>
     </div>`;
   }).join('');
+  hidratarFotosDOM(list);
 }
 
 // ── New / Edit ──
@@ -993,7 +994,8 @@ function renderPhotoGrid(){
   const badge=document.getElementById('photo-badge');
   if (badge) { badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length; }
   if (!grid) return;
-  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img src="${imgSrc(p.dataUrl)}" onclick="openLightbox('${imgSrc(p.dataUrl)}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
+  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img ${fotoAttrs(p)} onclick="abrirLightboxDeImg(this,openLightbox)" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
+  hidratarFotosDOM(grid);
 }
 
 // ── Lightbox ──
@@ -1199,7 +1201,7 @@ function openDetail(id){
     ? `<select onchange="updateStatus('${esc(c.id)}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
     : '';
   const photos=c.photos&&c.photos.length
-    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img src="${imgSrc(ph.dataUrl)}" onclick="openLightbox('${imgSrc(ph.dataUrl)}')">`).join('')}</div></div>`:' ';
+    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img ${fotoAttrs(ph)} onclick="abrirLightboxDeImg(this,openLightbox)">`).join('')}</div></div>`:' ';
 
   // O.S. vinculadas
   const osVinculadas=ordensCache.filter(o=>o.chamadoId===c.id);
@@ -1241,12 +1243,13 @@ function openDetail(id){
       📋 Gerar Ordem de Serviço
     </button>` : ''}
     ${photos}`;
+  hidratarFotosDOM(document.getElementById('detail-content'));
   document.getElementById('detail-modal').classList.remove('hidden');
 }
 function closeDetailModal(){ document.getElementById('detail-modal').classList.add('hidden'); }
 
 // ── PDF individual ──
-function printPDF(id){
+async function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const c=chamados.find(x=>x.id===id); if(!c) return;
   const {jsPDF}=window.jspdf;
@@ -1309,11 +1312,12 @@ function printPDF(id){
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${c.photos.length} foto${c.photos.length>1?'s':''})`,M,y);y+=5;
     const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
+    const fotoUrls=await Promise.all(c.photos.map(fotoParaDataUrlPdf));
     c.photos.forEach((ph,pi)=>{
       const col=pi%cols,row=Math.floor(pi/cols);
       const px=M+col*(imgW+4),py=y+row*(imgH+4);
       if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
-      try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){}
+      try{if(fotoUrls[pi])doc.addImage(fotoUrls[pi],'JPEG',px,py,imgW,imgH);}catch(e){}
     });
     y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
   }
@@ -1326,7 +1330,7 @@ function printPDF(id){
 }
 
 // ── PDF filtrado ──
-function printFilteredPDF(){
+async function printFilteredPDF(){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const filtered=getFiltered();
   if(!filtered.length){showToast('Nenhum chamado para o relatório');return;}
@@ -1388,6 +1392,10 @@ function printFilteredPDF(){
     y+=7;
   });
 
+  // Bytes das fotos, resolvidos ANTES do laço síncrono de montagem das
+  // páginas (jsPDF desenha em sequência; addImage exige dataURL pronta).
+  const fotoUrlsPorChamado=new Map(await Promise.all(filtered.map(async c=>[c.id, c.photos&&c.photos.length ? await Promise.all(c.photos.map(fotoParaDataUrlPdf)) : []])));
+
   // Detail pages
   filtered.forEach((c,ci)=>{
     doc.addPage();
@@ -1431,7 +1439,8 @@ function printFilteredPDF(){
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
       doc.text(`FOTOS (${c.photos.length})`,M,y);y+=5;
       const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
-      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}try{doc.addImage(ph.dataUrl,'JPEG',px,py,imgW,imgH);}catch(e){};});
+      const fotoUrls=fotoUrlsPorChamado.get(c.id)||[];
+      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}try{if(fotoUrls[pi])doc.addImage(fotoUrls[pi],'JPEG',px,py,imgW,imgH);}catch(e){};});
       y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
     }
   });

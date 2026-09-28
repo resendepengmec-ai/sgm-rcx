@@ -1404,8 +1404,8 @@ let _prestadoraLogo = { dataUrl:'', ratio:'' }; // ratio = height/width
 function loadPrestadoraConfig() {
   const box = document.getElementById('cfg-prestadora');
   if (!box) return;
-  DB.getConfig().then(cfg => {
-    _prestadoraLogo = { dataUrl: cfg.logo||'', ratio: cfg.logoRatio||'' };
+  DB.getConfig().then(async cfg => {
+    _prestadoraLogo = { dataUrl: await resolverLogoDataUrl(cfg), ratio: cfg.logoRatio||'' };
     renderPrestadoraForm(box, cfg);
   }).catch(e => {
     box.innerHTML = `<p style="font-size:12px;color:var(--danger)">Erro ao carregar: ${e.message}</p>`;

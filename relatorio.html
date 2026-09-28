@@ -206,7 +206,7 @@ function showToast(msg, dur=2500) {
 // ── Init ──────────────────────────────────────────────────────────
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 // Calcula o tamanho de desenho da foto no PDF: parte da largura da coluna
@@ -277,7 +277,7 @@ function desenharFoto(doc, dataUrl, x, y, w, h) {
 //
 // `contexto` é o rótulo do cabeçalho ao virar a página, para o leitor não
 // perder de vista a que TAG as fotos pertencem.
-function gradeDeFotos(doc, fotos, opts) {
+async function gradeDeFotos(doc, fotos, opts) {
   const o = opts || {};
   const M = o.M != null ? o.M : 14;
   const CW = o.CW != null ? o.CW : (doc.internal.pageSize.getWidth() - M * 2);
@@ -286,10 +286,10 @@ function gradeDeFotos(doc, fotos, opts) {
   let y = o.y;
 
   const cellW = (CW - gap * (cols - 1)) / cols;
-  const sized = (fotos || []).map(p => {
-    const src = p && p.dataUrl ? p.dataUrl : p;
-    return { p, src, ...photoFit(doc, src, cellW, maxH) };
-  });
+  // Fase 2: fotos podem chegar como referência ({sha}), sem dataUrl —
+  // resolve os bytes antes de medir/desenhar (jsPDF exige dataURL síncrona).
+  const srcs = await Promise.all((fotos || []).map(p => fotoParaDataUrlPdf(p && (p.dataUrl || p.sha) ? p : { dataUrl: p })));
+  const sized = (fotos || []).map((p, i) => ({ p, src: srcs[i], ...photoFit(doc, srcs[i], cellW, maxH) }));
 
   for (let i = 0; i < sized.length; i += cols) {
     const linha = sized.slice(i, i + cols);
@@ -612,6 +612,7 @@ async function render() {
         photoCell(c.photos)
       ])
     );
+    hidratarFotosDOM(document.getElementById('chamados-table'));
   } else { document.getElementById('section-chamados').style.display='none'; }
 
   // Registros table
@@ -627,6 +628,7 @@ async function render() {
         photoCell(r.photos)
       ])
     );
+    hidratarFotosDOM(document.getElementById('registros-table'));
   } else { document.getElementById('section-registros').style.display='none'; }
 
   // Preventiva table
@@ -701,9 +703,8 @@ async function render() {
 
 function photoCell(photos) {
   if (!photos || !photos.length) return '<span style="color:var(--text-3)">—</span>';
-  const first = photos[0].dataUrl || photos[0];
   const geo = photos[0].geo;
-  return `<img src="${first}" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
+  return `<img ${fotoAttrs(photos[0])} onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
     ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}
     ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="${geo.shortAddress||geo.address||'Ver localização'}">📍</a>`:''}`;
 }
@@ -890,7 +891,7 @@ function getEquipProgressPrev(equip, level) {
 // do PDF individual gerado em preventiva.html (resumo, tabela de
 // equipamentos, detalhamento por nível com itens de referência, e fotos
 // com localização), só que embutido dentro do relatório gerencial.
-function renderPreventivaPlanDetail(doc, plan) {
+async function renderPreventivaPlanDetail(doc, plan) {
   const W=210, M=20, CW=W-M*2;
   let y = M;
   const color = (LEVEL_COLOR[plan.level]||'#2563eb').replace('#','');
@@ -950,7 +951,7 @@ function renderPreventivaPlanDetail(doc, plan) {
     y+=7;
   });
 
-  equipamentos.forEach(eq => {
+  for (const eq of equipamentos) {
     doc.addPage(); y=M; header(`TAG ${eq.tag||'—'}`);
     doc.setFillColor(240,249,255); doc.rect(M,y,CW,26,'F');
     doc.setTextColor(30,30,30); doc.setFontSize(10); doc.setFont('helvetica','bold');
@@ -993,10 +994,10 @@ function renderPreventivaPlanDetail(doc, plan) {
       doc.text(`Fotos (${eq.photos.length})`, M, y); y+=5;
       // Mesma grade dos demais relatórios — e agora com o formato da
       // imagem deduzido, em vez de 'JPEG' fixo.
-      y = gradeDeFotos(doc, eq.photos, { y, M, CW, cols: 3, maxH: 90, limiteY: 272,
+      y = await gradeDeFotos(doc, eq.photos, { y, M, CW, cols: 3, maxH: 90, limiteY: 272,
             header: (yy) => { header(`TAG ${eq.tag||'—'} (cont.)`); return yy; } });
     }
-  });
+  }
 }
 
 async function generatePDF() {
@@ -1079,7 +1080,7 @@ async function generatePDF() {
   // Chamados
   if (chamados.length) {
     addSection(`Chamados (${chamados.length})`);
-    chamados.forEach(c=>{
+    for (const c of chamados) {
       ensurePage(255);
       doc.text(`${c.date||'—'} | TAG: ${c.equip||c.tag||'—'} | ${c.status||'aberto'}`,PDF_M+2,y);y+=5;
       doc.setFontSize(12);
@@ -1088,39 +1089,39 @@ async function generatePDF() {
       if (c.photos && c.photos.length) {
         // TODAS as fotos, em grade. Antes entrava só a primeira e as
         // demais viravam o texto "+N foto(s)".
-        y = gradeDeFotos(doc, c.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
+        y = await gradeDeFotos(doc, c.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
               cols: 3, maxH: 60, limiteY: 272,
               header: (yy) => { doc.setFontSize(10);
                 doc.text(`Chamado ${c.id||''} — fotos (cont.)`, PDF_M, yy); return yy + 6; } });
       }
-    });
+    }
     y+=4;
   }
 
   // Registros
   if (registros.length) {
     addSection(`Registros de manutenção (${registros.length})`);
-    registros.forEach(r=>{
+    for (const r of registros) {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
       doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
       if (r.photos && r.photos.length) {
-        y = gradeDeFotos(doc, r.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
+        y = await gradeDeFotos(doc, r.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
               cols: 3, maxH: 60, limiteY: 272,
               header: (yy) => { doc.setFontSize(10);
                 doc.text(`Registro ${r.id||''} — fotos (cont.)`, PDF_M, yy); return yy + 6; } });
       }
-    });
+    }
     y+=4;
   }
 
   // Preventiva — mesmo relatório completo por plano usado em preventiva.html
   // (resumo, tabela de equipamentos, detalhamento por nível e fotos)
   if (preventiva.length) {
-    preventiva.forEach(p=>{
+    for (const p of preventiva) {
       doc.addPage();
-      renderPreventivaPlanDetail(doc, p);
-    });
+      await renderPreventivaPlanDetail(doc, p);
+    }
   }
 
   // Reincidências por equipamento

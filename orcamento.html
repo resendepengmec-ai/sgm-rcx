@@ -462,7 +462,7 @@ let quotes = safeLocalStorageGetJSON('orcamento_quotes', []);
 // no caso dos itens não incluídos.)
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────

@@ -25,6 +25,7 @@
 <script src="config.js"></script>
 <link rel="stylesheet" href="shared.css">
 <script src="api-client.js?v=20260923.1"></script>
+<script src="vendor/zip-stream.js"></script>
 <style>
 .bk-card { background:var(--surface); border:1px solid var(--border); border-radius:12px;
            padding:16px; margin-bottom:14px; }
@@ -107,6 +108,9 @@
 
   <button class="btn btn-primary" id="bk-btn" style="width:100%" onclick="fazerBackup(this)">
     💾 Gerar backup agora
+  </button>
+  <button class="btn btn-secondary" id="bk-cancelar" style="width:100%;margin-top:8px;display:none" onclick="_bkCancelado=true">
+    ✕ Cancelar
   </button>
 
   <div class="bk-card" style="margin-top:14px">
@@ -264,6 +268,34 @@ const formatarTamanho = b =>
   b > 1048576 ? (b / 1048576).toFixed(1) + ' MB'
               : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
 
+// ── Fase 2: arquivos (fotos/documentos/logo) fora do JSON ──────────
+// As coleções acima (COLECOES) não trazem mais bytes — só referências
+// {sha,prefixo,bytes,...}. No modo completo, o backup precisa baixar
+// cada arquivo referenciado pelo endpoint novo (GET /api/arquivos/:sha)
+// e empacotar num .zip; no modo leve, a ausência de bytes já era o
+// objetivo, então o JSON sozinho continua correto e sem mudança.
+function coletarShas(valor, out) {
+  out = out || new Set();
+  if (Array.isArray(valor)) { valor.forEach(v => coletarShas(v, out)); return out; }
+  if (!valor || typeof valor !== 'object') return out;
+  if (typeof valor.sha === 'string' && /^[a-f0-9]{64}$/i.test(valor.sha)) out.add(valor.sha);
+  Object.keys(valor).forEach(k => coletarShas(valor[k], out));
+  return out;
+}
+// Extensão do arquivo pelo Content-Type devolvido — o backend serve os
+// bytes decodificados (nunca base64), então o nome no zip já é o arquivo
+// de verdade, abrível fora do sistema.
+function extensaoPorContentType(ct) {
+  const map = { 'image/jpeg':'.jpg','image/png':'.png','image/webp':'.webp','image/gif':'.gif',
+    'image/bmp':'.bmp','image/heic':'.heic','image/heif':'.heif','image/avif':'.avif','image/tiff':'.tiff',
+    'application/pdf':'.pdf' };
+  return map[(ct||'').split(';')[0].trim()] || '.bin';
+}
+
+const PARTE_MAX_BYTES = 500 * 1024 * 1024; // 500 MB por parte, configurável aqui
+
+let _bkCancelado = false;
+
 // ── Geração ───────────────────────────────────────────────────────
 let _rodando = false;
 
@@ -271,23 +303,26 @@ async function fazerBackup(btn) {
   if (_rodando) return;
   const modo = document.querySelector('input[name="bk-modo"]:checked')?.value || 'completo';
   btn = btn || document.getElementById('bk-btn');
+  const cancelarBtn = document.getElementById('bk-cancelar');
   const barra = document.getElementById('bk-barra-wrap');
   const prog = document.getElementById('bk-prog');
   const status = document.getElementById('bk-status');
 
-  _rodando = true;
+  _rodando = true; _bkCancelado = false;
   const restore = setActionBusy(btn, true, 'Lendo dados…');
   barra.style.display = 'block';
+  cancelarBtn.style.display = 'block';
 
   const estados = {}, dados = {}, falhas = [];
   let totalFotos = 0;
 
   for (let i = 0; i < COLECOES.length; i++) {
+    if (_bkCancelado) { status.textContent = 'Cancelado.'; _rodando = false; restore(); cancelarBtn.style.display = 'none'; return; }
     const c = COLECOES[i];
     estados[c.chave] = { status: 'lendo', texto: '…' };
     renderLista(estados);
     status.textContent = `Lendo ${c.rotulo}…`;
-    prog.style.width = Math.round((i / COLECOES.length) * 100) + '%';
+    prog.style.width = Math.round((i / COLECOES.length) * (modo === 'leve' ? 100 : 30)) + '%';
 
     try {
       const d = await c.carregar();
@@ -306,15 +341,12 @@ async function fazerBackup(btn) {
     renderLista(estados);
   }
 
-  prog.style.width = '100%';
-  status.textContent = 'Montando o arquivo…';
-
   const pacote = {
     // Metadados que tornam o arquivo auditável e restaurável no futuro:
     // sem eles, daqui a um ano ninguém sabe de onde veio nem o que falta.
     _meta: {
       sistema: 'SGM-RCX',
-      formatoBackup: 1,
+      formatoBackup: 2, // v2: fotos/documentos/logo vêm em arquivos/ dentro do zip, não em base64 no JSON
       geradoEm: new Date().toISOString(),
       geradoPor: { nome: user?.name || '', email: user?.email || '', papel: user?.role || '' },
       origem: location.origin,
@@ -326,51 +358,125 @@ async function fazerBackup(btn) {
     dados,
   };
 
+  if (modo === 'leve') {
+    await baixarBackupLeve(pacote, status, restore, cancelarBtn);
+    return;
+  }
+  await baixarBackupCompleto(pacote, status, prog, restore, cancelarBtn, totalFotos, falhas);
+}
+
+// Modo leve: sem bytes, JSON puro — igual ao comportamento anterior à
+// Fase 2 (nunca precisou baixar arquivo nenhum).
+async function baixarBackupLeve(pacote, status, restore, cancelarBtn) {
   let texto;
-  try {
-    texto = JSON.stringify(pacote);
-  } catch (e) {
-    // Memória insuficiente para serializar tudo de uma vez.
-    _rodando = false; restore();
-    status.innerHTML = `<span style="color:var(--danger)">Não foi possível montar o arquivo
-      (volume grande demais para o navegador). Use o modo <strong>leve</strong>.</span>`;
+  try { texto = JSON.stringify(pacote); }
+  catch (e) {
+    _rodando = false; restore(); cancelarBtn.style.display = 'none';
+    status.innerHTML = `<span style="color:var(--danger)">Não foi possível montar o arquivo.</span>`;
     showToast('Falha ao montar o backup: ' + e.message, 8000);
     return;
   }
-
   const tamanho = formatarTamanho(texto.length);
-  const nome = `backup-sgm-${new Date().toISOString().slice(0,10)}-${modo}.json`;
-
+  const nome = `backup-sgm-${new Date().toISOString().slice(0,10)}-leve.json`;
   try {
     const blob = new Blob([texto], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = nome;
-    a.click();
+    a.href = URL.createObjectURL(blob); a.download = nome; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 8000);
   } catch (e) {
-    _rodando = false; restore();
+    _rodando = false; restore(); cancelarBtn.style.display = 'none';
     showToast('Falha ao baixar: ' + e.message, 8000);
     return;
   }
-
-  // Registra a data só depois do download disparado — marcar antes daria
-  // um "último backup" que talvez nunca tenha chegado ao disco.
-  try {
-    localStorage.setItem(CHAVE_ULTIMO, JSON.stringify({ em: Date.now(), modo, tamanho }));
-  } catch (e) {}
-
+  try { localStorage.setItem(CHAVE_ULTIMO, JSON.stringify({ em: Date.now(), modo: 'leve', tamanho })); } catch (e) {}
   status.innerHTML = `<strong>${nome}</strong> · ${tamanho}` +
-    (modo === 'leve' && totalFotos
-      ? `<br><span style="color:#92400e">${totalFotos} foto(s) NÃO incluídas (modo leve).</span>` : '') +
-    (falhas.length
-      ? `<br><span style="color:var(--danger)">Falharam: ${falhas.join(', ')}.</span>` : '');
+    (pacote._meta.fotosExistentesNaOrigem
+      ? `<br><span style="color:#92400e">${pacote._meta.fotosExistentesNaOrigem} foto(s) NÃO incluídas (modo leve).</span>` : '');
+  mostrarLembrete(); _rodando = false; restore(); cancelarBtn.style.display = 'none';
+  showToast(`✅ Backup gerado: ${tamanho}`, 7000);
+}
 
-  mostrarLembrete();
-  _rodando = false;
-  restore();
-  showToast(falhas.length
-    ? `⚠️ Backup gerado (${tamanho}), mas ${falhas.length} coleção(ões) falharam.`
+// Modo completo: baixa cada arquivo referenciado (concorrência 2, mesma
+// fila de api-client.js) e monta um .zip por streaming — nunca recodifica
+// em base64 nem monta uma string JSON gigante com tudo dentro.
+async function baixarBackupCompleto(pacote, status, prog, restore, cancelarBtn, totalFotos, falhas) {
+  const shas = [...coletarShas(pacote.dados)];
+  const manifesto = { sistema:'SGM-RCX', geradoEm: pacote._meta.geradoEm, totalArquivos: shas.length, arquivos: [] };
+  let falhasArquivos = 0;
+
+  let zw = new ZipWriter();
+  let parte = 1;
+  const nomeBase = `backup-sgm-${new Date().toISOString().slice(0,10)}-completo`;
+  const partesGeradas = [];
+
+  async function fecharParte() {
+    if (zw.bytesWritten === 0) return;
+    const blob = zw.finish();
+    const nome = `${nomeBase}-parte${parte}.zip`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nome; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 15000);
+    partesGeradas.push({ nome, bytes: blob.size });
+    parte++;
+    zw = new ZipWriter();
+    // Pausa curta entre downloads: navegadores bloqueiam múltiplos
+    // <a download> disparados sem intervalo nenhum.
+    await new Promise(r => setTimeout(r, 400));
+  }
+
+  // Reaproveita arquivoBytes() de api-client.js — já tem a fila de
+  // concorrência 2 e o retry em 429; não duplica essa lógica aqui. Os
+  // DOWNLOADS rodam em paralelo (a fila interna de arquivoBytes throttla
+  // pra 2), mas a ESCRITA no zip precisa ser serializada (zw.addFile não
+  // é seguro para chamadas concorrentes) — daí o mutex simples abaixo.
+  let escrevendo = Promise.resolve();
+  const escreverSerial = fn => { const p = escrevendo.then(fn, fn); escrevendo = p.catch(() => {}); return p; };
+
+  let concluidos = 0;
+  await Promise.all(shas.map(async sha => {
+    if (_bkCancelado) return;
+    try {
+      const blob = await arquivoBytes(sha);
+      await escreverSerial(async () => {
+        const nomeArquivo = `arquivos/${sha}${extensaoPorContentType(blob.type)}`;
+        if (zw.bytesWritten + blob.size > PARTE_MAX_BYTES) await fecharParte();
+        await zw.addFile(nomeArquivo, blob);
+        manifesto.arquivos.push({ sha, bytes: blob.size, arquivo: nomeArquivo });
+      });
+    } catch (e) {
+      falhasArquivos++;
+      manifesto.arquivos.push({ sha, erro: e.message || 'falha' });
+    }
+    concluidos++;
+    status.textContent = `Baixando arquivos… ${concluidos}/${shas.length}`;
+    prog.style.width = Math.round(30 + (concluidos / Math.max(1, shas.length)) * 60) + '%';
+  }));
+
+  if (_bkCancelado) {
+    status.textContent = 'Cancelado. Partes já baixadas foram mantidas.';
+    _rodando = false; restore(); cancelarBtn.style.display = 'none';
+    return;
+  }
+
+  status.textContent = 'Montando dados e manifesto…';
+  prog.style.width = '95%';
+  manifesto.falhas = falhasArquivos;
+  await zw.addFile('dados.json', new TextEncoder().encode(JSON.stringify(pacote)));
+  await zw.addFile('manifesto.json', new TextEncoder().encode(JSON.stringify(manifesto, null, 2)));
+  await fecharParte();
+
+  prog.style.width = '100%';
+  const tamanhoTotal = partesGeradas.reduce((a, p) => a + p.bytes, 0);
+  const tamanho = formatarTamanho(tamanhoTotal);
+  try { localStorage.setItem(CHAVE_ULTIMO, JSON.stringify({ em: Date.now(), modo: 'completo', tamanho })); } catch (e) {}
+
+  status.innerHTML = `${partesGeradas.length} arquivo(s): ${partesGeradas.map(p=>p.nome).join(', ')} · ${tamanho}` +
+    (falhasArquivos ? `<br><span style="color:var(--danger)">${falhasArquivos} arquivo(s) não puderam ser baixados (ver manifesto.json).</span>` : '') +
+    (falhas.length ? `<br><span style="color:var(--danger)">Falharam: ${falhas.join(', ')}.</span>` : '');
+
+  mostrarLembrete(); _rodando = false; restore(); cancelarBtn.style.display = 'none';
+  showToast(falhasArquivos || falhas.length
+    ? `⚠️ Backup gerado (${tamanho}), com falhas parciais — ver detalhes.`
     : `✅ Backup gerado: ${tamanho}`, 7000);
 }
 

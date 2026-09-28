@@ -423,7 +423,7 @@ function saveRegistrosLocal(){
 let settings = safeLocalStorageGetJSON('registro_settings', {});
 let prestadoraConfig = {};
 function loadPrestadoraConfig() {
-  DB.getPrestadoraConfig().then(cfg => { prestadoraConfig = cfg || {}; }).catch(()=>{});
+  DB.getPrestadoraConfig().then(async cfg => { cfg = cfg || {}; cfg.logo = await resolverLogoDataUrl(cfg); prestadoraConfig = cfg; }).catch(()=>{});
 }
 
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
@@ -689,8 +689,8 @@ function renderRecordList() {
       header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${label}</div>`;
     }
     const firstPhoto = r.photos && r.photos[0];
-    const thumb = firstPhoto && firstPhoto.dataUrl
-      ? `<div class="rc-thumb"><img src="${imgSrc(firstPhoto.dataUrl)}" alt="foto"></div>`
+    const thumb = firstPhoto
+      ? `<div class="rc-thumb"><img ${fotoAttrs(firstPhoto)} alt="foto"></div>`
       : `<div class="rc-thumb">📷</div>`;
     const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).join(', ');
     return header + `<div class="record-card" onclick="openDetail('${r.id}')">
@@ -710,10 +710,11 @@ function renderRecordList() {
       <div class="rc-count">${r.photoCount ?? r.photos?.length ?? 0}📷</div>
     </div>`;
   }).join('');
+  hidratarFotosDOM(list);
 }
 
 // ── Consolidated PDF report ──
-function printFilteredPDF() {
+async function printFilteredPDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const filtered = getFilteredRecords();
   if (!filtered.length) { showToast('Nenhum registro para o relatório'); return; }
@@ -785,6 +786,11 @@ function printFilteredPDF() {
     doc.text(fitText(doc, svcShort, wSvcR), colSvcR, y+4.5);
     y += 7;
   });
+
+  // Bytes das fotos, resolvidos ANTES do laço síncrono (jsPDF desenha em
+  // sequência; addImage/getImageProperties exigem dataURL pronta).
+  const fotoUrlsPorRegistro = new Map(await Promise.all(filtered.map(async r =>
+    [r.id, r.photos && r.photos.length ? await Promise.all(r.photos.map(fotoParaDataUrlPdf)) : []])));
 
   // ── Detail pages: one section per record ──
   filtered.forEach((r, rIdx) => {
@@ -890,7 +896,8 @@ function printFilteredPDF() {
       doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
       y += 5;
       const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
-      const sized = r.photos.map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+      const fotoUrls = fotoUrlsPorRegistro.get(r.id) || [];
+      const sized = r.photos.map((p,pi) => ({ p, url: fotoUrls[pi], ...photoFit(doc, fotoUrls[pi], cellW, maxH) }));
       for (let i=0; i<sized.length; i+=cols) {
         const rowItems = sized.slice(i, i+cols);
         const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
@@ -898,7 +905,7 @@ function printFilteredPDF() {
         rowItems.forEach((it, c) => {
           const cellX = M + c*(cellW+gap);
           const px = cellX + (cellW - it.w)/2;   // centraliza na coluna
-          desenharFotoPdf(doc, it.p.dataUrl, px, y, it.w, it.h);
+          desenharFotoPdf(doc, it.url, px, y, it.w, it.h);
           if (it.p.geo) {
             doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
             const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
@@ -1471,10 +1478,11 @@ function renderPhotoGrid(){
   if(!newPhotos.length){ grid.innerHTML=''; return; }
   grid.innerHTML = newPhotos.map((p,i)=>`
     <div class="photo-thumb" style="position:relative">
-      <img src="${imgSrc(p.dataUrl)}" alt="foto ${i+1}" onclick="openLightbox('${imgSrc(p.dataUrl)}')" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
+      <img ${fotoAttrs(p)} alt="foto ${i+1}" onclick="abrirLightboxDeImg(this,openLightbox)" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer">
       <button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button>
       ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:2px;left:2px;background:rgba(0,0,0,.6);color:#fff;font-size:10px;padding:2px 5px;border-radius:4px;text-decoration:none;max-width:calc(100% - 8px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">📍 ${p.geo.shortAddress ? p.geo.shortAddress.split(',')[0] : 'mapa'}</a>` : ''}
     </div>`).join('');
+  hidratarFotosDOM(grid);
 }
 
 // ── Lightbox ──
@@ -1554,7 +1562,7 @@ function openDetail(id){
       </div>`
   ).join('');
   const photos = r.photos && r.photos.length
-    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>p&&p.dataUrl?`<img src="${imgSrc(p.dataUrl)}" onclick="openLightbox('${imgSrc(p.dataUrl)}')">`:`<div title="Foto salva no servidor" style="width:100%;min-height:70px;border-radius:6px;background:#eef2f7;display:flex;align-items:center;justify-content:center;font-size:20px;color:#94a3b8">🗂️</div>`).join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
+    ? `<div style="margin-top:10px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${r.photos.length})</div><div class="photo-gallery">${r.photos.map(p=>p?`<img ${fotoAttrs(p)} onclick="abrirLightboxDeImg(this,openLightbox)">`:'').join('')}</div>${r.photos.some(p=>p.sig)?`<div style="margin-top:8px;display:flex;flex-direction:column;gap:3px">${r.photos.map((p,i)=>_photoSigLine(i,p.sig)).join('')}</div>`:''}</div>` : '';
   const addPhotoBtn = (canAddPhoto(r) && (r.photos||[]).length<3)
     ? `<button onclick="triggerAddPhoto('${r.id}')" style="margin-top:12px;width:100%;padding:11px;border:1px dashed var(--border);border-radius:10px;background:var(--bg);color:var(--text-2);font-size:14px;font-weight:600;cursor:pointer">📷 Adicionar foto (com data, hora e localização)</button>` : '';
   document.getElementById('detail-content').innerHTML = `
@@ -1567,6 +1575,7 @@ function openDetail(id){
     ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${esc(r.notes)}</div>`:''}
     ${photos}
     ${addPhotoBtn}`;
+  hidratarFotosDOM(document.getElementById('detail-content'));
   document.getElementById('detail-modal').classList.remove('hidden');
 }
 function closeDetailModal(){ document.getElementById('detail-modal').classList.add('hidden'); }
@@ -1663,7 +1672,7 @@ function _pdfPhotoSigs(doc, photos, M, y){
   return y + 2;
 }
 
-function printPDF(id){
+async function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const r = records.find(x=>x.id===id);
   if(!r) return;
@@ -1770,7 +1779,9 @@ function printPDF(id){
     doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
     y+=4;
     const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
-    const sized = r.photos.slice(0,6).map(p => ({ p, ...photoFit(doc, p.dataUrl, cellW, maxH) }));
+    const fotosPdf = r.photos.slice(0,6);
+    const fotoUrls = await Promise.all(fotosPdf.map(fotoParaDataUrlPdf));
+    const sized = fotosPdf.map((p,pi) => ({ p, url: fotoUrls[pi], ...photoFit(doc, fotoUrls[pi], cellW, maxH) }));
     for (let i=0; i<sized.length; i+=cols) {
       const rowItems = sized.slice(i, i+cols);
       const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
@@ -1778,7 +1789,7 @@ function printPDF(id){
       rowItems.forEach((it, c) => {
         const cellX = M + c*(cellW+gap);
         const px = cellX + (cellW - it.w)/2;
-        desenharFotoPdf(doc, it.p.dataUrl, px, y, it.w, it.h);
+        desenharFotoPdf(doc, it.url, px, y, it.w, it.h);
         if (it.p.geo) {
           doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
           const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;

@@ -586,16 +586,18 @@ function abrirFotosRel(estab, camera) {
   input.dataset.estab=estab;input.click();
 }
 function renderRelFotosAdicionais() {
-  document.getElementById('rel-fotos-adicionais-grupos').innerHTML=gruposFotosRel().map(estab=>{
+  const box=document.getElementById('rel-fotos-adicionais-grupos');
+  box.innerHTML=gruposFotosRel().map(estab=>{
     const fotos=relFotosAdicionais[estab]||[],disabled=fotos.length>=2||relProcessandoFotos?'disabled':'';
     return '<div style="margin:8px 0;padding:8px;border:1px solid var(--border);border-radius:8px">'+
       '<strong>'+esc(estab)+'</strong><small style="display:block">'+fotos.length+' de 2 fotos</small>'+
       '<button type="button" class="btn btn-secondary btn-sm" data-estab="'+esc(estab)+'" onclick="abrirFotosRel(this.dataset.estab,true)" '+disabled+'>📷 Câmera</button> '+
       '<button type="button" class="btn btn-secondary btn-sm" data-estab="'+esc(estab)+'" onclick="abrirFotosRel(this.dataset.estab,false)" '+disabled+'>🖼️ Galeria</button>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">'+fotos.map((f,i)=>
-        '<div><img src="'+imgSrc(f.dataUrl)+'" alt="Foto adicional" style="width:76px;height:76px;object-fit:cover;border-radius:8px">'+
+        '<div><img '+fotoAttrs(f)+' alt="Foto adicional" style="width:76px;height:76px;object-fit:cover;border-radius:8px">'+
         '<button type="button" data-estab="'+esc(estab)+'" onclick="removerFotoRelAdicional(this.dataset.estab,'+i+')">Remover</button></div>').join('')+'</div></div>';
   }).join('') || '<small>Nenhum estabelecimento com movimentos selecionados.</small>';
+  hidratarFotosDOM(box);
 }
 function sincronizarTodosRelMov() {
   const c=document.getElementById('rel-todos'),cand=movimentosDoRelatorio({incluirExcluidos:true});
@@ -840,16 +842,19 @@ async function gerarRelMovPDF() {
   };
 
   const cabe = h => { if (y + h > REL_H - REL_M) { doc.addPage(); y = REL_M; } };
-  const desenharFotosPDF = fotos => {
+  const desenharFotosPDF = async fotos => {
     if (!Array.isArray(fotos) || !fotos.length) return;
+    // Fase 2: fotos podem chegar como referência ({sha}), não mais só
+    // dataUrl embutida — resolve os bytes antes de desenhar (jsPDF exige
+    // dataURL síncrona no addImage).
+    const urls = await Promise.all(fotos.map(f => fotoParaDataUrlPdf(f?.dataUrl || f?.sha ? f : { dataUrl: f })));
     y += 2;
     const cols = 3, gap = 4, cellW = (CW - 4 - gap * (cols - 1)) / cols, maxH = 34;
     for (let i = 0; i < fotos.length; i += cols) {
-      const linha = fotos.slice(i, i + cols);
+      const linhaUrls = urls.slice(i, i + cols);
       cabe(maxH + 4);
-      linha.forEach((f, c) => {
+      linhaUrls.forEach((src, c) => {
         const x = REL_M + 4 + c * (cellW + gap);
-        const src = f?.dataUrl || f;
         const mm = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(String(src || '').trim());
         if (!mm || mm[2].length < 64) { falhas++; return; }
         const t = mm[1].toLowerCase();
@@ -929,7 +934,7 @@ async function gerarRelMovPDF() {
     const resumoGrupo=doc.splitTextToSize(Object.entries(contagens).map(([t,n])=>contagemTipoRel(t,n)).join(' · '),CW);
     doc.text(resumoGrupo,REL_M,y);y+=resumoGrupo.length*5+3;
     let anterior='';
-    grupo.forEach(m => {
+    for (const m of grupo) {
     if(tipoRel(m)!==anterior) {
       cabe(45);anterior=tipoRel(m);
       doc.setFont('helvetica','bold');doc.setFontSize(10);
@@ -970,16 +975,16 @@ async function gerarRelMovPDF() {
       doc.text(q, REL_M + 4, y); y += q.length * 4;
     });
 
-    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) desenharFotosPDF(m.fotos);
+    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) await desenharFotosPDF(m.fotos);
 
     y += 3;
     doc.setDrawColor(225); doc.setLineWidth(0.2);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
-    });
+    }
     if(fotosAdicionaisPDF[nome]?.length) {
       cabe(45);doc.setFont('helvetica','bold');doc.setFontSize(10);
       doc.text('Fotos adicionais do estabelecimento',REL_M,y);y+=5;
-      desenharFotosPDF(fotosAdicionaisPDF[nome]);
+      await desenharFotosPDF(fotosAdicionaisPDF[nome]);
     }
     y+=6;
   }
@@ -1510,13 +1515,14 @@ function renderFotosInstal() {
   if (!grid) return;
   grid.innerHTML = fotosInstal.map((f, i) => `
     <div style="position:relative">
-      <img src="${imgSrc(f.dataUrl)}" style="width:76px;height:76px;object-fit:cover;
+      <img ${fotoAttrs(f)} style="width:76px;height:76px;object-fit:cover;
            border-radius:8px;border:1px solid var(--border)">
       <button type="button" onclick="removerFotoInstal(${i})"
         style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;
                border:none;background:var(--danger);color:#fff;font-size:14px;line-height:1;
                cursor:pointer">×</button>
     </div>`).join('');
+  hidratarFotosDOM(grid);
 }
 
 function renderMotivoSugestoes(tipo) {

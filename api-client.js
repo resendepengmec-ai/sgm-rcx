@@ -105,6 +105,222 @@ function thumbImg(dataUrl, { alt = 'foto', style = '', onClick = null } = {}) {
 }
 window.thumbImg = thumbImg;
 
+// ── Fase 2: carregador de arquivos fora do JSON (fotos/documentos/logo) ──
+// Antes, cada foto/documento/logo vinha embutido em base64 dentro do JSON
+// do registro. Agora o servidor guarda só a referência ({sha,prefixo,...})
+// e os bytes são buscados sob demanda em GET /api/arquivos/:sha — que
+// exige o Bearer token (por isso não dá para usar <img src> direto).
+//
+// Concorrência 2 (mesmo limite do servidor por usuário): baixar 50 fotos
+// de uma vez trava a aba tanto quanto travava o servidor antes.
+const ARQUIVO_MAX_CONCORRENTE = 2;
+const ARQUIVO_CACHE_MAX = 120; // LRU de objectURL; acima disso, revoga o mais antigo
+const _arquivoCacheUrls = new Map(); // sha -> objectURL
+const _arquivoEmVoo = new Map();     // sha -> Promise (dedupe de pedidos simultâneos pelo mesmo sha)
+const _arquivoFila = [];
+let _arquivoAtivos = 0;
+
+function _arquivoLruToque(sha, url) {
+  _arquivoCacheUrls.delete(sha);
+  _arquivoCacheUrls.set(sha, url); // reinsere no fim (mais recente)
+  while (_arquivoCacheUrls.size > ARQUIVO_CACHE_MAX) {
+    const [maisAntigo, urlAntiga] = _arquivoCacheUrls.entries().next().value;
+    _arquivoCacheUrls.delete(maisAntigo);
+    try { URL.revokeObjectURL(urlAntiga); } catch (_) {}
+  }
+}
+function _arquivoProximaDaFila() {
+  if (_arquivoAtivos >= ARQUIVO_MAX_CONCORRENTE || !_arquivoFila.length) return;
+  const job = _arquivoFila.shift();
+  _arquivoAtivos++;
+  job().finally(() => { _arquivoAtivos--; _arquivoProximaDaFila(); });
+}
+async function _arquivoFetchBlob(sha) {
+  const token = sessionStorage.getItem(SESSION_KEY);
+  const headers = {};
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(`${SMM_API_URL}/api/arquivos/${encodeURIComponent(sha)}`, { headers });
+  if (!res.ok) {
+    const e = new Error(res.status === 429 ? 'Muitos downloads simultâneos; tentando de novo.' : 'Não foi possível carregar o arquivo.');
+    e.status = res.status; e.retryAfter = Number(res.headers.get('Retry-After')) || 1;
+    throw e;
+  }
+  return res.blob();
+}
+// Baixa os bytes de um sha, com fila (concorrência 2) e retry único em 429.
+function arquivoBytes(sha) {
+  if (!sha) return Promise.reject(new Error('sha ausente'));
+  if (_arquivoEmVoo.has(sha)) return _arquivoEmVoo.get(sha);
+  const p = new Promise((resolve, reject) => {
+    _arquivoFila.push(async () => {
+      try { resolve(await _arquivoFetchBlob(sha)); }
+      catch (e) {
+        if (e.status === 429) {
+          await new Promise(r => setTimeout(r, e.retryAfter * 1000));
+          try { resolve(await _arquivoFetchBlob(sha)); return; } catch (e2) { reject(e2); return; }
+        }
+        reject(e);
+      }
+    });
+    _arquivoProximaDaFila();
+  }).finally(() => _arquivoEmVoo.delete(sha));
+  _arquivoEmVoo.set(sha, p);
+  return p;
+}
+// `ref` pode ser: {sha,prefixo,...} (Fase 2), uma dataUrl crua em string
+// (foto ainda pendente no outbox local, ou registro legado não migrado),
+// ou {dataUrl} (mesma ideia, como objeto). Sempre passa por imgSrc() antes
+// de qualquer uso em <img src>, mesmo no caminho legado.
+async function arquivoUrl(ref) {
+  if (typeof ref === 'string') return imgSrc(ref) || '';
+  if (!ref) return '';
+  if (typeof ref.dataUrl === 'string') return imgSrc(ref.dataUrl) || '';
+  const sha = ref.sha;
+  if (!sha) return '';
+  if (_arquivoCacheUrls.has(sha)) { const u = _arquivoCacheUrls.get(sha); _arquivoLruToque(sha, u); return u; }
+  const blob = await arquivoBytes(sha);
+  const url = URL.createObjectURL(blob);
+  _arquivoLruToque(sha, url);
+  return url;
+}
+window.arquivoBytes = arquivoBytes;
+window.arquivoUrl = arquivoUrl;
+
+// Miniatura com carregamento preguiçoso: cria o <img> na hora (placeholder
+// vazio) e só busca os bytes quando o elemento entra na viewport. Evita
+// baixar as fotos de um plano de preventiva inteiro (podem ser milhares)
+// só porque a lista foi renderizada.
+let _arquivoObserver = null;
+function _arquivoObservar(img, ref) {
+  if (!('IntersectionObserver' in window)) { _arquivoCarregarImg(img, ref); return; }
+  if (!_arquivoObserver) {
+    _arquivoObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        _arquivoObserver.unobserve(entry.target);
+        _arquivoCarregarImg(entry.target, entry.target._arquivoRef);
+      });
+    }, { rootMargin: '200px' });
+  }
+  img._arquivoRef = ref;
+  _arquivoObserver.observe(img);
+}
+function _arquivoCarregarImg(img, ref) {
+  arquivoUrl(ref).then(url => { if (url) img.src = url; else img.classList.add('arquivo-indisponivel'); })
+    .catch(() => img.classList.add('arquivo-indisponivel'));
+}
+function lazyThumb(ref, { alt = 'foto', style = '', onClick = null, className = '' } = {}) {
+  const img = document.createElement('img');
+  img.alt = alt;
+  if (style) img.style.cssText = style;
+  if (className) img.className = className;
+  if (onClick) img.addEventListener('click', onClick);
+  _arquivoObservar(img, ref);
+  return img;
+}
+window.lazyThumb = lazyThumb;
+
+// Converte um Blob em dataURL (usado só para o logo: jsPDF.addImage aceita
+// dataURL/HTMLImageElement, não Blob/objectURL diretamente).
+function _blobParaDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+// GET /config/prestadora devolve {logoSha,logoPrefixo,logoRatio} (Fase 2)
+// ou, em registros ainda não migrados, {logo:<dataUrl>} (legado). Chame
+// isto uma vez ao carregar a config da prestadora e guarde o resultado de
+// volta em cfg.logo — assim drawPdfHeader (duplicado em várias páginas)
+// continua funcionando sem nenhuma mudança, sempre recebendo uma dataURL
+// pronta para doc.addImage(), como antes.
+async function resolverLogoDataUrl(cfg) {
+  if (!cfg) return '';
+  if (cfg.logoSha) {
+    try { return await _blobParaDataUrl(await arquivoBytes(cfg.logoSha)); }
+    catch (_) { return ''; }
+  }
+  if (cfg.logo) return imgSrc(cfg.logo) || '';
+  return '';
+}
+window.resolverLogoDataUrl = resolverLogoDataUrl;
+
+// ── Adaptador para templates renderizados via innerHTML (o padrão
+// predominante no projeto: `lista.map(...).join('')` + `el.innerHTML=`) ──
+// Não dá para resolver uma URL assíncrona dentro de um template síncrono.
+// Em vez de `<img src="${imgSrc(p.dataUrl)}">`, usar `<img ${fotoAttrs(p)}>`
+// e chamar hidratarFotosDOM(container) logo depois do innerHTML=. Eager
+// (não preguiçoso) — adequado para listas pequenas (até dezenas de fotos:
+// chamados/registro/laudo/patrimônio, sempre ≤60). A tela de execução da
+// preventiva usa lazyThumb (IntersectionObserver) por causa da escala
+// (até milhares de fotos num plano grande).
+function fotoAttrs(foto) {
+  const ref = foto && typeof foto === 'object' ? foto : { dataUrl: foto };
+  if (ref && typeof ref.dataUrl === 'string') return `src="${imgSrc(ref.dataUrl)}" data-arquivo-src="${encodeURIComponent(ref.dataUrl)}"`;
+  if (ref && ref.sha) return `data-arquivo-sha="${ref.sha}"`;
+  return '';
+}
+function hidratarFotosDOM(container) {
+  if (!container) return;
+  container.querySelectorAll('img[data-arquivo-sha]').forEach(img => {
+    const sha = img.getAttribute('data-arquivo-sha');
+    arquivoUrl({ sha }).then(url => { if (url) img.src = url; }).catch(() => {});
+  });
+}
+window.fotoAttrs = fotoAttrs;
+window.hidratarFotosDOM = hidratarFotosDOM;
+
+// Abre a lightbox (imagem em tela cheia) a partir de um <img> já hidratado
+// pelos dois helpers acima — reaproveita o objectURL já resolvido em vez
+// de buscar os bytes de novo. `onImg` é o elemento <img> clicado.
+function abrirLightboxDeImg(onImg, abrir) {
+  if (onImg && onImg.src && !onImg.src.startsWith('data:,')) { abrir(onImg.src); return; }
+  const sha = onImg && onImg.getAttribute('data-arquivo-sha');
+  if (sha) { arquivoUrl({ sha }).then(abrir).catch(() => {}); return; }
+  const raw = onImg && onImg.getAttribute('data-arquivo-src');
+  if (raw) abrir(decodeURIComponent(raw));
+}
+window.abrirLightboxDeImg = abrirLightboxDeImg;
+
+// Para geradores de PDF (jsPDF.addImage exige dataURL ou
+// HTMLImageElement, não Blob/objectURL): resolve uma foto (legado com
+// dataUrl embutida, ou referência {sha} da Fase 2) para uma dataURL
+// pronta para addImage(). Troca MÍNIMA para esta fase — o desenho em si
+// (layout, grade, qualidade) não muda, só de onde vêm os bytes. Unificar
+// os três padrões de helper de PDF hoje duplicados pelos módulos
+// (fmtImagemPdf/gradeDeFotos/desenharFotosPDF) é Fase 3.
+async function fotoParaDataUrlPdf(foto) {
+  if (!foto) return '';
+  if (typeof foto.dataUrl === 'string') return imgSrc(foto.dataUrl) || '';
+  if (foto.sha) {
+    try { return await _blobParaDataUrl(await arquivoBytes(foto.sha)); }
+    catch (_) { return ''; }
+  }
+  return '';
+}
+window.fotoParaDataUrlPdf = fotoParaDataUrlPdf;
+
+// Abre/baixa um documento de contrato (ou qualquer outro arquivo) sob
+// demanda pelo endpoint novo, em vez de já carregar os bytes no JSON da
+// listagem. `ref` é {sha,...}; `nome` é usado como nome do download.
+async function abrirDocumento(ref, nome) {
+  if (!ref || !ref.sha) { showToast && showToast('Documento sem referência disponível.'); return; }
+  try {
+    const blob = await arquivoBytes(ref.sha);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nome || ref.name || 'documento';
+    a.target = '_blank'; a.rel = 'noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    if (typeof showToast === 'function') showToast('Não foi possível abrir o documento: ' + (e.message || e));
+  }
+}
+window.abrirDocumento = abrirDocumento;
+
 // Escapa texto de usuário antes de inserir em innerHTML — sem isso, um nome,
 // descrição ou observação contendo tags/script poderia rodar código na tela
 // de outra pessoa que visualizasse aquele dado (XSS armazenado).
