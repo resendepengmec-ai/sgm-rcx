@@ -499,7 +499,7 @@ function getOutbox() {
   if (!_outboxReady) _outboxReady = new Promise((resolve,reject)=>{
     const init=()=>resolve(window.SGMOutbox.create({user:getCurrentUser,call:_call,api:SMM_API_URL,notify:showOutboxStatus}));
     if (window.SGMOutbox) {init();return;}
-    const script=document.createElement('script'); script.src='outbox.js?v=20260923.1';
+    const script=document.createElement('script'); script.src='outbox.js?v=20260929.2';
     script.onload=init; script.onerror=()=>{_outboxReady=null;reject(new Error('Não foi possível preparar os envios. Recarregue a página.'));};
     document.head.appendChild(script);
   });
@@ -861,7 +861,17 @@ const DB = {
     if(response?.record) response.record=restoreLocalBytes(response.record,r);
     return response;
   },
-  updateChamadoStatus: (id, status) => API.patch(`/chamados/${id}/status`, { status }),
+  updateChamadoStatus: async (id, status) => {
+    try { return await API.patch('/chamados/'+id+'/status', {status}); }
+    catch(error) {
+      if(!error.transient)throw error;
+      try {
+        const current=await API.get('/chamados/'+encodeURIComponent(id));
+        if(current?.status===status)return {updated:true,chamado:current,reconciled:true};
+      } catch(checkError) { console.warn('Não foi possível conferir o status do chamado:',checkError.message); }
+      throw error;
+    }
+  },
 
   // Importação de pedido de orçamento em PDF. O servidor lê o arquivo com
   // IA e devolve um RASCUNHO conciliado com o catálogo do contrato — nada

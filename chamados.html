@@ -341,7 +341,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </nav>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20260929.1"></script>
+<script src="api-client.js?v=20260929.2"></script>
 <script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
@@ -936,12 +936,14 @@ function updateStatus(id, status) {
   safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
   openDetail(id);
   DB.updateChamadoStatus(id, status).then(r => {
+    if(r?.chamado && c.status===status){c._version=r.chamado._version;}
+    safeLocalStorageSetJSON('chamados_list', chamados, {stripBinaries:true});
     renderList();
     if (r?.ordensCanceladas?.length) {
       showToast(`Chamado cancelado — O.S. ${r.ordensCanceladas.join(', ')} também cancelada`);
     }
   }).catch(e => {
-    c.status = prev; // reverte em caso de falha (ex.: sem permissão)
+    if(c.status===status)c.status = prev; // não desfaz uma escolha mais recente
     safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
     showToast('Erro ao alterar status: ' + e.message);
     openDetail(id);
@@ -954,7 +956,18 @@ function persist(record) {
   renderList();
   // Sync backend (registro explícito, se informado; senão o mais recente)
   const last = record || chamados[0];
-  if (last) return DB.save('chamados', last);
+  if (last) {
+    const submitted=JSON.stringify(last);
+    return DB.save('chamados', last).then(response => {
+    if(response?.record) {
+      const i=chamados.findIndex(c=>c.id===last.id);
+      if(i>=0 && chamados[i]===last && JSON.stringify(last)===submitted) chamados[i]=response.record;
+      safeLocalStorageSetJSON('chamados_list', chamados, {stripBinaries:true});
+      renderList();
+    }
+    return response;
+  });
+  }
   return Promise.resolve();
 }
 
@@ -1624,6 +1637,27 @@ function _sigTrail(sigs) {
   });
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
 }
+
+// Confirmações da fila atualizam a lista sem substituir uma edição mais recente.
+window.addEventListener('sgm:confirmed', event => {
+  const {entity,response,operation}=event.detail||{};
+  if(!entity?.startsWith('chamados:'))return;
+  const remote=response?.record;
+  if(!remote)return;
+  const i=chamados.findIndex(r=>r.id===remote.id);
+  if(i>=0 && Number(remote._version||0)<Number(chamados[i]._version||0))return;
+  const submitted=operation?.body?.record;
+  if(i>=0 && submitted) {
+    const local=chamados[i];
+    const newer=Object.keys({...submitted,...local}).some(key=>!key.startsWith('_') && JSON.stringify(local[key])!==JSON.stringify(submitted[key]));
+    if(newer)return;
+    chamados[i]=restoreLocalBytes(remote,local);
+  } else if(i<0) chamados.unshift(remote);
+  else if(!submitted) {
+    return;
+  }
+  safeLocalStorageSetJSON('chamados_list', chamados, {stripBinaries:true}); renderList();
+});
 </script>
 </body>
 </html>

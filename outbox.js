@@ -31,6 +31,7 @@
         const req=store.index('owner').getAll(candidate.owner); let row;
         req.onsuccess=()=>{
           row=req.result.find(x=>x.entity===candidate.entity && x.method===candidate.method && x.path===candidate.path && x.fingerprint===candidate.fingerprint) || candidate;
+          if(row===candidate)row.createdAt=req.result.reduce((latest,x)=>Math.max(latest,Number(x.createdAt||0)+1),row.createdAt);
           store.put(row);
         };
         tx.oncomplete=()=>resolve(row); tx.onerror=tx.onabort=()=>reject(tx.error);
@@ -43,7 +44,7 @@
         const req=store.get('lease|'+who); let obtained=false;
         req.onsuccess=()=>{
           const current=req.result;
-          if (release==='renew') { if(current?.token===token)store.put({...current,until:Date.now()+90000}); }
+          if (release==='renew') { if(current?.token===token){obtained=true;store.put({...current,until:Date.now()+90000});} }
           else if (release) { if (current?.token===token) store.delete('lease|'+who); }
           else if (!current || current.until<Date.now()) {obtained=true;store.put({id:'lease|'+who,token,until:Date.now()+90000});}
         };
@@ -53,7 +54,10 @@
     async function locked(who, task) {
       const token=uuid();
       if (!await lease(who,token)) throw Object.assign(new Error('Este registro já tem um envio em andamento. Sua pendência continua guardada.'),{transient:true,pending:true});
-      try {return await task();} finally {await lease(who,token,true);}
+      const renew=async()=>{
+        if(!await lease(who,token,'renew'))throw Object.assign(new Error('Outro envio assumiu este registro. A pendência foi preservada.'),{transient:true,pending:true});
+      };
+      try {return await task(renew);} finally {await lease(who,token,true);}
     }
     // Prazo finito mesmo se o transporte não rejeitar; ao retomar a aba,
     // confere o relógio, pois timers podem ficar suspensos em segundo plano.
@@ -70,7 +74,7 @@
       try {return await Promise.race([call(row.method,row.path,row.body,{operationId:row.id,signal:ctrl.signal}),timeout]);}
       finally {clearTimeout(timer);window.document?.removeEventListener('visibilitychange',check);window.removeEventListener?.('pageshow',check);}
     }
-    function announce(state,row,message) { notify({state,id:row?.id,entity:row?.entity,message}); }
+    function announce(state,row,message) { notify({state,id:row?.id,entity:row?.entity,message}); window.dispatchEvent(new CustomEvent('sgm:operation-state',{detail:{state,entity:row?.entity,body:row?.body,message}})); }
     async function transmit(row) {
       if (owner()!==row.owner) throw new Error('Esta pendência pertence a outra sessão.');
       row.state='sending'; row.attempts=(row.attempts||0)+1; await put(row);
@@ -81,11 +85,12 @@
         await access('readwrite',s=>s.delete(row.id));
         if(!user() || owner()!==row.owner)return response;
         announce('confirmed',row,'Confirmado no servidor');
-        window.dispatchEvent(new CustomEvent('sgm:confirmed',{detail:{entity:row.entity,response}}));
+        window.dispatchEvent(new CustomEvent('sgm:confirmed',{detail:{entity:row.entity,response,operation:{id:row.id,method:row.method,path:row.path,body:row.body}}}));
         return response;
       } catch(error) {
         row.state=error.transient?'pending':error.status===401?'auth':'review';
         row.error=error.message;
+        row.holdUntil=Date.now()+Math.max(0,error.retryAfter||0);
         row.nextAttempt=Date.now()+Math.max(error.retryAfter||0,Math.min(60000,2000*Math.pow(2,Math.min(row.attempts,5)))+Math.random()*1000);
         await put(row);
         announce(row.state,row,'Pendente: '+error.message);
@@ -99,10 +104,18 @@
       // Guardar ANTES de disputar a rede: outro upload nunca impede o rascunho.
       const row=await enqueue({id:uuid(),owner:who,entity,method,path,body:snapshot,fingerprint,createdAt:Date.now(),state:'pending',attempts:0});
       announce('pending',row,'Guardado neste aparelho; aguardando confirmação');
-      return locked(who+'|'+entity,async()=>{
-        const first=(await list(who)).filter(x=>x.entity===entity).sort((a,b)=>a.createdAt-b.createdAt)[0];
-        if (first?.id!==row.id) throw Object.assign(new Error('Alteração guardada. Confirme o envio anterior deste item em “Envios pendentes”.'),{pending:true});
+      return locked(who+'|'+entity,async renew=>{
+        const preceding=(await list(who)).filter(x=>x.entity===entity && x.id!==row.id && x.createdAt<=row.createdAt).sort((a,b)=>a.createdAt-b.createdAt);
+        for (const older of preceding) {
+          if (older.state==='review' || older.state==='auth') throw Object.assign(new Error('Há uma pendência deste registro que precisa de revisão. A nova alteração foi preservada.'),{pending:true,status:older.state==='auth'?401:409});
+          if(older.holdUntil>Date.now())throw Object.assign(new Error('O servidor pediu uma pausa. A alteração continua guardada; tente novamente em instantes.'),{pending:true,transient:true,retryAfter:older.holdUntil-Date.now()});
+          // Mesma chave recupera o recibo quando o servidor já recebeu o envio.
+          // Sem recibo, o servidor executa a operação original uma única vez.
+          await renew();
+          await transmit(older);
+        }
         if(row.state==='review')throw Object.assign(new Error(row.error||'Este envio precisa de revisão; não será repetido à força.'),{pending:true,status:409});
+        await renew();
         return transmit(row);
       });
     }

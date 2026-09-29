@@ -380,7 +380,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script src="config.js"></script>
 <!-- jsPDF auto-hospedado (V12/V18) — nunca de CDN. -->
 <script src="vendor/jspdf.umd.min.js"></script>
-<script src="api-client.js?v=20260929.1"></script>
+<script src="api-client.js?v=20260929.2"></script>
 <script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
@@ -392,7 +392,7 @@ function podeEditarMovimentacao() { return PAPEIS_EDICAO_MOVIMENTACAO.has(papelM
 function podeEditarEstaMovimentacao(m) {return podeEditarMovimentacao() || (papelMovimentacao(user?.role)==='tecnico' && m?.solicitanteEmail===user?.email);}
 let consultaTagTimer,consultaTagSeq=0;
 async function consultarTagPendente(contrato,tag) {
-  return API.get('/movimentacoes/tag-disponibilidade?'+new URLSearchParams({contrato,tag,excluirId:editingMovId||''}));
+  return API.get('/movimentacoes/tag-disponibilidade?'+new URLSearchParams({contrato,tag,excluirId:editingMovId||draftMovId||''}));
 }
 function agendarConferenciaPendente() {
   clearTimeout(consultaTagTimer);const seq=++consultaTagSeq;
@@ -2173,6 +2173,36 @@ function renderEquipHistoryModal(equip, contrato, events) {
     </div>
   `;
 }
+
+// Confirmações da fila atualizam a lista sem substituir uma edição mais recente.
+window.addEventListener('sgm:confirmed', event => {
+  const {entity,response,operation}=event.detail||{};
+  if(!entity?.startsWith('movimentacoes:'))return;
+  const remote=response?.movimentacao;
+  if(!remote)return;
+  const i=movimentos.findIndex(r=>r.id===remote.id);
+  if(i>=0 && Number(remote._version||0)<Number(movimentos[i]._version||0))return;
+  const submitted=operation?.body?.movimentacao;
+  if(i>=0 && submitted) {
+    const local=movimentos[i];
+    const newer=Object.keys({...submitted,...local}).some(key=>!key.startsWith('_') && JSON.stringify(local[key])!==JSON.stringify(submitted[key]));
+    if(newer)return;
+    movimentos[i]=restoreLocalBytes(remote,local);
+  } else if(i<0) movimentos.unshift(remote);
+  else if(!submitted) {
+    // Status só é adotado se a versão retornada não for anterior à local.
+    if(Number(remote._version||0)<Number(movimentos[i]._version||0))return;
+    const local=movimentos[i];
+    if(operation?.body?.status){local.status=remote.status;local._version=remote._version;local._signatures=remote._signatures;}
+    else return;
+  }
+  if(response?.contrato) {
+    const i=contracts.findIndex(c=>String(c.numero)===String(response.contrato.numero));
+    if(i>=0)contracts[i]=response.contrato;else contracts.push(response.contrato);
+    aplicarContratos(contracts);
+  }
+  salvarMovimentosNoCache(); renderList();
+});
 </script>
 </body>
 </html>

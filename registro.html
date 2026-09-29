@@ -265,7 +265,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </nav>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20260929.1"></script>
+<script src="api-client.js?v=20260929.2"></script>
 <script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
@@ -305,7 +305,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   document.addEventListener('click', e => { if (!e.target.closest('#user-chip')) document.getElementById('umenu')?.classList.add('hidden'); });
   const canCreateRegistro = ['admin','diretor','supervisor','gestor','tecnico'].includes(user.role);
   if (!canCreateRegistro) document.querySelectorAll('.fab, #nav-new').forEach(el => el.style.display='none');
-  window._currentUser = user; window._currentRole = role;
+  window._currentUser = user; window._currentRole = r;
 })();
 </script>
 <script>
@@ -1127,7 +1127,9 @@ function persist(record,effects) {
   try { saveRegistrosLocal(); } catch(e) {}
   renderRecordList();
   const last = record || records[0];
-  if (last) return DB.save('registros', last,effects)
+  if (last) {
+  const submitted=JSON.stringify(last);
+  return DB.save('registros', last,effects)
     .then(resp => {
       // O servidor pode ter fundido fotos de outro dispositivo neste mesmo
       // registro. Adota a versão canônica que ele devolveu, pra não ficarmos
@@ -1135,7 +1137,7 @@ function persist(record,effects) {
       const srv = resp && resp.record;
       if (srv && srv.id) {
         const i = records.findIndex(x => x.id === srv.id);
-        if (i >= 0) {
+        if (i >= 0 && records[i]===last && JSON.stringify(last)===submitted) {
           const before = (records[i].photos||[]).length;
           records[i] = srv;
           try { saveRegistrosLocal(); } catch(e) {}
@@ -1146,6 +1148,7 @@ function persist(record,effects) {
         }
       }
     });
+  }
   return Promise.resolve();
 }
 
@@ -1611,11 +1614,13 @@ async function addExistingPhoto(id, file){
   });
   const photo = { id:'foto-'+Date.now()+'-'+Math.random().toString(36).slice(2),dataUrl, name:file.name, geo, capturedAt: Date.now() };
   try {
-    const resp = await DB.addRegistroFoto(id, photo, records.find(r=>r.id===id));
+    const localBefore=records.find(r=>r.id===id);
+    const submitted=JSON.stringify(localBefore);
+    const resp = await DB.addRegistroFoto(id, photo, localBefore);
     const srv = resp && resp.record;
     if (srv && srv.id){
       const i = records.findIndex(x=>x.id===srv.id);
-      if (i>=0) records[i] = srv;
+      if (i>=0 && records[i]===localBefore && JSON.stringify(localBefore)===submitted) records[i] = srv;
       try { saveRegistrosLocal(); } catch(e){}
     }
     showToast('📷 Foto anexada e assinada');
@@ -2439,6 +2444,35 @@ function _sigTrail(sigs) {
   });
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
 }
+
+// Confirmações da fila atualizam a lista sem substituir uma edição mais recente.
+window.addEventListener('sgm:confirmed', event => {
+  const {entity,response,operation}=event.detail||{};
+  if(!entity?.startsWith('registros:'))return;
+  const remote=response?.record;
+  if(!remote)return;
+  const i=records.findIndex(r=>r.id===remote.id);
+  if(i>=0 && Number(remote._version||0)<Number(records[i]._version||0))return;
+  const submitted=operation?.body?.record;
+  if(i>=0 && submitted) {
+    const local=records[i];
+    const newer=Object.keys({...submitted,...local}).some(key=>!key.startsWith('_') && JSON.stringify(local[key])!==JSON.stringify(submitted[key]));
+    if(newer)return;
+    records[i]=restoreLocalBytes(remote,local);
+  } else if(i<0) records.unshift(remote);
+  else if(!submitted) {
+    // Uma foto confirmada não substitui os demais campos locais.
+    if(Number(remote._version||0)<Number(records[i]._version||0))return;
+    const local=records[i];
+    if(operation?.body?.photo){
+      const confirmed=remote.photos?.find(p=>p.id===operation.body.photo.id);
+      if(confirmed){local.photos=local.photos||[];const pi=local.photos.findIndex(p=>p.id===confirmed.id);if(pi>=0)local.photos[pi]=restoreLocalBytes(confirmed,local.photos[pi]);else local.photos.push(restoreLocalBytes(confirmed,operation.body.photo));}
+      local._version=remote._version;
+    }
+    else return;
+  }
+  saveRegistrosLocal(); renderRecordList();
+});
 </script>
 
 <!-- ── O.S. Screen ── -->
