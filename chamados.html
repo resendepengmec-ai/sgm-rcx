@@ -342,6 +342,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20260923.1"></script>
+<script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
 (function() {
@@ -1306,20 +1307,39 @@ async function printPDF(id){
   doc.text(descLines,M+4,y+7);
   y+=descH+8;
 
-  // Photos
+  // Photos — Fase 3: usa pdf-seguro.js (baixa+reduz com retry e progresso).
   if(c.photos&&c.photos.length){
     if(y>220){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${c.photos.length} foto${c.photos.length>1?'s':''})`,M,y);y+=5;
     const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
-    const fotoUrls=await Promise.all(c.photos.map(fotoParaDataUrlPdf));
-    c.photos.forEach((ph,pi)=>{
-      const col=pi%cols,row=Math.floor(pi/cols);
-      const px=M+col*(imgW+4),py=y+row*(imgH+4);
-      if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
-      try{if(fotoUrls[pi])doc.addImage(fotoUrls[pi],'JPEG',px,py,imgW,imgH);}catch(e){}
-    });
-    y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+
+    const sessao = iniciarSessaoPdf({ rotulo: 'chamado', totalFotos: c.photos.length });
+    if (!sessao) return; // já existe geração em andamento (toast já mostrado) — aborta, não gera PDF sem fotos
+    await sessao.abrir();
+    let falhas=0;
+    try {
+      sessao.etapaPrecalculo(1);
+      const preparadas=[];
+      for (const ph of c.photos) {
+        if (sessao.cancelada) break;
+        const prep = await sessao.processarFoto(ph);
+        if (prep.falhou) falhas++;
+        preparadas.push(prep);
+      }
+      if (sessao.cancelada) { showToast('Geração de PDF cancelada.'); return; }
+      sessao.etapaMontagem();
+      preparadas.forEach((prep,pi)=>{
+        const col=pi%cols,row=Math.floor(pi/cols);
+        const px=M+col*(imgW+4),py=y+row*(imgH+4);
+        if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
+        if (prep.falhou) sessao.desenharFotoIndisponivel(doc,px,py,imgW,imgH,c.equip);
+        else try{doc.addImage(prep.bytes,'JPEG',px,py,imgW,imgH);}catch(e){}
+      });
+      y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+      sessao.etapaSaida(1);
+    } finally { await sessao.finalizar(); }
+    if (falhas>0) showToast(`⚠️ ${falhas} foto(s) não puderam ser incluídas (rede ou formato não suportado).`, 9000);
   }
 
   drawPdfFooters(doc, cont);
@@ -1392,12 +1412,22 @@ async function printFilteredPDF(){
     y+=7;
   });
 
-  // Bytes das fotos, resolvidos ANTES do laço síncrono de montagem das
-  // páginas (jsPDF desenha em sequência; addImage exige dataURL pronta).
-  const fotoUrlsPorChamado=new Map(await Promise.all(filtered.map(async c=>[c.id, c.photos&&c.photos.length ? await Promise.all(c.photos.map(fotoParaDataUrlPdf)) : []])));
+  // Fase 3: uma única sessão pdf-seguro pro relatório inteiro — barra de
+  // progresso, retry e cancelamento cobrindo todos os chamados filtrados,
+  // não só a foto atual.
+  const totalFotosRelatorio = filtered.reduce((a,c)=>a+(c.photos?c.photos.length:0),0);
+  const sessao = iniciarSessaoPdf({ rotulo: 'relatório de chamados', totalFotos: totalFotosRelatorio });
+  if (!sessao) return;
+  await sessao.abrir();
+  let falhasRelatorio = 0, cancelado = false;
+  try {
 
   // Detail pages
-  filtered.forEach((c,ci)=>{
+  let ci = -1;
+  for (const c of filtered) {
+    ci++;
+    if (sessao.cancelada) { cancelado = true; break; }
+    sessao.etapaRegistros(ci, filtered.length);
     doc.addPage();
     const p=PRIORITY_MAP[c.priority]||PRIORITY_MAP.normal;
     const s=STATUS_MAP[c.status]||STATUS_MAP.aberto;
@@ -1439,13 +1469,33 @@ async function printFilteredPDF(){
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
       doc.text(`FOTOS (${c.photos.length})`,M,y);y+=5;
       const cols=3,imgW=(CW-8)/cols,imgH=imgW*0.75;
-      const fotoUrls=fotoUrlsPorChamado.get(c.id)||[];
-      c.photos.forEach((ph,pi)=>{const col=pi%cols,row=Math.floor(pi/cols);const px=M+col*(imgW+4),py=y+row*(imgH+4);if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}try{if(fotoUrls[pi])doc.addImage(fotoUrls[pi],'JPEG',px,py,imgW,imgH);}catch(e){};});
+      const preparadas=[];
+      for (const ph of c.photos) {
+        if (sessao.cancelada) break;
+        const prep = await sessao.processarFoto(ph);
+        if (prep.falhou) falhasRelatorio++;
+        preparadas.push(prep);
+      }
+      if (sessao.cancelada) { cancelado = true; break; }
+      preparadas.forEach((prep,pi)=>{
+        const col=pi%cols,row=Math.floor(pi/cols),px=M+col*(imgW+4),py=y+row*(imgH+4);
+        if(py+imgH>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
+        if (prep.falhou) sessao.desenharFotoIndisponivel(doc,px,py,imgW,imgH,c.equip);
+        else try{doc.addImage(prep.bytes,'JPEG',px,py,imgW,imgH);}catch(e){}
+      });
       y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
     }
-  });
+  }
 
+  if (cancelado) { showToast('Geração de relatório cancelada.'); return; }
+
+  sessao.etapaMontagem(1);
   drawPdfFooters(doc, contFilter);
+  sessao.etapaSaida(1);
+
+  } finally { await sessao.finalizar(); }
+
+  if (falhasRelatorio>0) showToast(`⚠️ ${falhasRelatorio} foto(s) não puderam ser incluídas (rede ou formato não suportado).`, 9000);
 
   const fn=['relatorio-chamados', filterContract?'contrato'+filterContract:null, filterEstab?filterEstab.slice(0,15).replace(/\s+/g,'-'):null, filterMonth||null].filter(Boolean).join('-')+'.pdf';
   try { doc.save(fn); }
