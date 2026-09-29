@@ -266,6 +266,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20260923.1"></script>
+<script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
 (async function() {
@@ -1772,49 +1773,68 @@ async function printPDF(id){
     y+=nh+8;
   }
 
-  // Photos — up to 6 on PDF
+  // Photos — up to 6 on PDF. Fase 3: usa pdf-seguro.js (baixa+reduz com
+  // retry e progresso) em vez de fotoParaDataUrlPdf+photoFit locais.
   if(r.photos && r.photos.length){
     if(y>220){doc.addPage();y=M;}
+    const fotosPdf = r.photos.slice(0,6);
     doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
     doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`,M,y);
     y+=4;
     const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
-    const fotosPdf = r.photos.slice(0,6);
-    const fotoUrls = await Promise.all(fotosPdf.map(fotoParaDataUrlPdf));
-    const sized = fotosPdf.map((p,pi) => ({ p, url: fotoUrls[pi], ...photoFit(doc, fotoUrls[pi], cellW, maxH) }));
-    for (let i=0; i<sized.length; i+=cols) {
-      const rowItems = sized.slice(i, i+cols);
-      const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
-      if (y + rowH + capH > 280) { doc.addPage(); y = M; }
-      rowItems.forEach((it, c) => {
-        const cellX = M + c*(cellW+gap);
-        const px = cellX + (cellW - it.w)/2;
-        desenharFotoPdf(doc, it.url, px, y, it.w, it.h);
-        if (it.p.geo) {
-          doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
-          const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
-          const lines = doc.splitTextToSize(label, cellW).slice(0,2);
-          doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
-          if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
-          doc.setTextColor(0,0,0);
-        }
+
+    const sessao = iniciarSessaoPdf({ rotulo: 'registro de serviço', totalFotos: fotosPdf.length });
+    if (!sessao) return;
+    await sessao.abrir();
+    let falhas = 0;
+    try {
+      sessao.etapaPrecalculo(1);
+      const preparadas = [];
+      for (const p of fotosPdf) {
+        if (sessao.cancelada) break;
+        const prep = await sessao.processarFoto(p);
+        if (prep.falhou) falhas++;
+        preparadas.push({ p, prep });
+      }
+      if (sessao.cancelada) { showToast('Geração de PDF cancelada.'); return; }
+
+      sessao.etapaMontagem();
+      const sized = preparadas.map(({ p, prep }) => {
+        if (prep.falhou) return { p, falhou: true, w: cellW, h: cellW * 0.75 };
+        let w = cellW, h = cellW * prep.h / prep.w;
+        if (h > maxH) { h = maxH; w = maxH * prep.w / prep.h; }
+        return { p, bytes: prep.bytes, w, h };
       });
-      y += rowH + capH + 4;
-    }
-    y = _pdfPhotoSigs(doc, r.photos, M, y);
-    y += 2;
+      for (let i=0; i<sized.length; i+=cols) {
+        const rowItems = sized.slice(i, i+cols);
+        const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
+        if (y + rowH + capH > 280) { doc.addPage(); y = M; }
+        rowItems.forEach((it, c) => {
+          const cellX = M + c*(cellW+gap);
+          const px = cellX + (cellW - it.w)/2;
+          if (it.falhou) sessao.desenharFotoIndisponivel(doc, px, y, it.w, it.h, r.equip);
+          else doc.addImage(it.bytes, 'JPEG', px, y, it.w, it.h);
+          if (it.p.geo) {
+            doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
+            const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
+            const lines = doc.splitTextToSize(label, cellW).slice(0,2);
+            doc.textWithLink(lines[0], cellX, y+rowH+3, { url: `https://maps.google.com/?q=${it.p.geo.lat},${it.p.geo.lng}` });
+            if (lines[1]) doc.text(lines[1], cellX, y+rowH+6);
+            doc.setTextColor(0,0,0);
+          }
+        });
+        y += rowH + capH + 4;
+      }
+      y = _pdfPhotoSigs(doc, r.photos, M, y);
+      y += 2;
+      sessao.etapaSaida(1);
+    } finally { await sessao.finalizar(); }
+
+    if (falhas > 0) showToast(`⚠️ ${falhas} foto(s) não puderam ser incluídas (rede ou formato não suportado).`, 9000);
   }
 
   drawPdfFooters(doc, cont);
 
-
-  // Falha de foto não pode continuar invisível — era o que escondia o
-  // problema do formato fixo 'JPEG'.
-  if (_fotosFalhadasPdf > 0) {
-    showToast(`⚠️ ${_fotosFalhadasPdf} foto(s) não puderam ser incluídas ` +
-              `(formato não suportado ou arquivo corrompido).`, 9000);
-    _fotosFalhadasPdf = 0;
-  }
   try { doc.save(`OS-${esc(r.client)}-TAG${esc(r.equip||'x')}-${r.id.slice(-6)}.pdf`); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
   closeDetailModal();

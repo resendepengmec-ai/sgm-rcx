@@ -144,9 +144,14 @@ function _criarModal() {
 // `rotulo` aparece no título ("Gerando relatório XX%" / "Gerando backup XX%").
 // `totalFotos` é só para a estimativa inicial de tempo/tamanho — a sessão
 // funciona mesmo com 0 fotos (relatórios sem foto nenhuma).
+// Devolve `null` (em vez de lançar) quando já há uma sessão ativa, e já
+// avisa o usuário — assim todo gerador só precisa checar
+// `if (!sessao) return;`, sem try/catch repetido em cada um dos 6+ lugares
+// que usam este módulo.
 function iniciarSessaoPdf({ rotulo = 'relatório', totalFotos = 0 } = {}) {
   if (_pdfSeguroSessaoAtiva && !_pdfSeguroSessaoAtiva.finalizada) {
-    throw new Error('Já existe uma geração de PDF em andamento. Aguarde terminar ou cancele.');
+    if (typeof showToast === 'function') showToast('Já existe uma geração de PDF em andamento. Aguarde terminar ou cancele.', 5000);
+    return null;
   }
 
   const modal = _criarModal();
