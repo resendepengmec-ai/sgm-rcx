@@ -430,47 +430,9 @@ function loadPrestadoraConfig() {
 // ── Cabeçalho/rodapé padrão de PDF (igual ao módulo Relatório) ──────
 const PDF_M = 20, PDF_W = 210;
 
-// ── Formato da imagem, deduzido da data-URL ───────────────────────
-// Antes toda chamada passava 'JPEG' fixo. O sistema aceita PNG, WebP,
-// HEIC e outros (o laudo envia o arquivo cru do FileReader), e uma foto
-// que não fosse JPEG falhava — caindo num catch vazio e sumindo do PDF
-// sem aviso nenhum.
-//
-// Também testei que o jsPDF ACEITA base64 inválido sem lançar exceção:
-// confiar no try/catch deixaria passar imagem quebrada como se tivesse
-// entrado. Por isso a data-URL é validada ANTES de desenhar.
-function fmtImagemPdf(dataUrl) {
-  const m = /^data:image\/([a-z0-9.+-]+);/i.exec(String(dataUrl || ''));
-  const t = (m ? m[1] : 'jpeg').toLowerCase();
-  if (t === 'png')  return 'PNG';
-  if (t === 'webp') return 'WEBP';
-  if (t === 'gif')  return 'GIF';
-  if (t === 'bmp')  return 'BMP';
-  return 'JPEG';
-}
-
-const _RE_IMG_PDF = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
-function fotoUtilizavelPdf(dataUrl) {
-  if (typeof dataUrl !== 'string') return false;
-  const m = _RE_IMG_PDF.exec(dataUrl.trim());
-  if (!m) return false;
-  return m[2].length >= 64 && m[2].length % 4 === 0;
-}
-
-let _fotosFalhadasPdf = 0;
-
-function desenharFotoPdf(doc, dataUrl, x, y, w, h) {
-  if (!fotoUtilizavelPdf(dataUrl)) {
-    _fotosFalhadasPdf++;
-    console.warn('Foto ignorada: data-URL inválida ou vazia');
-    return false;
-  }
-  try { doc.addImage(dataUrl, fmtImagemPdf(dataUrl), x, y, w, h); return true; }
-  catch (e) {
-    try { doc.addImage(dataUrl, x, y, w, h); return true; }
-    catch (e2) { _fotosFalhadasPdf++; console.warn('Foto não incluída:', e2.message); return false; }
-  }
-}
+// fmtImagemPdf/fotoUtilizavelPdf/desenharFotoPdf/photoFit removidos na
+// Fase 3: os dois geradores deste arquivo (printPDF/printFilteredPDF) já
+// usam pdf-seguro.js, que resolve formato/validação/retry/redução.
 
 function drawPdfHeader(doc, { title, metaLines }) {
   let y = 14, textX = PDF_M;
@@ -788,13 +750,20 @@ async function printFilteredPDF() {
     y += 7;
   });
 
-  // Bytes das fotos, resolvidos ANTES do laço síncrono (jsPDF desenha em
-  // sequência; addImage/getImageProperties exigem dataURL pronta).
-  const fotoUrlsPorRegistro = new Map(await Promise.all(filtered.map(async r =>
-    [r.id, r.photos && r.photos.length ? await Promise.all(r.photos.map(fotoParaDataUrlPdf)) : []])));
+  // Fase 3: uma única sessão pdf-seguro pro relatório inteiro.
+  const totalFotosRel = filtered.reduce((a,r)=>a+(r.photos?r.photos.length:0),0);
+  const sessao = iniciarSessaoPdf({ rotulo: 'relatório de registros', totalFotos: totalFotosRel });
+  if (!sessao) return;
+  await sessao.abrir();
+  let falhasRel = 0, cancelado = false;
+  try {
 
   // ── Detail pages: one section per record ──
-  filtered.forEach((r, rIdx) => {
+  let rIdx = -1;
+  for (const r of filtered) {
+    rIdx++;
+    if (sessao.cancelada) { cancelado = true; break; }
+    sessao.etapaRegistros(rIdx, filtered.length);
     doc.addPage();
 
     y = drawPdfHeader(doc, {
@@ -890,15 +859,27 @@ async function printFilteredPDF() {
       y += nh + 4;
     }
 
-    // Photos
+    // Photos — Fase 3: pdf-seguro.js em vez de fotoParaDataUrlPdf+photoFit.
     if (r.photos && r.photos.length) {
       if(y>220){doc.addPage();y=M;}
       doc.setFontSize(10); doc.setFont('helvetica','bold'); doc.setTextColor(80,80,80);
       doc.text(`REGISTRO FOTOGRÁFICO (${r.photos.length} foto${r.photos.length>1?'s':''})`, M, y);
       y += 5;
       const cols=3, gap=4, capH=8, cellW=(CW-gap*(cols-1))/cols, maxH=110;
-      const fotoUrls = fotoUrlsPorRegistro.get(r.id) || [];
-      const sized = r.photos.map((p,pi) => ({ p, url: fotoUrls[pi], ...photoFit(doc, fotoUrls[pi], cellW, maxH) }));
+      const preparadas=[];
+      for (const p of r.photos) {
+        if (sessao.cancelada) break;
+        const prep = await sessao.processarFoto(p);
+        if (prep.falhou) falhasRel++;
+        preparadas.push({ p, prep });
+      }
+      if (sessao.cancelada) { cancelado = true; break; }
+      const sized = preparadas.map(({p,prep}) => {
+        if (prep.falhou) return { p, falhou:true, w:cellW, h:cellW*0.75 };
+        let w=cellW, h=cellW*prep.h/prep.w;
+        if (h>maxH) { h=maxH; w=maxH*prep.w/prep.h; }
+        return { p, bytes:prep.bytes, w, h };
+      });
       for (let i=0; i<sized.length; i+=cols) {
         const rowItems = sized.slice(i, i+cols);
         const rowH = Math.max.apply(null, rowItems.map(it=>it.h));
@@ -906,7 +887,8 @@ async function printFilteredPDF() {
         rowItems.forEach((it, c) => {
           const cellX = M + c*(cellW+gap);
           const px = cellX + (cellW - it.w)/2;   // centraliza na coluna
-          desenharFotoPdf(doc, it.url, px, y, it.w, it.h);
+          if (it.falhou) sessao.desenharFotoIndisponivel(doc, px, y, it.w, it.h, r.equip);
+          else doc.addImage(it.bytes, 'JPEG', px, y, it.w, it.h);
           if (it.p.geo) {
             doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(37,99,235);
             const label = it.p.geo.shortAddress || `${it.p.geo.lat.toFixed(5)}, ${it.p.geo.lng.toFixed(5)}`;
@@ -920,9 +902,15 @@ async function printFilteredPDF() {
       }
       y = _pdfPhotoSigs(doc, r.photos, M, y);
     }
-  });
+  }
 
+  if (cancelado) { showToast('Geração de relatório cancelada.'); return; }
+
+  sessao.etapaMontagem(1);
   drawPdfFooters(doc, contFilter);
+  sessao.etapaSaida(1);
+
+  } finally { await sessao.finalizar(); }
 
   const fn = [
     'relatorio',
@@ -931,12 +919,8 @@ async function printFilteredPDF() {
     filterMonth || null,
   ].filter(Boolean).join('-') + '.pdf';
 
-  // Falha de foto não pode continuar invisível — era o que escondia o
-  // problema do formato fixo 'JPEG'.
-  if (_fotosFalhadasPdf > 0) {
-    showToast(`⚠️ ${_fotosFalhadasPdf} foto(s) não puderam ser incluídas ` +
-              `(formato não suportado ou arquivo corrompido).`, 9000);
-    _fotosFalhadasPdf = 0;
+  if (falhasRel > 0) {
+    showToast(`⚠️ ${falhasRel} foto(s) não puderam ser incluídas (rede ou formato não suportado).`, 9000);
   }
   try { doc.save(fn); }
   catch(e) { showToast('Erro ao gerar o PDF: ' + e.message); return; }
@@ -1422,19 +1406,6 @@ function drawGeoWatermark(canvas, geo, tile) {
 
   const line3 = new Date().toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' });
   ctx.fillText(line3, textX, ty2);
-}
-
-// Calcula o tamanho de desenho da foto no PDF: parte da largura da coluna
-// (W), mantém a proporção ORIGINAL da imagem (sem esticar) e limita a
-// altura a Hmax pra uma foto sozinha nunca estourar a página. Retorna {w,h}
-// em mm. Se não der pra ler as dimensões, cai num 4:3 seguro.
-function photoFit(doc, dataUrl, W, Hmax){
-  let iw = 0, ih = 0;
-  try { const pr = doc.getImageProperties(dataUrl); iw = pr.width; ih = pr.height; } catch(e) {}
-  if (!iw || !ih) return { w: W, h: Math.min(W*0.75, Hmax) };
-  let w = W, h = W * ih / iw;
-  if (h > Hmax) { h = Hmax; w = Hmax * iw / ih; }
-  return { w, h };
 }
 
 function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
