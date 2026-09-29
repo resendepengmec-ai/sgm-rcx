@@ -284,23 +284,9 @@ function abrirLightboxDeImg(onImg, abrir) {
 }
 window.abrirLightboxDeImg = abrirLightboxDeImg;
 
-// Para geradores de PDF (jsPDF.addImage exige dataURL ou
-// HTMLImageElement, não Blob/objectURL): resolve uma foto (legado com
-// dataUrl embutida, ou referência {sha} da Fase 2) para uma dataURL
-// pronta para addImage(). Troca MÍNIMA para esta fase — o desenho em si
-// (layout, grade, qualidade) não muda, só de onde vêm os bytes. Unificar
-// os três padrões de helper de PDF hoje duplicados pelos módulos
-// (fmtImagemPdf/gradeDeFotos/desenharFotosPDF) é Fase 3.
-async function fotoParaDataUrlPdf(foto) {
-  if (!foto) return '';
-  if (typeof foto.dataUrl === 'string') return imgSrc(foto.dataUrl) || '';
-  if (foto.sha) {
-    try { return await _blobParaDataUrl(await arquivoBytes(foto.sha)); }
-    catch (_) { return ''; }
-  }
-  return '';
-}
-window.fotoParaDataUrlPdf = fotoParaDataUrlPdf;
+// fotoParaDataUrlPdf removida na Fase 3: os geradores de PDF usam
+// pdf-seguro.js (prepararFotoPdf), que já cobre foto pendente sem sha,
+// foto por sha e reduz o tamanho antes de desenhar.
 
 // Abre/baixa um documento de contrato (ou qualquer outro arquivo) sob
 // demanda pelo endpoint novo, em vez de já carregar os bytes no JSON da
