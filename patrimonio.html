@@ -403,8 +403,8 @@ function agendarConferenciaPendente() {
   campo.after(aviso);aviso.textContent='';
   const contrato=document.getElementById('f-contrato').value,tag=tagCanonicaPat(campo.value);
   if(!contrato||!tag)return;
-  const local=movimentos.find(m=>m.id!==editingMovId && m.status==='pendente' && String(m.contrato)===contrato && [m.tag,m.novaTag].some(v=>tagCanonicaPat(v)===tag));
-  if(local)aviso.textContent='A TAG '+tag+' já possui solicitação pendente: '+(local.solicitanteNome||local.solicitanteEmail||'consulte os pendentes')+'.';
+  const local=movimentos.find(m=>m.id!==editingMovId && ['pendente','aprovada'].includes(m.status) && String(m.contrato)===contrato && [m.tag,m.novaTag].some(v=>tagCanonicaPat(v)===tag));
+  if(local)aviso.textContent='A TAG '+tag+' já possui solicitação pendente ou aprovada: '+(local.solicitanteNome||local.solicitanteEmail||'consulte os pendentes')+'.';
   consultaTagTimer=setTimeout(async()=>{
     try {const resultado=await consultarTagPendente(contrato,tag);if(seq===consultaTagSeq)aviso.textContent=resultado.mensagem||'';}
     catch(e){if(seq===consultaTagSeq)aviso.textContent='Não foi possível verificar pendências agora. O envio será validado novamente.';console.warn('Consulta de TAG:',e.message);}
@@ -1523,7 +1523,7 @@ function renderFotosInstal() {
   const info = document.getElementById('f-fotos-info');
   const cheio = fotosInstal.length >= MAX_FOTOS_INSTAL;
   if (info) {
-    const mb = fotosInstal.reduce((a, f) => a + f.dataUrl.length, 0) / 1048576;
+    const mb = fotosInstal.reduce((a, f) => a + (typeof f?.dataUrl === 'string' ? f.dataUrl.length : Math.max(0, Number(f?.bytes) || 0)), 0) / 1048576;
     info.textContent = `${fotosInstal.length} de ${MAX_FOTOS_INSTAL}` +
                        (mb >= 0.5 ? ` · ${mb.toFixed(1)} MB` : '');
     info.style.color = cheio ? 'var(--danger)' : 'var(--text-2)';
