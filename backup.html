@@ -42,8 +42,9 @@
 .bk-alerta{ background:#fef3c7; border:1px solid #fde68a; color:#92400e; }
 .bk-erro { background:#fee2e2; border:1px solid #fecaca; color:#991b1b; }
 .bk-info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
-.bk-barra{ height:6px; background:var(--bg); border-radius:3px; overflow:hidden; margin:10px 0; }
-.bk-prog { height:100%; background:var(--primary); width:0; transition:width .2s; }
+/* Fase 3: barra de progresso passou a ser a compartilhada (.psg-barra/
+   .psg-prog em shared.css), a mesma usada pelos geradores de PDF — sem
+   regra própria aqui. */
 </style>
 </head>
 <body>
@@ -102,7 +103,7 @@
     <div class="bk-tit">Coleções</div>
     <div class="bk-sub">O que será incluído. Falhas parciais são registradas no arquivo.</div>
     <div id="bk-lista"></div>
-    <div class="bk-barra" id="bk-barra-wrap" style="display:none"><div class="bk-prog" id="bk-prog"></div></div>
+    <div class="psg-barra" id="bk-barra-wrap" style="display:none"><div class="psg-prog" id="bk-prog"></div></div>
     <div id="bk-status" style="font-size:12px;color:var(--text-2);margin-top:8px"></div>
   </div>
 
