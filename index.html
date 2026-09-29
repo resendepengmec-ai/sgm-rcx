@@ -503,16 +503,16 @@ function renderDashboard(user) {
 
   const plans = safeLocalStorageGetJSON('prev_plans', []);
   const allModules = [
-    {id:'chamados', icon:'🔔',name:'Chamados',  desc:'Abertura e acompanhamento de chamados',  count:`${abertos} aberto${abertos!==1?'s':''}`,   file:'chamados.html'},
-    {id:'registro', icon:'🔧',name:'Registros', desc:'Registro de serviços executados',          count:`${regMes} este mês`,                         file:'registro.html'},
-    {id:'orcamento',icon:'📄',name:'Orçamentos',desc:'Elaboração e gestão de orçamentos',        count:`${orcPend} pendente${orcPend!==1?'s':''}`,   file:'orcamento.html'},
-    {id:'preventiva',icon:'📋',name:'Preventiva',  desc:'Planos e execução de manutenção preventiva',count:`${plans.length} plano${plans.length!==1?'s':''}`,    file:'preventiva.html'},
-    {id:'contratos', icon:'📑',name:'Contratos',   desc:'Dados, equipamentos e documentos dos contratos', count:`${contratos.length} contrato${contratos.length!==1?'s':''}`, file:'contratos.html'},
-    {id:'patrimonio',icon:'🏭',name:'Patrimônio',  desc:'Movimentações patrimoniais com aprovação', count:movPendentes>0?`${movPendentes} pendente${movPendentes!==1?'s':''}`:'Equipamentos', file:'patrimonio.html'},
-    {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Relatório gerencial consolidado mensal',  count:'Consolidado',                                file:'relatorio.html'},
-    {id:'laudo',    icon:'🔎',name:'Laudo',        desc:'Relatório de vistoria técnica de equipamento ou unidade', count:'Vistoria', file:'laudo.html'},
-    {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Métricas e KPIs de manutenção em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
-    {id:'admin',    icon:'👑',name:'Administração',desc:'Usuários, permissões e banco de dados', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
+    {id:'chamados', icon:'🔔',name:'Chamados',  desc:'Solicitações de manutenção, do pedido à solução',  count:`${abertos} aberto${abertos!==1?'s':''}`,   file:'chamados.html'},
+    {id:'registro', icon:'🔧',name:'Registros', desc:'O que foi feito em cada visita técnica',          count:`${regMes} este mês`,                         file:'registro.html'},
+    {id:'orcamento',icon:'📄',name:'Orçamentos',desc:'Propostas de serviço prontas para aprovar',        count:`${orcPend} pendente${orcPend!==1?'s':''}`,   file:'orcamento.html'},
+    {id:'preventiva',icon:'📋',name:'Preventiva',  desc:'Manutenções programadas, planejadas e acompanhadas',count:`${plans.length} plano${plans.length!==1?'s':''}`,    file:'preventiva.html'},
+    {id:'contratos', icon:'📑',name:'Contratos',   desc:'Contratos, equipamentos e serviços cadastrados', count:`${contratos.length} contrato${contratos.length!==1?'s':''}`, file:'contratos.html'},
+    {id:'patrimonio',icon:'🏭',name:'Patrimônio',  desc:'O ciclo de vida de cada equipamento instalado', count:movPendentes>0?`${movPendentes} pendente${movPendentes!==1?'s':''}`:'Equipamentos', file:'patrimonio.html'},
+    {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Indicadores e relatórios da operação',  count:'Consolidado',                                file:'relatorio.html'},
+    {id:'laudo',    icon:'🔎',name:'Laudo',        desc:'Laudos técnicos de vistoria', count:'Vistoria', file:'laudo.html'},
+    {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Visão geral da operação em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
+    {id:'admin',    icon:'👑',name:'Administração',desc:'Quem acessa o quê, por perfil e contrato', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
   ].filter(m=>role.modules?.includes(m.id));
 
   const customDb = localStorage.getItem('smm_custom_db');
