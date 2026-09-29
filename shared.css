@@ -158,6 +158,13 @@ select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 99px; margin: 0 auto 16px; }
 .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
 
+/* ───── Barra de progresso (compartilhada: pdf-seguro.js e backup.html) ── */
+.psg-barra { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin: 10px 0; }
+.psg-prog { height: 100%; background: var(--primary); width: 0; transition: width .2s; }
+.psg-etapa { font-size: 13px; color: var(--text-2); margin-top: 4px; }
+.psg-tempo { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.psg-aviso { font-size: 12px; color: var(--text-3); margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
 /* ───── Search ───── */
 .search-bar { position: relative; margin-bottom: 12px; }
 .search-bar input { padding-left: 38px; }
