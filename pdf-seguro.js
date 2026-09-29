@@ -69,16 +69,39 @@ function pdfSeguroFormatarTempo(ms) {
 
 // ═══ Parte 2: dependente do navegador ═══
 
+// Decodifica uma data-URL localmente, sem rede — usado só para fotos
+// ainda pendentes de sincronização (sem sha, com os bytes embutidos). Um
+// fetch(dataUrl) funcionaria também, mas passaria pelo connect-src do CSP
+// em páginas que o restringem; atob() é só processamento de string.
+function _dataUrlParaBlob(dataUrl) {
+  const m = /^data:([^;,]*)?(;base64)?,([\s\S]*)$/.exec(dataUrl);
+  if (!m) throw new Error('data-URL inválida');
+  const tipo = m[1] || 'application/octet-stream';
+  const corpo = m[3];
+  const bin = m[2] ? atob(corpo) : decodeURIComponent(corpo);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: tipo });
+}
+
 // Baixa e reduz UMA foto: até 3 tentativas, retorna bytes prontos para
 // jsPDF.addImage(Uint8Array,...) — sem base64 em nenhum momento. Falha
 // (rede ou decodificação) nas 3 tentativas devolve {falhou:true}; quem
 // chama desenha o quadro "Foto indisponível" com a TAG, como já é
 // convenção nos geradores (ex.: preventiva.html:desenharFotoPdf).
+//
+// `ref` pode ser uma data-URL crua em string, {dataUrl} (foto ainda
+// pendente de sincronização, sem sha) ou {sha,...} (Fase 2) — mesma
+// convenção de arquivoUrl()/fotoParaDataUrlPdf em api-client.js. Sem este
+// caso, uma foto local ainda não confirmada apareceria como "indisponível"
+// mesmo estando disponível no próprio navegador.
 async function prepararFotoPdf(ref, { maxLado = 600, qualidade = 0.6, tentativas = 3 } = {}) {
   let ultimoErro = null;
+  const dataUrl = typeof ref === 'string' ? ref
+    : (ref && typeof ref.dataUrl === 'string' ? ref.dataUrl : null);
   for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
     try {
-      const blob = await arquivoBytes(ref && ref.sha ? ref.sha : ref);
+      const blob = dataUrl ? _dataUrlParaBlob(dataUrl) : await arquivoBytes(ref && ref.sha ? ref.sha : ref);
       const bitmap = await createImageBitmap(blob, { imageOrientation: 'from-image' });
       try {
         let w = bitmap.width, h = bitmap.height;
