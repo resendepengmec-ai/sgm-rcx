@@ -30,6 +30,7 @@
      A versão local é a 3.0.1; o CDN servia a 2.5.1. -->
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="pdf-seguro.js"></script>
+<script src="vendor/chart.umd.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#1d4ed8;--primary-dark:#1e3a8a;--primary-light:#eff6ff;
@@ -50,6 +51,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 .event-dot.chamado{background:#7c3aed;}
 .event-dot.registro{background:#059669;}
 .event-dot.preventiva{background:#0369a1;}
+.event-dot.movimentacao{background:#0891b2;}
 .event-info{flex:1;min-width:0;}
 .event-tag{font-size:12px;font-weight:700;}
 .event-desc{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -58,6 +60,21 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 .legend-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;}
 .legend-item{display:flex;align-items:center;gap:5px;}
 .legend-dot{width:10px;height:10px;border-radius:50%;}
+/* Filtro por módulo/status */
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;}
+.mod-col{border-left:3px solid var(--border);padding-left:10px;}
+.mod-col-header{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;margin-bottom:6px;}
+.mod-col-header input{width:16px;height:16px;}
+.mod-st-row{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);padding:2px 0;}
+.mod-st-row input{width:14px;height:14px;}
+/* Resumo + gráficos (prévia na tela) */
+.resumo-table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:14px;}
+.resumo-table th{text-align:left;padding:6px 8px;color:var(--text-3);font-weight:600;border-bottom:1px solid var(--border);}
+.resumo-table td{padding:7px 8px;border-bottom:1px solid var(--border);}
+.charts-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+.chart-box{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:10px;}
+.chart-box-title{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:6px;text-align:center;}
+.chart-box canvas{max-height:180px;}
 </style>
 </head>
 <body>
@@ -96,6 +113,22 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     </div>
   </div>
 
+  <!-- Filtro por módulo/status: cada módulo pode ser incluído/excluído do
+       relatório, e cada um (exceto Registros, que não tem status próprio)
+       filtra pelos status que lhe pertencem. Preenchido por JS a partir de
+       MODULOS_RELATORIO para não repetir o mesmo markup 4x. -->
+  <div class="section-card" style="padding:12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">Módulos incluídos no relatório</div>
+    <div class="mod-grid" id="mod-grid"></div>
+  </div>
+
+  <!-- Resumo + gráficos (prévia da 1ª página do PDF) -->
+  <div id="section-resumo" class="section-card" style="display:none">
+    <h3>📊 Resumo</h3>
+    <div id="resumo-table-wrap"></div>
+    <div class="charts-grid" id="charts-grid"></div>
+  </div>
+
   <!-- Cabeçalho do relatório -->
   <div id="report-header" style="display:none" class="section-card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
@@ -119,6 +152,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div> Chamados</div>
     <div class="legend-item"><div class="legend-dot" style="background:#059669"></div> Registros</div>
     <div class="legend-item"><div class="legend-dot" style="background:#0369a1"></div> Preventiva</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#0891b2"></div> Movimentação</div>
   </div>
 
   <!-- Timeline de eventos -->
@@ -283,7 +317,170 @@ async function gradeDeFotos(doc, fotos, opts) {
 
 let _reportContracts = safeLocalStorageGetJSON('smm_contracts', []);
 
+// ── Filtro por módulo/status ────────────────────────────────────────
+// Cada módulo pode ser incluído/excluído do relatório (tela e PDF), e
+// cada um — exceto Registros, que não tem campo de status próprio no
+// sistema (o que existe é o status da Ordem de Serviço, uma entidade
+// diferente) — filtra pelos status que lhe pertencem. Preventiva não tem
+// status gravado: é calculado a partir de prevProgress() já usado no
+// resto do arquivo; as chaves aqui (concluido/parcial/pendente) ficam
+// sem acento só nos ids/valores, o rótulo exibido mantém o acento.
+const MODULOS_RELATORIO = [
+  { chave:'chamados', label:'Chamados', cor:'#7c3aed', status:[
+    {chave:'aberto',label:'Aberto',cor:'#f59e0b'}, {chave:'andamento',label:'Em andamento',cor:'#3b82f6'},
+    {chave:'resolvido',label:'Resolvido',cor:'#22c55e'}, {chave:'cancelado',label:'Cancelado',cor:'#94a3b8'},
+  ]},
+  { chave:'registros', label:'Registros', cor:'#059669', status:null },
+  { chave:'preventiva', label:'Preventiva', cor:'#0369a1', status:[
+    {chave:'concluido',label:'Concluído',cor:'#22c55e'}, {chave:'parcial',label:'Parcial',cor:'#f59e0b'},
+    {chave:'pendente',label:'Pendente',cor:'#94a3b8'},
+  ]},
+  { chave:'movimentacao', label:'Movimentação', cor:'#0891b2', status:[
+    {chave:'pendente',label:'Pendente',cor:'#f59e0b'}, {chave:'aprovada',label:'Aprovada',cor:'#3b82f6'},
+    {chave:'executada',label:'Executada',cor:'#22c55e'}, {chave:'rejeitada',label:'Rejeitada',cor:'#ef4444'},
+    {chave:'cancelada',label:'Cancelada',cor:'#94a3b8'},
+  ]},
+];
+
+function renderModGrid() {
+  document.getElementById('mod-grid').innerHTML = MODULOS_RELATORIO.map(m => `
+    <div class="mod-col">
+      <label class="mod-col-header">
+        <input type="checkbox" id="f-mod-${m.chave}" checked onchange="render()">
+        ${esc(m.label)}
+      </label>
+      ${(m.status||[]).map(st => `
+        <label class="mod-st-row">
+          <input type="checkbox" id="f-st-${m.chave}-${st.chave}" checked onchange="render()">
+          ${esc(st.label)}
+        </label>`).join('') || '<div class="mod-st-row" style="color:var(--text-3)">(sem status próprio)</div>'}
+    </div>`).join('');
+}
+
+function moduloHabilitado(chave) {
+  const el = document.getElementById(`f-mod-${chave}`);
+  return !el || el.checked;
+}
+function statusPermitido(chave, status) {
+  const el = document.getElementById(`f-st-${chave}-${status}`);
+  return !el || el.checked; // sem checkbox de status = módulo sem status (Registros)
+}
+
+// ── Resumo por módulo (compartilhado entre a prévia na tela e a 1ª
+// página do PDF) — só os módulos habilitados no filtro entram no
+// resultado; a contagem por status é sobre os itens JÁ filtrados (se um
+// status foi desmarcado, os itens dele já saíram de `fChamados` etc. —
+// aparece como 0, não escondido, refletindo fielmente o que vai no
+// relatório).
+function montarResumoModulos(fChamados, fRegistros, fPreventiva, fMovimentos) {
+  const dados = { chamados:fChamados, registros:fRegistros, preventiva:fPreventiva, movimentacao:fMovimentos };
+  const statusDoItem = {
+    chamados: c => c.status || 'aberto',
+    registros: () => null,
+    preventiva: p => prevStatusOf(p),
+    movimentacao: m => m.status,
+  };
+  return MODULOS_RELATORIO.filter(m => moduloHabilitado(m.chave)).map(m => {
+    const items = dados[m.chave] || [];
+    const porStatus = m.status ? m.status.map(st => ({
+      chave: st.chave, label: st.label, cor: st.cor,
+      valor: items.filter(it => statusDoItem[m.chave](it) === st.chave).length,
+    })) : null;
+    return { chave:m.chave, label:m.label, cor:m.cor, total:items.length, porStatus };
+  });
+}
+
+// ── Config dos gráficos (Chart.js v4, vendor/chart.umd.js) — mesma
+// função usada tanto pro <canvas> visível na tela quanto pro canvas fora
+// da tela capturado como imagem pro PDF (ver renderizarGraficoParaImagem).
+function configBarraModulos(resumo) {
+  return {
+    type: 'bar',
+    data: { labels: resumo.map(m=>m.label), datasets: [{
+      label: 'Itens', data: resumo.map(m=>m.total),
+      backgroundColor: resumo.map(m=>m.cor+'cc'), borderRadius: 4,
+    }] },
+    options: {
+      plugins: { legend: { display:false } },
+      scales: { y: { beginAtZero:true, ticks:{ precision:0 } } },
+    },
+  };
+}
+function configPizzaStatus(modulo) {
+  const st = (modulo.porStatus||[]).filter(s=>s.valor>0);
+  return {
+    type: 'pie',
+    data: { labels: st.map(s=>s.label), datasets: [{ data: st.map(s=>s.valor), backgroundColor: st.map(s=>s.cor) }] },
+    options: { plugins: { legend: { position:'bottom', labels:{ boxWidth:10, font:{size:10} } } } },
+  };
+}
+function hexRgb(hex) {
+  const h = String(hex).replace('#','');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+
+// ── Captura de gráfico pro PDF: desenha num canvas FORA da tela (Chart.js
+// não precisa que ele fique visível, só que tenha layout/contexto 2D) e
+// devolve os bytes PNG prontos pra jsPDF.addImage(Uint8Array,...) — nunca
+// toDataURL/base64, mesma convenção estabelecida na Fase 3 pras fotos.
+async function renderizarGraficoParaImagem(config, wPx, hPx) {
+  const canvas = document.createElement('canvas');
+  canvas.width = wPx; canvas.height = hPx;
+  canvas.style.cssText = 'position:fixed;left:-99999px;top:0';
+  document.body.appendChild(canvas);
+  const chart = new Chart(canvas, {
+    ...config,
+    options: { ...config.options, responsive:false, animation:false, devicePixelRatio:2 },
+  });
+  // Mesmo com animation:false, o Chart.js pode terminar de desenhar só no
+  // próximo frame em alguns navegadores — dois rAF garantem que o desenho
+  // já aconteceu antes de capturar.
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  chart.destroy();
+  canvas.remove();
+  return { bytes, w: wPx, h: hPx };
+}
+
+// ── Prévia na tela: mesmos dados/config da 1ª página do PDF, em
+// <canvas> visíveis (Chart.js "normal", responsive) — dá pro usuário ver
+// antes de gerar o PDF (que pode levar um tempo com muitas fotos).
+let _relCharts = {};
+function _destroyRelCharts() { Object.values(_relCharts).forEach(c=>c&&c.destroy()); _relCharts = {}; }
+function renderResumoETelaCharts(resumo) {
+  _destroyRelCharts();
+  const secao = document.getElementById('section-resumo');
+  if (!resumo.length) { secao.style.display='none'; return; }
+  secao.style.display='';
+
+  document.getElementById('resumo-table-wrap').innerHTML = `
+    <table class="resumo-table">
+      <thead><tr><th>Módulo</th><th>Total</th><th>Por status</th></tr></thead>
+      <tbody>${resumo.map(m=>`
+        <tr>
+          <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${m.cor};margin-right:6px"></span>${esc(m.label)}</td>
+          <td style="font-weight:700">${m.total}</td>
+          <td>${m.porStatus ? m.porStatus.map(s=>`${esc(s.label)}: ${s.valor}`).join(' · ') : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const grid = document.getElementById('charts-grid');
+  grid.innerHTML = `<div class="chart-box"><div class="chart-box-title">Itens por módulo</div><canvas id="chart-rel-barra"></canvas></div>` +
+    resumo.filter(m=>m.porStatus).map(m=>
+      `<div class="chart-box"><div class="chart-box-title">${esc(m.label)} por status</div><canvas id="chart-rel-pizza-${m.chave}"></canvas></div>`
+    ).join('');
+
+  if (!window.Chart) return; // vendor/chart.umd.js não carregou — tabela continua útil sem os gráficos
+  _relCharts.barra = new Chart(document.getElementById('chart-rel-barra'), configBarraModulos(resumo));
+  resumo.filter(m=>m.porStatus).forEach(m => {
+    _relCharts['pizza-'+m.chave] = new Chart(document.getElementById(`chart-rel-pizza-${m.chave}`), configPizzaStatus(m));
+  });
+}
+
 function init() {
+  renderModGrid();
   // Default: mês atual pros dois campos
   const now = new Date();
   const mesAtual = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
@@ -413,11 +610,18 @@ async function loadReportDetails() {
   const tag=document.getElementById('f-tag').value.trim().toUpperCase();
   if(!ini || !fim || fim<ini)throw new Error('Selecione um período válido antes de gerar o PDF.');
   const selected={chamados:[],registros:[],preventiva:[],movimentacoes:[]};
+  // Módulo desabilitado ou status não marcado: nem baixa o detalhe (fotos
+  // inclusive) — economiza banda/tempo pro que já vai ficar de fora do PDF.
+  const chaveModulo = {chamados:'chamados',registros:'registros',preventiva:'preventiva',movimentacoes:'movimentacao'};
+  const statusDoItem = { chamados:c=>c.status||'aberto', registros:()=>null, preventiva:p=>prevStatusOf(p), movimentacoes:m=>m.status };
   for(const col of Object.keys(selected)) {
+    if (!moduloHabilitado(chaveModulo[col])) continue;
     for(const record of _dados[col]||[]) {
       const month=col==='preventiva'?prevPeriodOf(record):col==='movimentacoes'?(record.criadoEm?new Date(record.criadoEm).toISOString().slice(0,7):''):String(record.date||'').slice(0,7);
       if(!month || month<ini || month>fim || (contrato && (record.client||record.contract||record.contrato)!==contrato))continue;
       if(tag && !(col==='preventiva'?(record.equipments||[]).some(e=>String(e.tag||'').toUpperCase()===tag):String(record.equip||record.tag||record.novaTag||'').toUpperCase()===tag))continue;
+      const st = statusDoItem[col](record);
+      if (st !== null && !statusPermitido(chaveModulo[col], st)) continue;
       selected[col].push(record);
     }
   }
@@ -469,26 +673,30 @@ async function render() {
   const inTag = (recTag) => !tagFilter || (recTag||'').toUpperCase() === tagFilter;
 
   // Chamados: contrato em c.client, TAG em c.equip, descrição em c.desc
-  const filtChamados  = chamados.filter(c  =>
+  const filtChamados  = !moduloHabilitado('chamados') ? [] : chamados.filter(c  =>
     inPeriod(c.date||c.createdAt?.toString().slice(0,7)) &&
     inContract(c.client||c.contract||c.contrato) &&
-    inTag(c.equip||c.tag));
-  // Registros: contrato em r.client|r.contract, TAG em r.equip|r.tag
-  const filtRegistros = registros.filter(r =>
+    inTag(c.equip||c.tag) &&
+    statusPermitido('chamados', c.status||'aberto'));
+  // Registros: contrato em r.client|r.contract, TAG em r.equip|r.tag —
+  // sem filtro de status (não existe campo próprio, ver MODULOS_RELATORIO)
+  const filtRegistros = !moduloHabilitado('registros') ? [] : registros.filter(r =>
     inPeriod(r.date||r.createdAt?.toString().slice(0,7)) &&
     inContract(r.client||r.contract||r.contrato) &&
     inTag(r.equip||r.tag));
   // Preventiva: contrato em p.client, mês em p.period, equipamentos em
   // p.equipments[].tag. A execução vem de equip.checks (ver prevProgress),
   // não de um array de execuções — que não existe no módulo.
-  const filtPreventiva= preventiva.filter(p=> {
+  const filtPreventiva= !moduloHabilitado('preventiva') ? [] : preventiva.filter(p=> {
     const hasTag = !tagFilter || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilter);
-    return inPeriod(prevPeriodOf(p)) && inContract(p.client||p.contract||p.contrato) && hasTag;
+    return inPeriod(prevPeriodOf(p)) && inContract(p.client||p.contract||p.contrato) && hasTag &&
+      statusPermitido('preventiva', prevStatusOf(p));
   });
   // Movimentações de patrimônio: contrato em m.contrato, data em m.criadoEm
-  const filtMovimentos = movimentos.filter(m => {
+  const filtMovimentos = !moduloHabilitado('movimentacao') ? [] : movimentos.filter(m => {
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
-    return inPeriod(dataStr) && inContract(m.contrato) && inTag(m.tag||m.novaTag);
+    return inPeriod(dataStr) && inContract(m.contrato) && inTag(m.tag||m.novaTag) &&
+      statusPermitido('movimentacao', m.status);
   });
 
   // Contract info
@@ -519,6 +727,9 @@ async function render() {
     <div class="kpi"><div class="kpi-val" style="color:var(--danger)">${abertos}</div><div class="kpi-label">Chamados abertos</div></div>
     <div class="kpi"><div class="kpi-val" style="color:var(--success)">${resolvidos}</div><div class="kpi-label">Resolvidos</div></div>
     <div class="kpi"><div class="kpi-val">${filtRegistros.length}</div><div class="kpi-label">Manutenções exec.</div></div>`;
+
+  // Resumo + gráficos por módulo — mesmos dados que vão pra 1ª página do PDF.
+  renderResumoETelaCharts(montarResumoModulos(filtChamados, filtRegistros, filtPreventiva, filtMovimentos));
 
   // Timeline de eventos (todos juntos, ordenados por data)
   const eventos = [
@@ -832,6 +1043,13 @@ function prevProgress(plan) {
   const done = eqs.filter(e => isEquipDonePrev(e, plan.level)).length;
   return { done, total: eqs.length };
 }
+// Preventiva não grava status — é sempre calculado a partir do progresso
+// (mesma regra já usada nos KPIs/eventos/tabela deste arquivo). Chave sem
+// acento, usada como id de checkbox no filtro de módulo/status.
+function prevStatusOf(plan) {
+  const pr = prevProgress(plan);
+  return pr.total && pr.done === pr.total ? 'concluido' : (pr.done > 0 ? 'parcial' : 'pendente');
+}
 
 // Melhor data disponível pra linha do tempo: assinatura de conclusão mais
 // recente entre os equipamentos; se não houver, o 1º dia do mês do plano.
@@ -1002,21 +1220,24 @@ async function generatePDF() {
     return ym >= periodoIni && ym <= periodoFim;
   };
   const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
-  const chamados  = details.chamados.filter(c=>
+  const chamados  = !moduloHabilitado('chamados') ? [] : details.chamados.filter(c=>
     inPeriodPdf(c.date) &&
     (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
-    inTagPdf(c.equip||c.tag));
-  const registros = details.registros.filter(r=>
+    inTagPdf(c.equip||c.tag) &&
+    statusPermitido('chamados', c.status||'aberto'));
+  const registros = !moduloHabilitado('registros') ? [] : details.registros.filter(r=>
     inPeriodPdf(r.date) &&
     (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
     inTagPdf(r.equip||r.tag));
-  const preventiva= details.preventiva.filter(p=>{
+  const preventiva= !moduloHabilitado('preventiva') ? [] : details.preventiva.filter(p=>{
     const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
-    return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag;
+    return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag&&
+      statusPermitido('preventiva', prevStatusOf(p));
   });
-  const movimentos = details.movimentacoes.filter(m=>{
+  const movimentos = !moduloHabilitado('movimentacao') ? [] : details.movimentacoes.filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
-    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag);
+    return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag) &&
+      statusPermitido('movimentacao', m.status);
   });
 
   // Fase 3: uma única sessão pdf-seguro cobre TODAS as fotos do relatório
@@ -1043,19 +1264,66 @@ async function generatePDF() {
     doc.setFontSize(10);doc.setFont('helvetica','normal');
   };
 
-  // Resumo
-  addSection('Resumo executivo');
-  doc.text(`Chamados no período: ${chamados.length}`,PDF_M,y);y+=6;
-  doc.text(`  Abertos: ${chamados.filter(c=>(c.status||'aberto')==='aberto').length} | Resolvidos: ${chamados.filter(c=>c.status==='resolvido').length}`,PDF_M+4,y);y+=6;
-  doc.text(`Registros de manutenção: ${registros.length}`,PDF_M,y);y+=6;
-  const prevDone = preventiva.reduce((s,p)=>s+prevProgress(p).done,0);
-  const prevTot  = preventiva.reduce((s,p)=>s+prevProgress(p).total,0);
-  doc.text(`Planos de preventiva no período: ${preventiva.length}`,PDF_M,y);y+=6;
-  doc.text(`  Equipamentos concluídos: ${prevDone}/${prevTot}`,PDF_M+4,y);y+=6;
-  doc.text(`Movimentações de patrimônio: ${movimentos.length}`,PDF_M,y);y+=10;
+  // Resumo — tabela + gráficos, sempre na 1ª página (só os módulos
+  // habilitados no filtro entram, mesmos dados da prévia na tela).
+  const resumo = montarResumoModulos(chamados, registros, preventiva, movimentos);
+  addSection('Resumo');
+  const colModulo = PDF_M, colTotal = PDF_M+65, colStatus = PDF_M+85;
+  const wStatus = PDF_W-PDF_M-colStatus;
+  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(120,120,120);
+  doc.text('MÓDULO', colModulo, y); doc.text('TOTAL', colTotal, y); doc.text('POR STATUS', colStatus, y); y+=4;
+  doc.setDrawColor(220); doc.line(PDF_M, y, PDF_W-PDF_M, y); y+=5;
+  resumo.forEach(m => {
+    const [r,g,b] = hexRgb(m.cor);
+    doc.setFillColor(r,g,b); doc.circle(colModulo+1.2, y-1.4, 1.3, 'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(30,30,30);
+    doc.text(m.label, colModulo+5, y);
+    doc.setFont('helvetica','bold'); doc.text(String(m.total), colTotal, y); doc.setFont('helvetica','normal');
+    // "Por status" pode passar de uma linha (movimentação tem 5 status com
+    // rótulos longos) — a altura da linha precisa acompanhar o número de
+    // linhas que splitTextToSize devolveu, senão a próxima linha da tabela
+    // (ou o gráfico logo depois) sobrepõe o texto que estourou.
+    const txt = m.porStatus ? m.porStatus.map(s=>`${s.label}: ${s.valor}`).join('  ·  ') : '(sem status próprio)';
+    doc.setFontSize(9); doc.setTextColor(80,80,80);
+    const linhas = doc.splitTextToSize(txt, wStatus);
+    doc.text(linhas, colStatus, y);
+    y += Math.max(6, linhas.length*4.2 + 1.8);
+  });
+  doc.setTextColor(0,0,0);
+  y += 4;
 
-  // Chamados
+  // Gráficos: barra comparando o total de cada módulo + até 3 pizzas de
+  // status (Registros não entra — não tem status próprio). Chart.js
+  // (vendor/chart.umd.js) desenha num canvas fora da tela, capturado como
+  // PNG (Uint8Array — nunca base64, mesma convenção da Fase 3) e colado
+  // no PDF com addImage.
+  if (window.Chart && resumo.length) {
+    const barraW = PDF_W - PDF_M*2, barraH = 62;
+    if (y + barraH > 270) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
+    const barraImg = await renderizarGraficoParaImagem(configBarraModulos(resumo), 900, 380);
+    doc.addImage(barraImg.bytes, 'PNG', PDF_M, y, barraW, barraH);
+    y += barraH + 8;
+
+    const pizzas = resumo.filter(m=>m.porStatus && m.porStatus.some(s=>s.valor>0));
+    if (pizzas.length) {
+      const gap = 6, pieW = (PDF_W - PDF_M*2 - gap*(pizzas.length-1)) / pizzas.length, pieH = Math.min(pieW, 68);
+      if (y + pieH + 10 > 272) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
+      for (let i=0; i<pizzas.length; i++) {
+        const m = pizzas[i];
+        const img = await renderizarGraficoParaImagem(configPizzaStatus(m), 500, 500);
+        const px = PDF_M + i*(pieW+gap);
+        doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
+        doc.text(m.label, px+pieW/2, y, { align:'center' });
+        doc.addImage(img.bytes, 'PNG', px, y+4, pieW, pieH-4);
+      }
+      y += pieH + 10;
+    }
+    doc.setTextColor(0,0,0);
+  }
+
+  // Chamados — sempre em página nova (quebra de página entre módulos).
   if (chamados.length) {
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     addSection(`Chamados (${chamados.length})`);
     for (const c of chamados) {
       ensurePage(255);
@@ -1075,8 +1343,9 @@ async function generatePDF() {
     y+=4;
   }
 
-  // Registros
+  // Registros — sempre em página nova.
   if (registros.length) {
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     addSection(`Registros de manutenção (${registros.length})`);
     for (const r of registros) {
       ensurePage(255);
@@ -1120,8 +1389,9 @@ async function generatePDF() {
     y+=4;
   }
 
-  // Patrimônio
+  // Patrimônio — sempre em página nova.
   if (movimentos.length) {
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     const tipoLabel = {instalar:'Instalar',desmontar:'Desmontagem',realocar:'Desmontagem',baixar:'Baixar',adicionar:'Adicionar'};
     const statusLabel = {pendente:'Pendente',aprovada:'Aprovada',executada:'Executada',rejeitada:'Rejeitada',cancelada:'Cancelada'};
     const porStatus = st => movimentos.filter(m=>m.status===st).length;
