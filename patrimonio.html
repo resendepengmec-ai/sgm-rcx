@@ -381,6 +381,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <!-- jsPDF auto-hospedado (V12/V18) — nunca de CDN. -->
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="api-client.js?v=20260923.1"></script>
+<script src="pdf-seguro.js"></script>
 <script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
@@ -842,30 +843,38 @@ async function gerarRelMovPDF() {
   };
 
   const cabe = h => { if (y + h > REL_H - REL_M) { doc.addPage(); y = REL_M; } };
-  const desenharFotosPDF = async fotos => {
+  // Fase 3: usa pdf-seguro.js (baixa+reduz com retry, sessão única pro
+  // relatório inteiro) em vez de fotoParaDataUrlPdf + regex de validação.
+  const desenharFotosPDF = async (sessao, fotos) => {
     if (!Array.isArray(fotos) || !fotos.length) return;
-    // Fase 2: fotos podem chegar como referência ({sha}), não mais só
-    // dataUrl embutida — resolve os bytes antes de desenhar (jsPDF exige
-    // dataURL síncrona no addImage).
-    const urls = await Promise.all(fotos.map(f => fotoParaDataUrlPdf(f?.dataUrl || f?.sha ? f : { dataUrl: f })));
     y += 2;
     const cols = 3, gap = 4, cellW = (CW - 4 - gap * (cols - 1)) / cols, maxH = 34;
-    for (let i = 0; i < fotos.length; i += cols) {
-      const linhaUrls = urls.slice(i, i + cols);
+    const preparadas = [];
+    for (const f of fotos) {
+      if (sessao.cancelada) return;
+      const prep = await sessao.processarFoto(f?.dataUrl || f?.sha ? f : { dataUrl: f });
+      if (prep.falhou) falhas++;
+      preparadas.push(prep);
+    }
+    for (let i = 0; i < preparadas.length; i += cols) {
+      const linha = preparadas.slice(i, i + cols);
       cabe(maxH + 4);
-      linhaUrls.forEach((src, c) => {
+      linha.forEach((prep, c) => {
         const x = REL_M + 4 + c * (cellW + gap);
-        const mm = /^data:image\/([a-z0-9.+-]+);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(String(src || '').trim());
-        if (!mm || mm[2].length < 64) { falhas++; return; }
-        const t = mm[1].toLowerCase();
-        const fmt = t === 'png' ? 'PNG' : t === 'webp' ? 'WEBP' : t === 'gif' ? 'GIF' : 'JPEG';
-        try { doc.addImage(src, fmt, x, y, cellW, maxH); }
-        catch (e) { try { doc.addImage(src, x, y, cellW, maxH); } catch (e2) { falhas++; } }
+        if (prep.falhou) { sessao.desenharFotoIndisponivel(doc, x, y, cellW, maxH); return; }
+        try { doc.addImage(prep.bytes, 'JPEG', x, y, cellW, maxH); } catch (e) { falhas++; }
       });
       y += maxH + 3;
     }
   };
 
+  const totalFotosRel = (comFotos ? lista.reduce((a,m)=>a+(Array.isArray(m.fotos)?m.fotos.length:0),0) : 0)
+    + Object.values(fotosAdicionaisPDF).reduce((a,f)=>a+(f?.length||0),0);
+  const sessao = iniciarSessaoPdf({ rotulo: 'relatório de movimentações', totalFotos: totalFotosRel });
+  if (!sessao) return;
+  await sessao.abrir();
+  let cancelado = false;
+  try {
 
   cabecalho();
 
@@ -925,6 +934,7 @@ async function gerarRelMovPDF() {
 
   let idx=0;
   for(const [nome,grupo] of gruposRelMov(lista)) {
+    if (sessao.cancelada) { cancelado = true; break; }
     doc.setFont('helvetica','bold');doc.setFontSize(11);
     const titulo=doc.splitTextToSize(nome,CW-4);
     cabe(75+titulo.length*5);
@@ -975,19 +985,26 @@ async function gerarRelMovPDF() {
       doc.text(q, REL_M + 4, y); y += q.length * 4;
     });
 
-    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) await desenharFotosPDF(m.fotos);
+    if (comFotos && Array.isArray(m.fotos) && m.fotos.length) await desenharFotosPDF(sessao, m.fotos);
+    if (sessao.cancelada) { cancelado = true; break; }
 
     y += 3;
     doc.setDrawColor(225); doc.setLineWidth(0.2);
     doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
     }
+    if (cancelado) break;
     if(fotosAdicionaisPDF[nome]?.length) {
       cabe(45);doc.setFont('helvetica','bold');doc.setFontSize(10);
       doc.text('Fotos adicionais do estabelecimento',REL_M,y);y+=5;
-      await desenharFotosPDF(fotosAdicionaisPDF[nome]);
+      await desenharFotosPDF(sessao, fotosAdicionaisPDF[nome]);
+      if (sessao.cancelada) { cancelado = true; break; }
     }
     y+=6;
   }
+
+  if (cancelado) { showToast('Geração de relatório cancelada.'); return; }
+
+  sessao.etapaMontagem(1);
 
   // Paginação
   const tot = doc.internal.getNumberOfPages();
@@ -995,6 +1012,9 @@ async function gerarRelMovPDF() {
     doc.setPage(p); doc.setFontSize(8); doc.setTextColor(130);
     doc.text(`${p}/${tot}`, REL_W - REL_M, REL_H - 8, { align: 'right' });
   }
+  sessao.etapaSaida(1);
+
+  } finally { await sessao.finalizar(); }
 
   const nome = `movimentacoes-${contrato || 'geral'}-${de || 'inicio'}_a_${ate || 'hoje'}.pdf`;
   try { doc.save(nome); }
