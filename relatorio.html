@@ -357,13 +357,39 @@ function renderModGrid() {
     </div>`).join('');
 }
 
-function moduloHabilitado(chave) {
+// `snap`, quando informado, é um retrato dos checkboxes tirado por
+// capturarFiltroModulos() — ver por quê no comentário dessa função.
+// Sem `snap` (uso na tela, em render()), lê o DOM ao vivo.
+function moduloHabilitado(chave, snap) {
+  if (snap) return !!snap[chave]?.habilitado;
   const el = document.getElementById(`f-mod-${chave}`);
   return !el || el.checked;
 }
-function statusPermitido(chave, status) {
+function statusPermitido(chave, status, snap) {
+  if (snap) { const s = snap[chave]; return !s || !s.status || s.status.has(status); }
   const el = document.getElementById(`f-st-${chave}-${status}`);
   return !el || el.checked; // sem checkbox de status = módulo sem status (Registros)
+}
+
+// ── Retrato do filtro de módulo/status, tirado ANTES de qualquer download
+// assíncrono. Geração de PDF pode levar vários segundos (loadReportDetails
+// busca cada registro por HTTP, ANTES da sessão pdf-seguro sequer existir
+// — nada bloqueia a tela nesse trecho, ao contrário do resto da geração,
+// que já fica atrás do modal de progresso). Sem isto, ler os checkboxes
+// de novo em cada etapa (loadReportDetails, os filtros de generatePDF,
+// montarResumoModulos) podia produzir um PDF inconsistente com ele mesmo
+// se o usuário mexesse num checkbox no meio da geração — pior caso: um
+// módulo reabilitado depois que loadReportDetails já pulou o download dele
+// aparecia vazio no PDF, sem erro nenhum avisando por quê.
+function capturarFiltroModulos() {
+  const snap = {};
+  MODULOS_RELATORIO.forEach(m => {
+    snap[m.chave] = {
+      habilitado: moduloHabilitado(m.chave),
+      status: m.status ? new Set(m.status.filter(st => statusPermitido(m.chave, st.chave)).map(st=>st.chave)) : null,
+    };
+  });
+  return snap;
 }
 
 // ── Resumo por módulo (compartilhado entre a prévia na tela e a 1ª
@@ -372,7 +398,7 @@ function statusPermitido(chave, status) {
 // status foi desmarcado, os itens dele já saíram de `fChamados` etc. —
 // aparece como 0, não escondido, refletindo fielmente o que vai no
 // relatório).
-function montarResumoModulos(fChamados, fRegistros, fPreventiva, fMovimentos) {
+function montarResumoModulos(fChamados, fRegistros, fPreventiva, fMovimentos, snap) {
   const dados = { chamados:fChamados, registros:fRegistros, preventiva:fPreventiva, movimentacao:fMovimentos };
   const statusDoItem = {
     chamados: c => c.status || 'aberto',
@@ -380,7 +406,7 @@ function montarResumoModulos(fChamados, fRegistros, fPreventiva, fMovimentos) {
     preventiva: p => prevStatusOf(p),
     movimentacao: m => m.status,
   };
-  return MODULOS_RELATORIO.filter(m => moduloHabilitado(m.chave)).map(m => {
+  return MODULOS_RELATORIO.filter(m => moduloHabilitado(m.chave, snap)).map(m => {
     const items = dados[m.chave] || [];
     const porStatus = m.status ? m.status.map(st => ({
       chave: st.chave, label: st.label, cor: st.cor,
@@ -466,15 +492,19 @@ function renderResumoETelaCharts(resumo) {
       </tbody>
     </table>`;
 
+  // Só entra pizza de módulo com pelo menos um status>0 — um módulo
+  // habilitado mas sem nenhum item no período não tem o que desenhar
+  // (mesmo critério usado na 1ª página do PDF, ver generatePDF).
+  const pizzas = resumo.filter(m=>m.porStatus && m.porStatus.some(s=>s.valor>0));
   const grid = document.getElementById('charts-grid');
   grid.innerHTML = `<div class="chart-box"><div class="chart-box-title">Itens por módulo</div><canvas id="chart-rel-barra"></canvas></div>` +
-    resumo.filter(m=>m.porStatus).map(m=>
+    pizzas.map(m=>
       `<div class="chart-box"><div class="chart-box-title">${esc(m.label)} por status</div><canvas id="chart-rel-pizza-${m.chave}"></canvas></div>`
     ).join('');
 
   if (!window.Chart) return; // vendor/chart.umd.js não carregou — tabela continua útil sem os gráficos
   _relCharts.barra = new Chart(document.getElementById('chart-rel-barra'), configBarraModulos(resumo));
-  resumo.filter(m=>m.porStatus).forEach(m => {
+  pizzas.forEach(m => {
     _relCharts['pizza-'+m.chave] = new Chart(document.getElementById(`chart-rel-pizza-${m.chave}`), configPizzaStatus(m));
   });
 }
@@ -603,7 +633,13 @@ async function loadReportData() {
   _reportDataLoaded = true;
 }
 
-async function loadReportDetails() {
+// `snap`: retrato do filtro de módulo/status tirado ANTES desta função
+// começar a baixar detalhes (ver capturarFiltroModulos) — sem ele, o
+// laço de download abaixo (um HTTP por item, pode levar segundos) roda
+// com a tela ainda destravada, e um checkbox mexido no meio do caminho
+// deixaria este método e generatePDF() lendo estados diferentes um do
+// outro.
+async function loadReportDetails(snap) {
   const ini=document.getElementById('f-periodo-ini').value;
   const fim=document.getElementById('f-periodo-fim').value;
   const contrato=document.getElementById('f-contrato').value;
@@ -615,13 +651,13 @@ async function loadReportDetails() {
   const chaveModulo = {chamados:'chamados',registros:'registros',preventiva:'preventiva',movimentacoes:'movimentacao'};
   const statusDoItem = { chamados:c=>c.status||'aberto', registros:()=>null, preventiva:p=>prevStatusOf(p), movimentacoes:m=>m.status };
   for(const col of Object.keys(selected)) {
-    if (!moduloHabilitado(chaveModulo[col])) continue;
+    if (!moduloHabilitado(chaveModulo[col], snap)) continue;
     for(const record of _dados[col]||[]) {
       const month=col==='preventiva'?prevPeriodOf(record):col==='movimentacoes'?(record.criadoEm?new Date(record.criadoEm).toISOString().slice(0,7):''):String(record.date||'').slice(0,7);
       if(!month || month<ini || month>fim || (contrato && (record.client||record.contract||record.contrato)!==contrato))continue;
       if(tag && !(col==='preventiva'?(record.equipments||[]).some(e=>String(e.tag||'').toUpperCase()===tag):String(record.equip||record.tag||record.novaTag||'').toUpperCase()===tag))continue;
       const st = statusDoItem[col](record);
-      if (st !== null && !statusPermitido(chaveModulo[col], st)) continue;
+      if (st !== null && !statusPermitido(chaveModulo[col], st, snap)) continue;
       selected[col].push(record);
     }
   }
@@ -1184,8 +1220,12 @@ async function renderPreventivaPlanDetail(doc, plan, sessao) {
 async function generatePDF() {
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   if (!_reportDataLoaded) { showToast('Carregando dados…'); await loadReportData(); }
+  // Retrato do filtro de módulo/status ANTES do download de detalhes
+  // (que não fica atrás de nenhum modal/trava — ver capturarFiltroModulos).
+  // Usado em TODA a geração daqui pra frente, nunca mais lido do DOM.
+  const snap = capturarFiltroModulos();
   let details;
-  try { details=await loadReportDetails(); }
+  try { details=await loadReportDetails(snap); }
   catch (e) { showToast('Não foi possível carregar os anexos completos: ' + e.message, 7000); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
@@ -1220,24 +1260,24 @@ async function generatePDF() {
     return ym >= periodoIni && ym <= periodoFim;
   };
   const inTagPdf = (recTag) => !tagFilterPdf || (recTag||'').toUpperCase() === tagFilterPdf;
-  const chamados  = !moduloHabilitado('chamados') ? [] : details.chamados.filter(c=>
+  const chamados  = !moduloHabilitado('chamados', snap) ? [] : details.chamados.filter(c=>
     inPeriodPdf(c.date) &&
     (!contrato||(c.client||c.contract||c.contrato)===contrato) &&
     inTagPdf(c.equip||c.tag) &&
-    statusPermitido('chamados', c.status||'aberto'));
-  const registros = !moduloHabilitado('registros') ? [] : details.registros.filter(r=>
+    statusPermitido('chamados', c.status||'aberto', snap));
+  const registros = !moduloHabilitado('registros', snap) ? [] : details.registros.filter(r=>
     inPeriodPdf(r.date) &&
     (!contrato||(r.client||r.contract||r.contrato)===contrato) &&
     inTagPdf(r.equip||r.tag));
-  const preventiva= !moduloHabilitado('preventiva') ? [] : details.preventiva.filter(p=>{
+  const preventiva= !moduloHabilitado('preventiva', snap) ? [] : details.preventiva.filter(p=>{
     const hasTag = !tagFilterPdf || (p.equipments||[]).some(e=>(e.tag||'').toUpperCase()===tagFilterPdf);
     return inPeriodPdf(prevPeriodOf(p))&&(!contrato||(p.client||p.contract||p.contrato)===contrato)&&hasTag&&
-      statusPermitido('preventiva', prevStatusOf(p));
+      statusPermitido('preventiva', prevStatusOf(p), snap);
   });
-  const movimentos = !moduloHabilitado('movimentacao') ? [] : details.movimentacoes.filter(m=>{
+  const movimentos = !moduloHabilitado('movimentacao', snap) ? [] : details.movimentacoes.filter(m=>{
     const dataStr = m.criadoEm ? new Date(m.criadoEm).toISOString().slice(0,7) : '';
     return inPeriodPdf(dataStr) && (!contrato || m.contrato===contrato) && inTagPdf(m.tag||m.novaTag) &&
-      statusPermitido('movimentacao', m.status);
+      statusPermitido('movimentacao', m.status, snap);
   });
 
   // Fase 3: uma única sessão pdf-seguro cobre TODAS as fotos do relatório
@@ -1266,7 +1306,7 @@ async function generatePDF() {
 
   // Resumo — tabela + gráficos, sempre na 1ª página (só os módulos
   // habilitados no filtro entram, mesmos dados da prévia na tela).
-  const resumo = montarResumoModulos(chamados, registros, preventiva, movimentos);
+  const resumo = montarResumoModulos(chamados, registros, preventiva, movimentos, snap);
   addSection('Resumo');
   const colModulo = PDF_M, colTotal = PDF_M+65, colStatus = PDF_M+85;
   const wStatus = PDF_W-PDF_M-colStatus;
@@ -1300,23 +1340,32 @@ async function generatePDF() {
   if (window.Chart && resumo.length) {
     const barraW = PDF_W - PDF_M*2, barraH = 62;
     if (y + barraH > 270) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
-    const barraImg = await renderizarGraficoParaImagem(configBarraModulos(resumo), 900, 380);
+    // hPx acompanha a proporção real de exibição (barraW/barraH) — um
+    // canvas-fonte com outra proporção esticaria/achataria as barras.
+    const barraImg = await renderizarGraficoParaImagem(configBarraModulos(resumo), 900, Math.round(900*barraH/barraW));
     doc.addImage(barraImg.bytes, 'PNG', PDF_M, y, barraW, barraH);
     y += barraH + 8;
 
     const pizzas = resumo.filter(m=>m.porStatus && m.porStatus.some(s=>s.valor>0));
     if (pizzas.length) {
-      const gap = 6, pieW = (PDF_W - PDF_M*2 - gap*(pizzas.length-1)) / pizzas.length, pieH = Math.min(pieW, 68);
-      if (y + pieH + 10 > 272) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
+      // Cada pizza precisa de largura=altura (a imagem-fonte é 1:1,
+      // 500x500) — com só 1 ou 2 módulos, a coluna disponível é mais
+      // larga que 68mm; sem limitar os dois lados igualmente, a pizza
+      // vira uma elipse esticada em vez de um círculo.
+      const gap = 6;
+      const colW = (PDF_W - PDF_M*2 - gap*(pizzas.length-1)) / pizzas.length;
+      const pieSize = Math.min(colW, 68);
+      if (y + pieSize + 10 > 272) { doc.addPage(); y = drawPdfHeader(doc, { full:false }); }
       for (let i=0; i<pizzas.length; i++) {
         const m = pizzas[i];
         const img = await renderizarGraficoParaImagem(configPizzaStatus(m), 500, 500);
-        const px = PDF_M + i*(pieW+gap);
+        const colX = PDF_M + i*(colW+gap);
+        const px = colX + (colW-pieSize)/2; // centralizada na coluna
         doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
-        doc.text(m.label, px+pieW/2, y, { align:'center' });
-        doc.addImage(img.bytes, 'PNG', px, y+4, pieW, pieH-4);
+        doc.text(m.label, colX+colW/2, y, { align:'center' });
+        doc.addImage(img.bytes, 'PNG', px, y+4, pieSize, pieSize);
       }
-      y += pieH + 10;
+      y += pieSize + 10;
     }
     doc.setTextColor(0,0,0);
   }
@@ -1426,7 +1475,14 @@ let reportPdfBusy=false;
 generatePDF = async function(btn) {
   if(reportPdfBusy)return;
   reportPdfBusy=true;
-  const filters=['f-periodo-ini','f-periodo-fim','f-contrato','f-tag'].map(id=>document.getElementById(id)).filter(Boolean);
+  // Os checkboxes de módulo/status entram aqui também: generatePDF() já
+  // trabalha sobre um retrato tirado no início (capturarFiltroModulos),
+  // então mexer neles durante a geração não muda mais o PDF — mas sem
+  // desabilitar visualmente, pareceria que mudou.
+  const filters=['f-periodo-ini','f-periodo-fim','f-contrato','f-tag']
+    .map(id=>document.getElementById(id))
+    .concat(Array.from(document.querySelectorAll('#mod-grid input[type="checkbox"]')))
+    .filter(Boolean);
   const disabled=filters.map(el=>el.disabled);filters.forEach(el=>el.disabled=true);
   try{return await withActionBusy(btn, 'Gerando PDF…', () => _generatePDFOriginal());}
   finally{filters.forEach((el,i)=>el.disabled=disabled[i]);reportPdfBusy=false;}
