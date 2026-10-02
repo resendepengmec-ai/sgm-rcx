@@ -882,12 +882,15 @@ async function gerarRelMovPDF() {
   // Tabelas-resumo para leitura rápida do relatório.
   const porTipo = {};
   const porUsuario = {};
+  const porEstab = {};
   const rotulo = ROTULO_PLURAL;
   lista.forEach(m => {
     const tipo = tipoRel(m);
     const usuario = m.solicitante || m.solicitanteEmail || 'Não informado';
+    const estab = estabelecimentoDoGrupoRel(m);
     porTipo[tipo] = (porTipo[tipo] || 0) + 1;
     porUsuario[usuario] = (porUsuario[usuario] || 0) + 1;
+    porEstab[estab] = (porEstab[estab] || 0) + 1;
   });
 
   const desenharTabelaResumo = (titulo, linhas) => {
@@ -916,6 +919,7 @@ async function gerarRelMovPDF() {
 
   desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo).map(([t,n])=>[n===1?ROTULO_SINGULAR[t]:ROTULO_PLURAL[t],n]));
   desenharTabelaResumo('Resumo por usuário', Object.entries(porUsuario).sort((a, b) => b[1] - a[1]));
+  desenharTabelaResumo('Resumo por estabelecimento', Object.entries(porEstab).sort((a, b) => b[1] - a[1]));
 
   if (textoAdicionalPDF) {
     cabe(16);
@@ -932,9 +936,15 @@ async function gerarRelMovPDF() {
     doc.line(REL_M, y, REL_W - REL_M, y); y += 5;
   }
 
-  let idx=0;
+  // Quebra de página: a 1ª página fica só com os resumos acima; cada
+  // estabelecimento a partir daqui começa numa página nova (antes só
+  // quebrava por transbordo via cabe(), podia misturar o fim de um
+  // estabelecimento com o início do próximo na mesma página).
+  doc.addPage(); y = REL_M;
+  let idx=0, grupoIdx=0;
   for(const [nome,grupo] of gruposRelMov(lista)) {
     if (sessao.cancelada) { cancelado = true; break; }
+    if (grupoIdx++ > 0) { doc.addPage(); y = REL_M; }
     doc.setFont('helvetica','bold');doc.setFontSize(11);
     const titulo=doc.splitTextToSize(nome,CW-4);
     cabe(75+titulo.length*5);
