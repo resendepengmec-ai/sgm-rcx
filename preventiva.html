@@ -1974,6 +1974,16 @@ async function printFilteredVolume(filtered, volume, sessao, stats) {
     y+=7;
   });
 
+  // Total — soma de todos os equipamentos executados da tabela acima.
+  if(y>275){doc.addPage();y=drawPdfHeader(doc, {title:'RELATÓRIO DE MANUTENÇÃO PREVENTIVA', metaLines:[]});}
+  const totalEstabPrev = linhasEstabPrev.reduce((s,[,q])=>s+q,0);
+  doc.setDrawColor(100);doc.setLineWidth(0.3);doc.line(M,y,M+CW,y);y+=1;
+  doc.setFillColor(224,242,254);doc.rect(M,y,CW,7,'F');
+  doc.setTextColor(30,30,30); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+  doc.text('TOTAL', M+3, y+4.8);
+  doc.text(String(totalEstabPrev), M+CW-3, y+4.8, {align:'right'});
+  y+=7;
+
   // Quebra de página: o detalhamento por plano (abaixo) já começa com
   // doc.addPage() antes de cada generatePlanPDF — a tabela-resumo acima
   // já fica isolada na 1ª página sem precisar de outra quebra aqui.

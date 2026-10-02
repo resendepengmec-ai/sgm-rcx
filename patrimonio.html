@@ -894,7 +894,7 @@ async function gerarRelMovPDF() {
   });
 
   const desenharTabelaResumo = (titulo, linhas) => {
-    cabe(18 + linhas.length * 6);
+    cabe(24 + (linhas.length + 1) * 6);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(0, 0, 0);
     doc.text(titulo, REL_M, y); y += 5;
     doc.setFillColor(231, 238, 248);
@@ -914,6 +914,15 @@ async function gerarRelMovPDF() {
       doc.line(REL_M, y + 2, REL_W - REL_M, y + 2);
       y += 5;
     });
+    // Total — soma de todas as quantidades da tabela, em destaque.
+    cabe(8);
+    const totalGeral = linhas.reduce((s,[,q])=>s+q, 0);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5); doc.setTextColor(0, 0, 0);
+    doc.text('Total', REL_M + 2, y);
+    doc.text(String(totalGeral), REL_W - REL_M - 2, y, { align: 'right' });
+    doc.setDrawColor(150); doc.setLineWidth(0.3);
+    doc.line(REL_M, y + 2, REL_W - REL_M, y + 2);
+    y += 5;
     y += 4;
   };
 

@@ -331,7 +331,11 @@ const MODULOS_RELATORIO = [
     {chave:'resolvido',label:'Resolvido',cor:'#22c55e'}, {chave:'cancelado',label:'Cancelado',cor:'#94a3b8'},
   ]},
   { chave:'registros', label:'Registros', cor:'#059669', status:null },
-  { chave:'preventiva', label:'Preventiva', cor:'#0369a1', status:[
+  // unidadePorStatus: só a Preventiva tem a barra (total) e a pizza (por
+  // status) em unidades diferentes — a barra conta planos, a pizza soma
+  // os equipamentos dos planos de cada categoria (ver montarResumoModulos).
+  // Os outros módulos não precisam do campo (mesma unidade nos dois).
+  { chave:'preventiva', label:'Preventiva', cor:'#0369a1', unidadePorStatus:'equipamentos', status:[
     {chave:'concluido',label:'Concluído',cor:'#22c55e'}, {chave:'parcial',label:'Parcial',cor:'#f59e0b'},
     {chave:'pendente',label:'Pendente',cor:'#94a3b8'},
   ]},
@@ -406,13 +410,27 @@ function montarResumoModulos(fChamados, fRegistros, fPreventiva, fMovimentos, sn
     preventiva: p => prevStatusOf(p),
     movimentacao: m => m.status,
   };
+  // Preventiva é o único módulo em que a BARRA (total) e a PIZZA (por
+  // status) representam unidades diferentes de propósito: a barra conta
+  // PLANOS (quantos planos entraram no relatório), mas a pizza soma os
+  // EQUIPAMENTOS dos planos de cada categoria — um plano "parcial" pode
+  // ter 1 ou 50 equipamentos, e a pizza existe pra mostrar esse volume
+  // de serviço, não quantos planos existem (isso já é a barra).
+  const valorDoStatus = {
+    chamados: (items, st) => items.filter(c => statusDoItem.chamados(c) === st).length,
+    registros: () => 0,
+    preventiva: (items, st) => items
+      .filter(p => prevStatusOf(p) === st)
+      .reduce((s,p) => s + (p.equipments||[]).length, 0),
+    movimentacao: (items, st) => items.filter(m => statusDoItem.movimentacao(m) === st).length,
+  };
   return MODULOS_RELATORIO.filter(m => moduloHabilitado(m.chave, snap)).map(m => {
     const items = dados[m.chave] || [];
     const porStatus = m.status ? m.status.map(st => ({
       chave: st.chave, label: st.label, cor: st.cor,
-      valor: items.filter(it => statusDoItem[m.chave](it) === st.chave).length,
+      valor: valorDoStatus[m.chave](items, st.chave),
     })) : null;
-    return { chave:m.chave, label:m.label, cor:m.cor, total:items.length, porStatus };
+    return { chave:m.chave, label:m.label, cor:m.cor, total:items.length, porStatus, unidadePorStatus:m.unidadePorStatus||null };
   });
 }
 
@@ -487,7 +505,7 @@ function renderResumoETelaCharts(resumo) {
         <tr>
           <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${m.cor};margin-right:6px"></span>${esc(m.label)}</td>
           <td style="font-weight:700">${m.total}</td>
-          <td>${m.porStatus ? m.porStatus.map(s=>`${esc(s.label)}: ${s.valor}`).join(' · ') : '—'}</td>
+          <td>${m.porStatus ? (m.unidadePorStatus?`<span style="color:var(--text-3)">(${esc(m.unidadePorStatus)})</span> `:'')+m.porStatus.map(s=>`${esc(s.label)}: ${s.valor}`).join(' · ') : '—'}</td>
         </tr>`).join('')}
       </tbody>
     </table>`;
@@ -499,7 +517,7 @@ function renderResumoETelaCharts(resumo) {
   const grid = document.getElementById('charts-grid');
   grid.innerHTML = `<div class="chart-box"><div class="chart-box-title">Itens por módulo</div><canvas id="chart-rel-barra"></canvas></div>` +
     pizzas.map(m=>
-      `<div class="chart-box"><div class="chart-box-title">${esc(m.label)} por status</div><canvas id="chart-rel-pizza-${m.chave}"></canvas></div>`
+      `<div class="chart-box"><div class="chart-box-title">${esc(m.label)} — ${m.unidadePorStatus?esc(m.unidadePorStatus)+' ':''}por status</div><canvas id="chart-rel-pizza-${m.chave}"></canvas></div>`
     ).join('');
 
   if (!window.Chart) return; // vendor/chart.umd.js não carregou — tabela continua útil sem os gráficos
@@ -1311,6 +1329,10 @@ async function generatePDF() {
   // padrão de ensurePage/addSection acima.
   const tabelaResumoEstabelecimento = (contagens, cor) => {
     const CWfull = PDF_W - PDF_M*2;
+    // Garante espaço pro menos pra cabeçalho + 1 linha antes de desenhar
+    // (auditoria de quebra de página: esta função não checava espaço
+    // antes do próprio cabeçalho colorido, só dentro do loop de linhas).
+    ensurePage(272-13);
     const [r,g,b] = hexRgb(cor);
     doc.setFillColor(r,g,b); doc.rect(PDF_M, y, CWfull, 7, 'F');
     doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
@@ -1326,7 +1348,16 @@ async function generatePDF() {
       doc.text(String(qtd), PDF_W-PDF_M-3, y+4.2, { align:'right' });
       y += 6;
     });
-    doc.setTextColor(0,0,0);
+    // Total — soma de todas as quantidades da tabela, em destaque.
+    ensurePage(272);
+    const totalGeral = contagens.reduce((s,[,q])=>s+q, 0);
+    doc.setDrawColor(130); doc.setLineWidth(0.3); doc.line(PDF_M, y, PDF_W-PDF_M, y); y += 1;
+    doc.setFillColor(230,230,235); doc.rect(PDF_M, y, CWfull, 6, 'F');
+    doc.setTextColor(0,0,0); doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    doc.text('TOTAL', PDF_M+3, y+4.2);
+    doc.text(String(totalGeral), PDF_W-PDF_M-3, y+4.2, { align:'right' });
+    y += 6;
+    doc.setFont('helvetica','normal');
     y += 6;
   };
 
@@ -1349,7 +1380,9 @@ async function generatePDF() {
     // rótulos longos) — a altura da linha precisa acompanhar o número de
     // linhas que splitTextToSize devolveu, senão a próxima linha da tabela
     // (ou o gráfico logo depois) sobrepõe o texto que estourou.
-    const txt = m.porStatus ? m.porStatus.map(s=>`${s.label}: ${s.valor}`).join('  ·  ') : '(sem status próprio)';
+    const txt = m.porStatus
+      ? (m.unidadePorStatus ? `(${m.unidadePorStatus}) ` : '') + m.porStatus.map(s=>`${s.label}: ${s.valor}`).join('  ·  ')
+      : '(sem status próprio)';
     doc.setFontSize(9); doc.setTextColor(80,80,80);
     const linhas = doc.splitTextToSize(txt, wStatus);
     doc.text(linhas, colStatus, y);
@@ -1389,7 +1422,12 @@ async function generatePDF() {
         const px = colX + (colW-pieSize)/2; // centralizada na coluna
         doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(30,30,30);
         doc.text(m.label, colX+colW/2, y, { align:'center' });
-        doc.addImage(img.bytes, 'PNG', px, y+4, pieSize, pieSize);
+        if (m.unidadePorStatus) {
+          doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+          doc.text(`(${m.unidadePorStatus})`, colX+colW/2, y+3.5, { align:'center' });
+          doc.setTextColor(30,30,30);
+        }
+        doc.addImage(img.bytes, 'PNG', px, y+6, pieSize, pieSize);
       }
       y += pieSize + 10;
     }
