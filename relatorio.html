@@ -1304,6 +1304,32 @@ async function generatePDF() {
     doc.setFontSize(10);doc.setFont('helvetica','normal');
   };
 
+  // Tabela "ESTABELECIMENTO × QTD. SERVIÇOS" — abre cada seção de módulo
+  // (1ª página da seção, antes do detalhamento item-a-item que já vem a
+  // seguir). `cor` é a mesma do cabeçalho colorido do módulo (mesmas
+  // cores do MODULOS_RELATORIO do filtro). Muta `y` diretamente, mesmo
+  // padrão de ensurePage/addSection acima.
+  const tabelaResumoEstabelecimento = (contagens, cor) => {
+    const CWfull = PDF_W - PDF_M*2;
+    const [r,g,b] = hexRgb(cor);
+    doc.setFillColor(r,g,b); doc.rect(PDF_M, y, CWfull, 7, 'F');
+    doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
+    doc.text('ESTABELECIMENTO', PDF_M+3, y+4.8);
+    doc.text('QTD. SERVIÇOS', PDF_W-PDF_M-3, y+4.8, { align:'right' });
+    y += 7;
+    doc.setFont('helvetica','normal');
+    contagens.forEach(([estab,qtd],i) => {
+      ensurePage(272);
+      if (i%2===0) { doc.setFillColor(245,245,247); doc.rect(PDF_M, y, CWfull, 6, 'F'); }
+      doc.setTextColor(30,30,30); doc.setFontSize(9);
+      doc.text(doc.splitTextToSize(String(estab), CWfull-40)[0], PDF_M+3, y+4.2);
+      doc.text(String(qtd), PDF_W-PDF_M-3, y+4.2, { align:'right' });
+      y += 6;
+    });
+    doc.setTextColor(0,0,0);
+    y += 6;
+  };
+
   // Resumo — tabela + gráficos, sempre na 1ª página (só os módulos
   // habilitados no filtro entram, mesmos dados da prévia na tela).
   const resumo = montarResumoModulos(chamados, registros, preventiva, movimentos, snap);
@@ -1374,6 +1400,16 @@ async function generatePDF() {
   if (chamados.length) {
     doc.addPage(); y = drawPdfHeader(doc, { full:false });
     addSection(`Chamados (${chamados.length})`);
+    const porEstabChamadosPdf = {};
+    chamados.forEach(c => {
+      const estab = c.machine?.estabelecimento || 'Estabelecimento não informado';
+      porEstabChamadosPdf[estab] = (porEstabChamadosPdf[estab] || 0) + 1;
+    });
+    tabelaResumoEstabelecimento(Object.entries(porEstabChamadosPdf).sort((a,b)=>b[1]-a[1]), '#7c3aed');
+    // Quebra de página: a tabela-resumo acima fica sozinha na 1ª página
+    // da seção; o detalhamento abaixo (que só quebra por transbordo via
+    // ensurePage) começa limpo numa página nova.
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     for (const c of chamados) {
       ensurePage(255);
       doc.text(`${c.date||'—'} | TAG: ${c.equip||c.tag||'—'} | ${c.status||'aberto'}`,PDF_M+2,y);y+=5;
@@ -1396,6 +1432,13 @@ async function generatePDF() {
   if (registros.length) {
     doc.addPage(); y = drawPdfHeader(doc, { full:false });
     addSection(`Registros de manutenção (${registros.length})`);
+    const porEstabRegPdf = {};
+    registros.forEach(r => {
+      const estab = r.machine?.estabelecimento || 'Estabelecimento não informado';
+      porEstabRegPdf[estab] = (porEstabRegPdf[estab] || 0) + 1;
+    });
+    tabelaResumoEstabelecimento(Object.entries(porEstabRegPdf).sort((a,b)=>b[1]-a[1]), '#059669');
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     for (const r of registros) {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
@@ -1413,6 +1456,21 @@ async function generatePDF() {
   // Preventiva — mesmo relatório completo por plano usado em preventiva.html
   // (resumo, tabela de equipamentos, detalhamento por nível e fotos)
   if (preventiva.length) {
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
+    addSection(`Preventiva (${preventiva.length})`);
+    // "1 serviço" = 1 equipamento com o nível marcado como feito,
+    // contado pelo estabelecimento DAQUELE equipamento — um plano pode
+    // abranger vários estabelecimentos, então a contagem é por
+    // equipamento, não por plano.
+    const porEstabPrevPdf = {};
+    preventiva.forEach(p => {
+      (p.equipments||[]).forEach(eq => {
+        if (!isEquipDonePrev(eq, p.level)) return;
+        const estab = eq.estabelecimento || 'Estabelecimento não informado';
+        porEstabPrevPdf[estab] = (porEstabPrevPdf[estab] || 0) + 1;
+      });
+    });
+    tabelaResumoEstabelecimento(Object.entries(porEstabPrevPdf).sort((a,b)=>b[1]-a[1]), '#0369a1');
     for (const p of preventiva) {
       doc.addPage();
       await renderPreventivaPlanDetail(doc, p, sessao);
@@ -1446,6 +1504,16 @@ async function generatePDF() {
     const porStatus = st => movimentos.filter(m=>m.status===st).length;
     addSection(`Movimentações de patrimônio (${movimentos.length})`);
     doc.text(`Pendentes: ${porStatus('pendente')} | Aprovadas: ${porStatus('aprovada')} | Executadas: ${porStatus('executada')} | Rejeitadas/Canceladas: ${porStatus('rejeitada')+porStatus('cancelada')}`,PDF_M+2,y);y+=7;
+    // Resolução simplificada (sem o fallback de busca no cadastro do
+    // contrato pela TAG, que patrimonio.html usa) — cobre o caso comum
+    // sem precisar duplicar os helpers de TAG/contrato daquele módulo.
+    const porEstabMovPdf = {};
+    movimentos.forEach(m => {
+      const estab = m.estabelecimentoDestino || m.estabelecimentoOrigem || m.estabelecimento || 'Estabelecimento não informado';
+      porEstabMovPdf[estab] = (porEstabMovPdf[estab] || 0) + 1;
+    });
+    tabelaResumoEstabelecimento(Object.entries(porEstabMovPdf).sort((a,b)=>b[1]-a[1]), '#0891b2');
+    doc.addPage(); y = drawPdfHeader(doc, { full:false });
     movimentos.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0)).forEach(m=>{
       ensurePage(255);
       const dataStr = m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—';
