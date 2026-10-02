@@ -1944,35 +1944,39 @@ async function printFilteredVolume(filtered, volume, sessao, stats) {
     return text + '…';
   }
 
-  const colContrato = M+3, colPeriodo = M+CW*0.32, colNivel = M+CW*0.50, colTecnico = M+CW*0.60, colEquip = M+CW*0.85;
-  const wContrato = colPeriodo-colContrato-3, wTecnico = colEquip-colTecnico-3;
+  // Resumo por estabelecimento (equipamentos executados) — substitui a
+  // listagem linha-a-linha de antes: ela já duplicava o detalhamento
+  // completo que vem a seguir, 1 página por plano. "1 serviço" = 1
+  // equipamento com o nível marcado como feito, contado pelo
+  // estabelecimento DAQUELE equipamento (um plano pode abranger vários).
+  const porEstabPrev = {};
+  filtered.forEach(p => {
+    (p.equipments||[]).forEach(eq => {
+      if (!isEquipDone(eq, p.level)) return;
+      const estab = eq.estabelecimento || 'Estabelecimento não informado';
+      porEstabPrev[estab] = (porEstabPrev[estab] || 0) + 1;
+    });
+  });
+  const linhasEstabPrev = Object.entries(porEstabPrev).sort((a,b)=>b[1]-a[1]);
 
   doc.setFillColor(3,105,161); doc.rect(M,y,CW,8,'F');
   doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
-  doc.text('CONTRATO', colContrato, y+5.5);
-  doc.text('PERÍODO', colPeriodo, y+5.5);
-  doc.text('NÍVEL', colNivel, y+5.5);
-  doc.text('TÉCNICO', colTecnico, y+5.5);
-  doc.text('EQUIP', colEquip, y+5.5);
-  doc.text('STATUS', M+CW-3, y+5.5, {align:'right'});
+  doc.text('ESTABELECIMENTO', M+3, y+5.5);
+  doc.text('QTD. SERVIÇOS', M+CW-3, y+5.5, {align:'right'});
   y+=8;
 
-  filtered.forEach((p,i) => {
+  linhasEstabPrev.forEach(([estab,qtd],i) => {
     if(y>275){doc.addPage();y=drawPdfHeader(doc, {title:'RELATÓRIO DE MANUTENÇÃO PREVENTIVA', metaLines:[]});}
     if(i%2===0){doc.setFillColor(240,249,255);doc.rect(M,y,CW,7,'F');}
-    const st=getPlanStatus(p);
-    const done=p.equipments.filter(e=>isEquipDone(e,p.level)).length;
     doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
-    doc.text(fitText(doc, `Cto. ${p.client}`, wContrato), colContrato, y+4.8);
-    doc.text(fmtMonth(p.period).slice(0,10), colPeriodo, y+4.8);
-    doc.text(`N${p.level}`, colNivel, y+4.8);
-    doc.text(fitText(doc, p.tech||'—', wTecnico), colTecnico, y+4.8);
-    doc.text(`${done}/${p.equipments.length}`, colEquip, y+4.8);
-    doc.setFont('helvetica','bold');
-    const sr=st==='done'?22:(st==='partial'?217:100); const sg=st==='done'?163:(st==='partial'?119:100); const sb=st==='done'?74:(st==='partial'?10:100); doc.setTextColor(sr,sg,sb);
-    doc.text(st==='done'?'Concluída':st==='partial'?'Parcial':'Pendente', M+CW-3, y+4.8, {align:'right'});
+    doc.text(fitText(doc, estab, CW-40), M+3, y+4.8);
+    doc.text(String(qtd), M+CW-3, y+4.8, {align:'right'});
     y+=7;
   });
+
+  // Quebra de página: o detalhamento por plano (abaixo) já começa com
+  // doc.addPage() antes de cada generatePlanPDF — a tabela-resumo acima
+  // já fica isolada na 1ª página sem precisar de outra quebra aqui.
 
   // Detalhamento completo de cada plano filtrado — o mesmo relatório
   // completo já usado individualmente na aba Histórico, consolidado aqui.
