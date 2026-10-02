@@ -919,7 +919,7 @@ async function gerarRelMovPDF() {
 
   desenharTabelaResumo('Resumo geral por tipo', Object.entries(porTipo).map(([t,n])=>[n===1?ROTULO_SINGULAR[t]:ROTULO_PLURAL[t],n]));
   desenharTabelaResumo('Resumo por usuário', Object.entries(porUsuario).sort((a, b) => b[1] - a[1]));
-  desenharTabelaResumo('Resumo por estabelecimento', Object.entries(porEstab).sort((a, b) => b[1] - a[1]));
+  desenharTabelaResumo('Resumo por estabelecimento', Object.entries(porEstab).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR')));
 
   if (textoAdicionalPDF) {
     cabe(16);

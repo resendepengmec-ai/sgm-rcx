@@ -732,7 +732,7 @@ async function printFilteredPDF() {
     const estab = resolveEstab(r) || 'Estabelecimento não informado';
     porEstabReg[estab] = (porEstabReg[estab] || 0) + 1;
   });
-  const linhasEstabReg = Object.entries(porEstabReg).sort((a,b)=>b[1]-a[1]);
+  const linhasEstabReg = Object.entries(porEstabReg).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR'));
 
   doc.setFillColor(5,150,105);
   doc.rect(M, y, CW, 8, 'F');

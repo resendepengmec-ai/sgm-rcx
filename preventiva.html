@@ -1957,7 +1957,7 @@ async function printFilteredVolume(filtered, volume, sessao, stats) {
       porEstabPrev[estab] = (porEstabPrev[estab] || 0) + 1;
     });
   });
-  const linhasEstabPrev = Object.entries(porEstabPrev).sort((a,b)=>b[1]-a[1]);
+  const linhasEstabPrev = Object.entries(porEstabPrev).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR'));
 
   doc.setFillColor(3,105,161); doc.rect(M,y,CW,8,'F');
   doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');

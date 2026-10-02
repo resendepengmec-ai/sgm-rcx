@@ -1405,7 +1405,7 @@ async function generatePDF() {
       const estab = c.machine?.estabelecimento || 'Estabelecimento não informado';
       porEstabChamadosPdf[estab] = (porEstabChamadosPdf[estab] || 0) + 1;
     });
-    tabelaResumoEstabelecimento(Object.entries(porEstabChamadosPdf).sort((a,b)=>b[1]-a[1]), '#7c3aed');
+    tabelaResumoEstabelecimento(Object.entries(porEstabChamadosPdf).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR')), '#7c3aed');
     // Quebra de página: a tabela-resumo acima fica sozinha na 1ª página
     // da seção; o detalhamento abaixo (que só quebra por transbordo via
     // ensurePage) começa limpo numa página nova.
@@ -1437,7 +1437,7 @@ async function generatePDF() {
       const estab = r.machine?.estabelecimento || 'Estabelecimento não informado';
       porEstabRegPdf[estab] = (porEstabRegPdf[estab] || 0) + 1;
     });
-    tabelaResumoEstabelecimento(Object.entries(porEstabRegPdf).sort((a,b)=>b[1]-a[1]), '#059669');
+    tabelaResumoEstabelecimento(Object.entries(porEstabRegPdf).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR')), '#059669');
     doc.addPage(); y = drawPdfHeader(doc, { full:false });
     for (const r of registros) {
       ensurePage(255);
@@ -1470,7 +1470,7 @@ async function generatePDF() {
         porEstabPrevPdf[estab] = (porEstabPrevPdf[estab] || 0) + 1;
       });
     });
-    tabelaResumoEstabelecimento(Object.entries(porEstabPrevPdf).sort((a,b)=>b[1]-a[1]), '#0369a1');
+    tabelaResumoEstabelecimento(Object.entries(porEstabPrevPdf).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR')), '#0369a1');
     for (const p of preventiva) {
       doc.addPage();
       await renderPreventivaPlanDetail(doc, p, sessao);
@@ -1512,7 +1512,7 @@ async function generatePDF() {
       const estab = m.estabelecimentoDestino || m.estabelecimentoOrigem || m.estabelecimento || 'Estabelecimento não informado';
       porEstabMovPdf[estab] = (porEstabMovPdf[estab] || 0) + 1;
     });
-    tabelaResumoEstabelecimento(Object.entries(porEstabMovPdf).sort((a,b)=>b[1]-a[1]), '#0891b2');
+    tabelaResumoEstabelecimento(Object.entries(porEstabMovPdf).sort((a,b)=>a[0].localeCompare(b[0],'pt-BR')), '#0891b2');
     doc.addPage(); y = drawPdfHeader(doc, { full:false });
     movimentos.sort((a,b)=>(b.criadoEm||0)-(a.criadoEm||0)).forEach(m=>{
       ensurePage(255);
