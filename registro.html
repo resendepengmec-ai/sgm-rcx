@@ -724,31 +724,36 @@ async function printFilteredPDF() {
     while (text.length > 1 && doc.getTextWidth(text + '…') > maxW) text = text.slice(0, -1);
     return text + '…';
   }
-  const colEstabR=M+3, colDataR=M+CW*0.45, colTagR=M+CW*0.60, colSvcR=M+CW*0.75;
-  const wEstabR=colDataR-colEstabR-3, wTagR=colSvcR-colTagR-3, wSvcR=(M+CW)-colSvcR-3;
+  // Resumo por estabelecimento (quantidade de serviços executados) —
+  // substitui a listagem linha-a-linha de antes: ela já duplicava o
+  // detalhamento completo que vem a seguir, 1 página por registro.
+  const porEstabReg = {};
+  filtered.forEach(r => {
+    const estab = resolveEstab(r) || 'Estabelecimento não informado';
+    porEstabReg[estab] = (porEstabReg[estab] || 0) + 1;
+  });
+  const linhasEstabReg = Object.entries(porEstabReg).sort((a,b)=>b[1]-a[1]);
 
-  // ── Summary table ──
   doc.setFillColor(5,150,105);
   doc.rect(M, y, CW, 8, 'F');
   doc.setTextColor(255,255,255); doc.setFontSize(9); doc.setFont('helvetica','bold');
-  doc.text('ESTABELECIMENTO', colEstabR, y+5.5);
-  doc.text('DATA', colDataR, y+5.5);
-  doc.text('TAG', colTagR, y+5.5);
-  doc.text('SERVIÇOS', colSvcR, y+5.5);
+  doc.text('ESTABELECIMENTO', M+3, y+5.5);
+  doc.text('QTD. SERVIÇOS', M+CW-3, y+5.5, {align:'right'});
   y += 8;
 
-  filtered.forEach((r, idx) => {
+  linhasEstabReg.forEach(([estab,qtd], idx) => {
     if (y > 272) { doc.addPage(); y = drawPdfHeader(doc, {title:'RELATÓRIO DE SERVIÇOS EXECUTADOS', metaLines:[]}); }
     if (idx%2===0) { doc.setFillColor(240,253,244); } else { doc.setFillColor(255,255,255); }
     doc.rect(M, y, CW, 7, 'F');
     doc.setTextColor(30,30,30); doc.setFont('helvetica','normal'); doc.setFontSize(9);
-    const svcShort = r.items.map(i=>i.inviavel?'Inviável':i.name.split(' ').slice(0,2).join(' ')).join(', ');
-    doc.text(fitText(doc, resolveEstab(r)||'—', wEstabR), colEstabR, y+4.5);
-    doc.text(r.date||'—', colDataR, y+4.5);
-    doc.text(fitText(doc, r.equip||'—', wTagR), colTagR, y+4.5);
-    doc.text(fitText(doc, svcShort, wSvcR), colSvcR, y+4.5);
+    doc.text(fitText(doc, estab, CW-40), M+3, y+4.5);
+    doc.text(String(qtd), M+CW-3, y+4.5, {align:'right'});
     y += 7;
   });
+
+  // Quebra de página: o detalhamento por registro (abaixo) já começa
+  // com doc.addPage() na própria 1ª iteração do loop — a tabela-resumo
+  // acima já fica isolada na 1ª página sem precisar de outra quebra aqui.
 
   // Fase 3: uma única sessão pdf-seguro pro relatório inteiro.
   const totalFotosRel = filtered.reduce((a,r)=>a+(r.photos?r.photos.length:0),0);
