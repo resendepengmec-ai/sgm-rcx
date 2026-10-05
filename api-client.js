@@ -384,22 +384,22 @@ function selectTab(container, activeTab) {
 window.selectTab = selectTab;
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
                  canCreate:false, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
@@ -979,6 +979,22 @@ const DB = {
 
   // Remoção incremental e determinística de UMA foto de preventiva
   delPreventivaFoto: (id, ei, photoId) => reliableWrite('DELETE',`/preventiva/${id}/equip/${ei}/foto/${encodeURIComponent(photoId)}`,null,'preventiva:'+id),
+
+  // ── QAI (Qualidade do Ar Interior) ────────────────────────────────
+  // Rotas próprias em /api/qai, fora do CRUD genérico acima — RBAC do
+  // backend já restringe tudo a gestor pra cima (authz.GESTOR_ACIMA).
+  getSensoresQai:     (contrato) => API.get(`/qai/sensores${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}`),
+  getSensorQai:       id         => API.get(`/qai/sensores/${encodeURIComponent(id)}`),
+  saveSensorQai:      dados      => API.post('/qai/sensores', dados),
+  updateSensorQai:    (id,dados) => API.patch(`/qai/sensores/${encodeURIComponent(id)}`, dados),
+  deleteSensorQai:    id         => API.delete(`/qai/sensores/${encodeURIComponent(id)}`),
+  testarConexaoQai:   id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/testar-conexao`, {}),
+  ativarSensorQai:    id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/ativar`, {}),
+  desativarSensorQai: id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/desativar`, {}),
+  sincronizarSensorQai: id       => API.post(`/qai/sensores/${encodeURIComponent(id)}/sincronizar`, {}),
+  getLeiturasQai:     (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/leituras${q}`),
+  getAparelhosQai:    id         => API.get(`/qai/sensores/${encodeURIComponent(id)}/aparelhos`),
+  getDashboardQai:    (contrato) => API.get(`/qai/dashboard${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}`),
 
 };
 
