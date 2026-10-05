@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       Mesma política das demais páginas (ver patrimonio.html/dashboard.html) -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://oauth2.googleapis.com https://www.googleapis.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#7c3aed">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>QAI — Qualidade do Ar Interior — SGM</title>
+<script src="config.js"></script>
+<link rel="stylesheet" href="shared.css">
+<script src="api-client.js?v=20261003.1"></script>
+<script src="vendor/chart.umd.js"></script>
+<!-- jsPDF auto-hospedado (V12/V18) — nunca de CDN. -->
+<script src="vendor/jspdf.umd.min.js"></script>
+<style>
+:root{--primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
+--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+--radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
+--success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
+body{padding-bottom:40px;background:var(--bg);color:var(--text);}
+
+.qai-contrato-select{flex:1 1 220px;}
+
+.qai-lista{padding:12px 14px;}
+.qai-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px;border-left:4px solid var(--border);cursor:pointer;}
+.qai-card.ativo{border-left-color:var(--success);}
+.qai-card.inativo{border-left-color:var(--text-3);}
+.qai-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.qai-card-titulo{font-size:15px;font-weight:700;}
+.qai-card-sub{font-size:12px;color:var(--text-2);margin-top:2px;}
+.qai-card-valores{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+.qai-valor{font-size:12px;background:var(--bg);border-radius:8px;padding:4px 9px;color:var(--text-2);}
+.qai-card-rodape{font-size:11px;color:var(--text-3);margin-top:8px;}
+
+.badge.ativo{background:var(--success-bg);color:var(--success);}
+.badge.inativo{background:var(--bg);color:var(--text-3);}
+.badge.conforme{background:var(--success-bg);color:var(--success);}
+.badge.fora{background:var(--danger-bg);color:var(--danger);}
+.badge.semlimite{background:var(--bg);color:var(--text-3);}
+
+.qai-sub{font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.5;}
+.qai-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+@media(max-width:480px){.qai-grid2{grid-template-columns:1fr;}}
+
+.qai-grandeza-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+.qai-grandeza-row:last-child{border-bottom:none;}
+.qai-grandeza-label{flex:1 1 150px;font-size:13px;font-weight:600;}
+.qai-grandeza-row input[type=number]{flex:1 1 90px;font-size:12px;padding:6px 8px;}
+
+.qai-horario-item{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.qai-horario-item input[type=time]{flex:1;}
+
+.qai-leitura-tabela{width:100%;font-size:12px;border-collapse:collapse;}
+.qai-leitura-tabela th{text-align:left;color:var(--text-3);font-weight:600;padding:4px 6px;border-bottom:1px solid var(--border);}
+.qai-leitura-tabela td{padding:4px 6px;border-bottom:1px solid var(--border);}
+
+.qai-aparelho-item{font-size:12px;padding:6px 0;border-bottom:1px solid var(--border);}
+.qai-aparelho-item:last-child{border-bottom:none;}
+
+.qai-chart-wrap{position:relative;height:200px;margin-top:10px;}
+</style>
+</head>
+<body>
+
+<div class="auth-overlay" id="auth-overlay"><div class="spinner"></div><p>Verificando acesso…</p></div>
+
+<header class="app-header" style="background:var(--primary)">
+  <button class="back-btn" onclick="window.location.href='index.html'">← Início</button>
+  <h1 style="flex:1;margin-left:8px">QAI — Qualidade do Ar Interior</h1>
+</header>
+
+<div class="filter-bar" style="flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px">
+  <select id="f-contrato" class="qai-contrato-select" onchange="aoTrocarContrato()">
+    <option value="">Selecione o contrato…</option>
+  </select>
+  <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
+</div>
+
+<div class="qai-lista" id="qai-lista">
+  <div class="empty">Selecione um contrato para ver os sensores.</div>
+</div>
+
+<!-- Modal: novo sensor -->
+<div class="modal-bg hidden" id="modal-novo">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Novo sensor QAI</div>
+    <div class="field">
+      <label>Estabelecimento</label>
+      <input type="text" id="novo-estabelecimento" maxlength="160" placeholder="Ex.: Unidade Centro">
+    </div>
+    <div class="field">
+      <label>Recinto</label>
+      <input type="text" id="novo-recinto" maxlength="160" placeholder="Ex.: Sala 203">
+    </div>
+    <div class="qai-sub">
+      O sensor liga ao cadastro de equipamentos pelo mesmo nome de
+      estabelecimento+recinto — não precisa escolher aparelhos manualmente.
+    </div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-novo')">Cancelar</button>
+      <button class="btn btn-primary" id="btn-salvar-novo" onclick="salvarNovoSensor(this)">Criar sensor</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: detalhe/configuração do sensor -->
+<div class="modal-bg hidden" id="modal-sensor">
+  <div class="modal" style="max-width:640px;margin:0 auto">
+    <div class="modal-handle"></div>
+    <div id="sensor-modal-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-sensor')">Fechar</button>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// QAI — Qualidade do Ar Interior
+// ══════════════════════════════════════════════════════════════════
+// Sem leitura manual. Grandezas são genéricas: a tela mostra o que o
+// dispositivo realmente reporta (grandezasDisponiveis), e o admin escolhe
+// quais medir e armazenar. Rótulo, unidade e cor vêm do próprio sensor,
+// nunca de uma lista fixa de tipos.
+
+const REGIOES_TUYA = { us: 'Américas (us)', eu: 'Europa (eu)', cn: 'China (cn)', in: 'Índia (in)' };
+const FREQUENCIAS = [0, 1, 2, 3, 4, 6, 12];
+
+let user = null;
+let CONTRATOS = [];
+let LINHAS = [];            // dashboard do contrato selecionado
+let SENSOR_ABERTO = null;   // sensor completo exibido no modal
+let LEITURAS_ABERTO = [];
+let CHART_LEITURAS = null;
+let DISPONIVEIS_RENDER = []; // ordem das linhas de grandezas, lida no salvar
+let LIMITES_RENDER = [];     // ordem das linhas de limites, lida no salvar
+
+function showToast(msg, dur = 3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), dur);
+}
+
+function fecharModal(id) { document.getElementById(id).classList.add('hidden'); }
+function abrirModal(id) { document.getElementById(id).classList.remove('hidden'); }
+
+// ── Cores: hash FNV-1a → paleta; colisões resolvidas por probing linear
+// sobre a lista ORDENADA de códigos do gráfico — mesma entrada, mesma cor.
+const PALETA_COR = ['#7c3aed', '#0891b2', '#059669', '#d97706', '#dc2626', '#2563eb',
+  '#db2777', '#65a30d', '#9333ea', '#0d9488', '#ea580c', '#4338ca'];
+function _hashFnv1a(chave) {
+  const s = String(chave);
+  let hash = 2166136261;
+  for (let i = 0; i < s.length; i++) { hash ^= s.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+  return hash;
+}
+function coresParaChaves(chaves) {
+  const usados = new Set();
+  const mapa = new Map();
+  for (const chave of [...chaves].sort()) {
+    let idx = Math.abs(_hashFnv1a(chave)) % PALETA_COR.length;
+    while (usados.has(idx)) idx = (idx + 1) % PALETA_COR.length;
+    usados.add(idx);
+    mapa.set(chave, PALETA_COR[idx]);
+  }
+  return mapa;
+}
+
+// ── Distribuição automática de horários (espelho de qai-schedule.js:
+// distribuirHorarios, só para preencher o formulário; o servidor valida).
+function distribuirHorariosLocal(x, primeiroHorario) {
+  const [hh, mm] = String(primeiroHorario || '00:00').split(':').map(Number);
+  const inicio = (hh || 0) * 60 + (mm || 0);
+  const passo = 1440 / x;
+  const out = [];
+  for (let i = 0; i < x; i++) {
+    let m = Math.round(inicio + i * passo);
+    m = ((m % 1440) + 1440) % 1440;
+    out.push(String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'));
+  }
+  return out;
+}
+
+function fmtDataHora(ts) { return ts ? new Date(ts).toLocaleString('pt-BR') : '—'; }
+function fmtValor(valor, unidade) {
+  if (valor == null) return '—';
+  return String(Math.round(valor * 1000) / 1000) + (unidade ? ' ' + unidade : '');
+}
+function tempoRelativo(ts) {
+  if (!ts) return '—';
+  const min = Math.floor((Date.now() - ts) / 60000);
+  if (min < 1) return 'agora mesmo';
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `há ${h}h`;
+  return `há ${Math.floor(h / 24)}d`;
+}
+
+// Rótulo e unidade de um data point, a partir do próprio sensor.
+function infoGrandeza(sensor, code) {
+  const a = sensor?.grandezasAtivas?.[code];
+  if (a) return { rotulo: a.rotulo || code, unidade: a.unidade || '' };
+  const d = (sensor?.grandezasDisponiveis || []).find(x => x.code === code);
+  if (d) return { rotulo: d.rotulo || code, unidade: d.unidade || '' };
+  return { rotulo: code, unidade: '' };
+}
+function codigosDe(valores) { return Object.keys(valores || {}).sort(); }
+
+// ── Início ───────────────────────────────────────────────────────────
+async function iniciarQai() {
+  const confirmado = await guardaDeModulo('qai');
+  if (!confirmado) return;
+  user = confirmado;
+  document.getElementById('auth-overlay').style.display = 'none';
+  try {
+    CONTRATOS = await DB.getContratos();
+  } catch (e) {
+    CONTRATOS = [];
+    showToast('Não foi possível carregar os contratos: ' + e.message, 6000);
+  }
+  preencherSelectContratos();
+}
+
+function preencherSelectContratos() {
+  const sel = document.getElementById('f-contrato');
+  const userContract = user?.contract;
+  const visiveis = userContract
+    ? CONTRATOS.filter(c => String(userContract).split(',').map(s => s.trim()).includes(c.numero))
+    : CONTRATOS;
+  sel.innerHTML = '<option value="">Selecione o contrato…</option>' +
+    visiveis.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao || '')}</option>`).join('');
+}
+
+function aoTrocarContrato() {
+  const contrato = document.getElementById('f-contrato').value;
+  document.getElementById('btn-novo-sensor').disabled = !contrato;
+  if (!contrato) {
+    LINHAS = [];
+    document.getElementById('qai-lista').innerHTML = '<div class="empty">Selecione um contrato para ver os sensores.</div>';
+    return;
+  }
+  carregarLista();
+}
+
+// ── Lista / dashboard ────────────────────────────────────────────────
+async function carregarLista() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  const lista = document.getElementById('qai-lista');
+  lista.innerHTML = '<div class="empty">Carregando…</div>';
+  try {
+    LINHAS = await DB.getDashboardQai(contrato);
+    renderLista();
+  } catch (e) {
+    lista.innerHTML = '<div class="empty">Não foi possível carregar os sensores.</div>';
+    showToast('Erro ao carregar sensores: ' + e.message, 6000);
+  }
+}
+
+function renderLista() {
+  const lista = document.getElementById('qai-lista');
+  if (!LINHAS.length) {
+    lista.innerHTML = '<div class="empty">Nenhum sensor cadastrado neste contrato ainda.<br>Use "+ Novo sensor" para começar.</div>';
+    return;
+  }
+  lista.innerHTML = LINHAS.map(renderCard).join('');
+}
+
+function renderCard(linha) {
+  const s = linha.sensor;
+  const tel = linha.telemetriaAoVivo;
+  const leitura = linha.ultimaLeitura;
+  const valores = tel ? tel.valores : (leitura ? leitura.valores : {});
+  const conforme = tel ? tel.conforme : (leitura ? leitura.conforme : null);
+  const quando = tel ? tel.recebidoEm : (leitura ? leitura.criadoEm : null);
+
+  const badgeConforme = conforme === true ? '<span class="badge conforme">✓ Conforme</span>'
+    : conforme === false ? '<span class="badge fora">⚠ Fora do limite</span>'
+    : '<span class="badge semlimite">sem limite</span>';
+
+  const chips = codigosDe(valores).map(c => {
+    const i = infoGrandeza(s, c);
+    return `<span class="qai-valor">${esc(i.rotulo)}: ${fmtValor(valores[c], i.unidade)}</span>`;
+  }).join('');
+
+  return `<div class="qai-card ${s.sensorAtivo ? 'ativo' : 'inativo'}" onclick="abrirSensor('${s.id}')">
+    <div class="qai-card-top">
+      <div>
+        <div class="qai-card-titulo">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
+        <div class="qai-card-sub">${s.sensorAtivo ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'} ${quando ? badgeConforme : ''}</div>
+      </div>
+    </div>
+    <div class="qai-card-valores">${chips || '<span class="qai-valor">sem leitura ainda</span>'}</div>
+    <div class="qai-card-rodape">${quando ? 'Última leitura: ' + tempoRelativo(quando) : 'Nunca sincronizado'}</div>
+  </div>`;
+}
+
+// ── Novo sensor ──────────────────────────────────────────────────────
+function abrirNovoSensor() {
+  document.getElementById('novo-estabelecimento').value = '';
+  document.getElementById('novo-recinto').value = '';
+  abrirModal('modal-novo');
+}
+
+async function salvarNovoSensor(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  const estabelecimento = document.getElementById('novo-estabelecimento').value.trim();
+  const recinto = document.getElementById('novo-recinto').value.trim();
+  if (!estabelecimento || !recinto) { showToast('Informe estabelecimento e recinto.'); return; }
+  await withActionBusy(btn, 'Criando…', async () => {
+    try {
+      const sensor = await DB.saveSensorQai({ contrato, estabelecimento, recinto });
+      fecharModal('modal-novo');
+      showToast('Sensor criado — configure as credenciais Tuya a seguir.');
+      await carregarLista();
+      abrirSensor(sensor.id);
+    } catch (e) {
+      showToast('Erro ao criar sensor: ' + e.message, 6000);
+    }
+  });
+}
+
+// ── Detalhe/configuração do sensor ──────────────────────────────────
+async function abrirSensor(id) {
+  abrirModal('modal-sensor');
+  document.getElementById('sensor-modal-conteudo').innerHTML = 'Carregando…';
+  try {
+    const [sensor, leituras, aparelhos] = await Promise.all([
+      DB.getSensorQai(id), DB.getLeiturasQai(id, '?limite=50'), DB.getAparelhosQai(id),
+    ]);
+    SENSOR_ABERTO = sensor;
+    LEITURAS_ABERTO = leituras;
+    renderModalSensor(aparelhos);
+  } catch (e) {
+    document.getElementById('sensor-modal-conteudo').innerHTML =
+      `<div class="empty">Não foi possível carregar o sensor: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderModalSensor(aparelhos) {
+  const s = SENSOR_ABERTO;
+  if (!s) return;
+  const el = document.getElementById('sensor-modal-conteudo');
+  el.innerHTML = `
+    <div class="modal-title">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
+    <div id="sec-acoes"></div>
+    <div id="sec-basico"></div>
+    <div id="sec-credenciais"></div>
+    <div id="sec-grandezas"></div>
+    <div id="sec-limites"></div>
+    <div id="sec-horarios"></div>
+    <div id="sec-leituras"></div>
+    <div id="sec-aparelhos"></div>
+  `;
+  renderAcoes(s);
+  renderBasico(s);
+  renderCredenciais(s);
+  renderGrandezas(s);
+  renderLimites(s);
+  renderHorarios(s);
+  renderLeituras(LEITURAS_ABERTO);
+  renderAparelhos(aparelhos || []);
+}
+
+// PATCH com _version (lock otimista). Em conflito, recarrega o sensor.
+async function patchSensorAtual(dados, mensagemOk) {
+  try {
+    const atualizado = await DB.updateSensorQai(SENSOR_ABERTO.id, { ...dados, _version: SENSOR_ABERTO._version });
+    SENSOR_ABERTO = atualizado;
+    renderModalSensor();
+    carregarLista();
+    if (mensagemOk) showToast(mensagemOk);
+    return atualizado;
+  } catch (e) {
+    if (e.code === 'VERSION_CONFLICT') {
+      showToast('Este sensor foi alterado em outro envio — recarregando dados atuais…', 5000);
+      await abrirSensor(SENSOR_ABERTO.id);
+    } else {
+      showToast('Erro: ' + e.message, 6000);
+    }
+    throw e;
+  }
+}
+
+// ── Ações: ativar/desativar/sincronizar/excluir ─────────────────────
+function renderAcoes(s) {
+  document.getElementById('sec-acoes').innerHTML = `
+    <div class="card">
+      <div class="action-bar" style="flex-wrap:wrap;margin-top:0">
+        ${s.sensorAtivo
+          ? `<button class="btn btn-secondary btn-sm" style="flex:1" onclick="desativarSensorAtual(this)">⏸ Desativar</button>`
+          : `<button class="btn btn-primary btn-sm" style="flex:1" onclick="ativarSensorAtual(this)">▶ Ativar</button>`}
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="sincronizarSensorAtual(this)">↻ Sincronizar agora</button>
+        <button class="btn btn-danger btn-sm" style="flex:1" onclick="excluirSensorAtual(this)">🗑 Excluir</button>
+      </div>
+      <div class="qai-sub" style="margin-top:8px;margin-bottom:0">
+        ${s.ultimoTesteOk ? 'Último teste de conexão OK: ' + fmtDataHora(s.ultimoTesteOk) : 'Conexão nunca testada.'}
+      </div>
+    </div>`;
+}
+
+async function ativarSensorAtual(btn) {
+  await withActionBusy(btn, 'Testando conexão…', async () => {
+    try {
+      const resultado = await DB.ativarSensorQai(SENSOR_ABERTO.id);
+      SENSOR_ABERTO = resultado.sensor;
+      const orfas = resultado.teste?.grandezasOrfas;
+      showToast(orfas?.length
+        ? `Sensor ativado. Atenção: data point(s) ${orfas.join(', ')} não existem mais neste dispositivo e foram removidos da coleta.`
+        : 'Sensor ativado.', orfas?.length ? 8000 : 3000);
+      renderModalSensor();
+      carregarLista();
+    } catch (e) { showToast('Não foi possível ativar: ' + e.message, 7000); }
+  });
+}
+async function desativarSensorAtual(btn) {
+  await withActionBusy(btn, 'Desativando…', async () => {
+    try {
+      const resultado = await DB.desativarSensorQai(SENSOR_ABERTO.id);
+      SENSOR_ABERTO = resultado.sensor;
+      showToast('Sensor desativado.');
+      renderModalSensor();
+      carregarLista();
+    } catch (e) { showToast('Erro: ' + e.message, 6000); }
+  });
+}
+async function sincronizarSensorAtual(btn) {
+  await withActionBusy(btn, 'Sincronizando…', async () => {
+    try {
+      const resultado = await DB.sincronizarSensorQai(SENSOR_ABERTO.id);
+      if (resultado.formal) showToast('✅ Leitura registrada.');
+      else if (resultado.motivo === 'janela_ocupada') showToast('Leitura obtida, mas a janela de medição de hoje já estava preenchida.', 6000);
+      else if (resultado.motivo === 'sem_dados') showToast('O dispositivo não reportou nenhum data point ativo.', 6000);
+      else showToast('Leitura obtida (sem registro formal).', 6000);
+      LEITURAS_ABERTO = await DB.getLeiturasQai(SENSOR_ABERTO.id, '?limite=50');
+      renderLeituras(LEITURAS_ABERTO);
+      carregarLista();
+    } catch (e) { showToast('Erro ao sincronizar: ' + e.message, 7000); }
+  });
+}
+async function excluirSensorAtual(btn) {
+  if (!confirm('Excluir este sensor? O histórico de leituras é mantido, mas o sensor sai da lista ativa.')) return;
+  await withActionBusy(btn, 'Excluindo…', async () => {
+    try {
+      await DB.deleteSensorQai(SENSOR_ABERTO.id);
+      showToast('Sensor excluído.');
+      fecharModal('modal-sensor');
+      SENSOR_ABERTO = null;
+      carregarLista();
+    } catch (e) { showToast('Erro ao excluir: ' + e.message, 6000); }
+  });
+}
+
+// ── Dados básicos ────────────────────────────────────────────────────
+function renderBasico(s) {
+  document.getElementById('sec-basico').innerHTML = `
+    <div class="card">
+      <div class="card-title">Local</div>
+      <div class="qai-grid2">
+        <div class="field"><label>Estabelecimento</label><input type="text" id="cfg-estabelecimento" maxlength="160" value="${esc(s.estabelecimento)}"></div>
+        <div class="field"><label>Recinto</label><input type="text" id="cfg-recinto" maxlength="160" value="${esc(s.recinto)}"></div>
+      </div>
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarBasico(this)">Salvar local</button></div>
+    </div>`;
+}
+async function salvarBasico(btn) {
+  const estabelecimento = document.getElementById('cfg-estabelecimento').value.trim();
+  const recinto = document.getElementById('cfg-recinto').value.trim();
+  if (!estabelecimento || !recinto) { showToast('Estabelecimento e recinto são obrigatórios.'); return; }
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ estabelecimento, recinto }, 'Local atualizado.'));
+}
+
+// ── Credenciais Tuya ─────────────────────────────────────────────────
+function renderCredenciais(s) {
+  const c = s.credenciais || {};
+  document.getElementById('sec-credenciais').innerHTML = `
+    <div class="card">
+      <div class="card-title">Credenciais Tuya</div>
+      <div class="qai-sub">Por sensor, não por contrato — cada sensor pode estar em um projeto Tuya diferente.</div>
+      <div class="qai-grid2">
+        <div class="field"><label>Client ID</label><input type="text" id="cfg-clientid" maxlength="100" value="${esc(c.clientId || '')}"></div>
+        <div class="field"><label>Device ID</label><input type="text" id="cfg-deviceid" maxlength="100" value="${esc(c.deviceId || '')}"></div>
+        <div class="field"><label>Região</label>
+          <select id="cfg-regiao">${Object.entries(REGIOES_TUYA).map(([k, l]) => `<option value="${k}" ${c.regiao === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label>Client Secret${c.temSegredo ? ' (já configurado — deixe em branco para manter)' : ''}</label>
+          <input type="password" id="cfg-clientsecret" maxlength="200" placeholder="${c.temSegredo ? '••••••••' : 'Obrigatório'}">
+        </div>
+      </div>
+      <div class="action-bar">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="salvarCredenciais(this)">Salvar credenciais</button>
+        <button class="btn btn-primary btn-sm" style="flex:1" onclick="testarConexaoAtual(this)">🔌 Testar conexão</button>
+      </div>
+    </div>`;
+}
+async function salvarCredenciais(btn) {
+  const clientId = document.getElementById('cfg-clientid').value.trim();
+  const deviceId = document.getElementById('cfg-deviceid').value.trim();
+  const regiao = document.getElementById('cfg-regiao').value;
+  const clientSecret = document.getElementById('cfg-clientsecret').value;
+  const credenciais = { clientId, deviceId, regiao };
+  if (clientSecret) credenciais.clientSecret = clientSecret;
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ credenciais }, 'Credenciais salvas.'));
+}
+async function testarConexaoAtual(btn) {
+  await withActionBusy(btn, 'Testando…', async () => {
+    try {
+      const resultado = await DB.testarConexaoQai(SENSOR_ABERTO.id);
+      if (resultado.grandezasOrfas?.length)
+        showToast('Atenção: data point(s) ' + resultado.grandezasOrfas.join(', ') + ' não existem mais neste dispositivo.', 7000);
+      else showToast(`Conexão OK — ${resultado.grandezasDisponiveis.length} data point(s) detectado(s).`);
+      await abrirSensor(SENSOR_ABERTO.id);
+    } catch (e) { showToast('Falha no teste de conexão: ' + e.message, 7000); }
+  });
+}
+
+// ── Grandezas: lista exatamente o que o dispositivo reporta ─────────
+function renderGrandezas(s) {
+  const disponiveis = s.grandezasDisponiveis || [];
+  DISPONIVEIS_RENDER = disponiveis;
+  if (!disponiveis.length) {
+    document.getElementById('sec-grandezas').innerHTML = `
+      <div class="card">
+        <div class="card-title">Grandezas medidas</div>
+        <div class="qai-sub">Clique em "Testar conexão" acima para ver quais data points este dispositivo reporta.</div>
+      </div>`;
+    return;
+  }
+  const ativas = s.grandezasAtivas || {};
+  const linhas = disponiveis.map((d, i) => {
+    const atual = ativas[d.code];
+    return `<div class="qai-grandeza-row">
+      <input type="checkbox" id="gchk-${i}" ${atual ? 'checked' : ''}>
+      <span class="qai-grandeza-label">${esc(d.rotulo || d.code)}
+        <br><small style="color:var(--text-3);font-weight:400">${esc(d.code)}${d.unidade ? ' · ' + esc(d.unidade) : ''}</small></span>
+      <label style="font-size:11px;color:var(--text-2)">escala 10^
+        <input type="number" id="gscale-${i}" min="0" max="6" step="1" value="${atual?.scale ?? d.scale ?? 0}" style="width:70px"></label>
+    </div>`;
+  }).join('');
+  document.getElementById('sec-grandezas').innerHTML = `
+    <div class="card">
+      <div class="card-title">Grandezas medidas</div>
+      <div class="qai-sub">Marque o que deve ser lido e armazenado. A escala é o expoente de 10 que o dispositivo usa (ex.: 245 com escala 1 = 24,5).</div>
+      ${linhas}
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarGrandezas(this)">Salvar grandezas</button></div>
+    </div>`;
+}
+async function salvarGrandezas(btn) {
+  const grandezasAtivas = {};
+  DISPONIVEIS_RENDER.forEach((d, i) => {
+    if (!document.getElementById(`gchk-${i}`)?.checked) return;
+    grandezasAtivas[d.code] = { scale: parseInt(document.getElementById(`gscale-${i}`).value, 10) || 0 };
+  });
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ grandezasAtivas }, 'Grandezas atualizadas.'));
+}
+
+// ── Limites: uma linha por grandeza ATIVA ───────────────────────────
+function renderLimites(s) {
+  const ativas = Object.keys(s.grandezasAtivas || {});
+  LIMITES_RENDER = ativas;
+  if (!ativas.length) {
+    document.getElementById('sec-limites').innerHTML = `
+      <div class="card">
+        <div class="card-title">Limites de conformidade</div>
+        <div class="qai-sub">Ative pelo menos uma grandeza acima para definir limites.</div>
+      </div>`;
+    return;
+  }
+  const limites = s.limites || {};
+  const linhas = ativas.map((code, i) => {
+    const info = infoGrandeza(s, code);
+    const lim = limites[code] || {};
+    return `<div class="qai-grandeza-row">
+      <span class="qai-grandeza-label">${esc(info.rotulo)}${info.unidade ? ' (' + esc(info.unidade) + ')' : ''}</span>
+      <input type="number" id="lim-${i}-min" step="any" placeholder="mín" value="${lim.min ?? ''}">
+      <input type="number" id="lim-${i}-max" step="any" placeholder="máx" value="${lim.max ?? ''}">
+    </div>`;
+  }).join('');
+  document.getElementById('sec-limites').innerHTML = `
+    <div class="card">
+      <div class="card-title">Limites de conformidade</div>
+      <div class="qai-sub">Deixe em branco o que não tem limite — essa grandeza não entra no veredito de conformidade.</div>
+      ${linhas}
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarLimites(this)">Salvar limites</button></div>
+    </div>`;
+}
+async function salvarLimites(btn) {
+  const limites = {};
+  LIMITES_RENDER.forEach((code, i) => {
+    const item = {};
+    const min = document.getElementById(`lim-${i}-min`)?.value;
+    const max = document.getElementById(`lim-${i}-max`)?.value;
+    if (min !== undefined && min !== '') item.min = Number(min);
+    if (max !== undefined && max !== '') item.max = Number(max);
+    if (Object.keys(item).length) limites[code] = item;
+  });
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ limites }, 'Limites atualizados.'));
+}
+
+// ── Horários (janelas de medição programadas) ───────────────────────
+function renderHorarios(s) {
+  const horarios = s.horarios || [];
+  const freqAtual = horarios.length;
+  document.getElementById('sec-horarios').innerHTML = `
+    <div class="card">
+      <div class="card-title">Janelas de medição</div>
+      <div class="qai-sub">
+        Sem horários: toda leitura válida do polling automático é registrada
+        (modo contínuo). Com horários: só uma leitura por janela/dia é
+        registrada formalmente.
+      </div>
+      <div class="field">
+        <label>Medições por dia</label>
+        <select id="horario-freq" onchange="aoTrocarFrequencia()">
+          ${FREQUENCIAS.map(f => `<option value="${f}" ${f === freqAtual ? 'selected' : ''}>${f === 0 ? 'Nenhuma (modo contínuo)' : f + 'x/dia'}</option>`).join('')}
+        </select>
+      </div>
+      <div id="horario-campos">${renderCamposHorario(horarios)}</div>
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarHorarios(this)">Salvar horários</button></div>
+    </div>`;
+}
+function renderCamposHorario(horarios) {
+  const freq = Number(document.getElementById('horario-freq')?.value ?? horarios.length);
+  if (!freq) return '';
+  const valores = horarios.length === freq ? horarios : distribuirHorariosLocal(freq, horarios[0] || '08:00');
+  return valores.map((h, i) => `<div class="qai-horario-item">
+      <input type="time" id="horario-${i}" value="${h}">
+      ${i === 0 ? `<button type="button" class="btn btn-secondary btn-sm" onclick="distribuirAPartirDoPrimeiro(${freq})">Distribuir</button>` : ''}
+    </div>`).join('');
+}
+function aoTrocarFrequencia() {
+  const freq = Number(document.getElementById('horario-freq').value);
+  document.getElementById('horario-campos').innerHTML = renderCamposHorario(freq ? distribuirHorariosLocal(freq, '08:00') : []);
+}
+function distribuirAPartirDoPrimeiro(freq) {
+  const primeiro = document.getElementById('horario-0').value || '08:00';
+  distribuirHorariosLocal(freq, primeiro).forEach((h, i) => {
+    const el = document.getElementById(`horario-${i}`);
+    if (el) el.value = h;
+  });
+}
+async function salvarHorarios(btn) {
+  const freq = Number(document.getElementById('horario-freq').value);
+  const horarios = [];
+  for (let i = 0; i < freq; i++) {
+    const v = document.getElementById(`horario-${i}`)?.value;
+    if (!v) { showToast('Preencha todos os horários.'); return; }
+    horarios.push(v);
+  }
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ horarios }, 'Horários atualizados.'));
+}
+
+// ── Leituras recentes + gráfico ──────────────────────────────────────
+function renderLeituras(leituras) {
+  const linhas = leituras.slice(0, 15).map(l => {
+    const valores = codigosDe(l.valores).map(c => {
+      const i = infoGrandeza(SENSOR_ABERTO, c);
+      return `${i.rotulo}: ${fmtValor(l.valores[c], i.unidade)}`;
+    }).join(' · ');
+    const conforme = l.conforme === true ? '✓' : l.conforme === false ? '⚠' : '—';
+    return `<tr><td>${fmtDataHora(l.criadoEm)}</td><td>${esc(valores)}</td><td>${conforme}</td></tr>`;
+  }).join('');
+  document.getElementById('sec-leituras').innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin-bottom:0">Leituras recentes</div>
+        <button class="btn btn-secondary btn-sm" onclick="gerarPdfSensor(this)" ${leituras.length ? '' : 'disabled'}>📄 PDF</button>
+      </div>
+      ${leituras.length ? `
+        <div class="qai-chart-wrap"><canvas id="qai-chart-leituras"></canvas></div>
+        <div style="overflow-x:auto;margin-top:10px">
+          <table class="qai-leitura-tabela">
+            <tr><th>Quando</th><th>Valores</th><th>Conf.</th></tr>
+            ${linhas}
+          </table>
+        </div>` : '<div class="qai-sub">Nenhuma leitura registrada ainda.</div>'}
+    </div>`;
+  if (leituras.length) renderGraficoLeituras(leituras);
+}
+function renderGraficoLeituras(leituras) {
+  if (CHART_LEITURAS) { CHART_LEITURAS.destroy(); CHART_LEITURAS = null; }
+  const ctx = document.getElementById('qai-chart-leituras');
+  if (!ctx) return;
+  const cronologica = [...leituras].reverse(); // backend devolve mais recente primeiro
+  const labels = cronologica.map(l => new Date(l.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
+  const codigos = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
+  const cores = coresParaChaves(codigos);
+  CHART_LEITURAS = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: codigos.map(c => ({
+        label: infoGrandeza(SENSOR_ABERTO, c).rotulo,
+        data: cronologica.map(l => l.valores?.[c] ?? null),
+        borderColor: cores.get(c),
+        backgroundColor: cores.get(c) + '33',
+        spanGaps: true, tension: .25, pointRadius: 2,
+      })),
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#475569', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#475569', font: { size: 9 } }, grid: { display: false } },
+        y: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' } },
+      },
+    },
+  });
+}
+
+// ── Aparelhos do recinto (calculado por estabelecimento+recinto) ───
+function renderAparelhos(lista) {
+  document.getElementById('sec-aparelhos').innerHTML = `
+    <div class="card">
+      <div class="card-title">Aparelhos que climatizam este recinto</div>
+      <div class="qai-sub">Calculado pelo mesmo estabelecimento+recinto no cadastro de equipamentos — sem vínculo manual.</div>
+      ${lista.length
+        ? lista.map(e => `<div class="qai-aparelho-item">${esc(e.tag || '—')} · ${esc(e.marca || '')} ${esc(e.tipo || '')}${e.capacidade ? ' · ' + esc(e.capacidade) + ' BTU' : ''}</div>`).join('')
+        : '<div class="qai-sub" style="margin:0">Nenhum equipamento cadastrado com este estabelecimento+recinto.</div>'}
+    </div>`;
+}
+
+// ── PDF do sensor ────────────────────────────────────────────────────
+const QPDF_M = 15, QPDF_W = 210, QPDF_H = 297;
+function qaiCabe(doc, y, h) { return (y + h > QPDF_H - QPDF_M) ? (doc.addPage(), QPDF_M) : y; }
+
+// Captura de gráfico em PNG (mesma técnica de relatorio.html).
+async function renderizarGraficoParaImagemQai(config, wPx, hPx) {
+  const canvas = document.createElement('canvas');
+  canvas.width = wPx; canvas.height = hPx;
+  canvas.style.cssText = 'position:fixed;left:-99999px;top:0';
+  document.body.appendChild(canvas);
+  const chart = new Chart(canvas, { ...config, options: { ...config.options, responsive: false, animation: false } });
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  chart.destroy();
+  canvas.remove();
+  return { bytes, w: wPx, h: hPx };
+}
+
+async function gerarPdfSensor(btn) {
+  if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
+  const s = SENSOR_ABERTO;
+  if (!s) return;
+  await withActionBusy(btn, 'Gerando…', async () => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const CW = QPDF_W - QPDF_M * 2;
+    let y = QPDF_M;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+    doc.text('RELATÓRIO QAI — QUALIDADE DO AR INTERIOR', QPDF_M, y); y += 7;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text(`Contrato ${s.contrato} · ${s.estabelecimento} · ${s.recinto}`, QPDF_M, y); y += 5;
+    doc.setFontSize(9); doc.setTextColor(90);
+    doc.text(`Status: ${s.sensorAtivo ? 'Ativo' : 'Inativo'} · Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, QPDF_M, y); y += 4;
+    doc.setTextColor(0);
+    doc.setDrawColor(180); doc.setLineWidth(0.3);
+    doc.line(QPDF_M, y, QPDF_W - QPDF_M, y); y += 7;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Limites de conformidade', QPDF_M, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    const limitesCodigos = Object.keys(s.limites || {}).sort();
+    const limitesTexto = limitesCodigos.map(c => {
+      const l = s.limites[c], i = infoGrandeza(s, c);
+      const partes = [];
+      if (l.min != null) partes.push(`mín ${l.min}${i.unidade ? ' ' + i.unidade : ''}`);
+      if (l.max != null) partes.push(`máx ${l.max}${i.unidade ? ' ' + i.unidade : ''}`);
+      return `${i.rotulo}: ${partes.join(' / ')}`;
+    });
+    if (!limitesTexto.length) { doc.text('Nenhum limite configurado.', QPDF_M, y); y += 6; }
+    else { limitesTexto.forEach(t => { doc.text(t, QPDF_M, y); y += 5; }); }
+    y += 2;
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Janelas de medição', QPDF_M, y); y += 5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+    doc.text(s.horarios?.length ? `${s.horarios.length}x/dia — ${s.horarios.join(', ')}` : 'Modo contínuo (toda leitura válida é registrada).', QPDF_M, y);
+    y += 9;
+
+    if (LEITURAS_ABERTO.length) {
+      y = qaiCabe(doc, y, 80);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+      doc.text('Histórico de leituras', QPDF_M, y); y += 5;
+      const cronologica = [...LEITURAS_ABERTO].reverse();
+      const codigos = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
+      const cores = coresParaChaves(codigos);
+      const config = {
+        type: 'line',
+        data: {
+          labels: cronologica.map(l => new Date(l.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })),
+          datasets: codigos.map(c => ({
+            label: infoGrandeza(s, c).rotulo, data: cronologica.map(l => l.valores?.[c] ?? null),
+            borderColor: cores.get(c), backgroundColor: cores.get(c) + '33', spanGaps: true, tension: .25, pointRadius: 1,
+          })),
+        },
+        options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } },
+          scales: { x: { ticks: { font: { size: 7 } } }, y: { ticks: { font: { size: 8 } } } } },
+      };
+      try {
+        const img = await renderizarGraficoParaImagemQai(config, 900, 420);
+        const imgH = CW * (img.h / img.w);
+        doc.addImage(img.bytes, 'PNG', QPDF_M, y, CW, imgH);
+        y += imgH + 8;
+      } catch (e) { /* gráfico é complemento visual — segue sem ele se falhar */ }
+    }
+
+    y = qaiCabe(doc, y, 14);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text('Leituras (mais recentes primeiro)', QPDF_M, y); y += 6;
+    doc.setFillColor(231, 238, 248);
+    doc.rect(QPDF_M, y - 4, CW, 6, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
+    doc.text('Quando', QPDF_M + 2, y);
+    doc.text('Valores', QPDF_M + 42, y);
+    doc.text('Conf.', QPDF_W - QPDF_M - 2, y, { align: 'right' });
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    LEITURAS_ABERTO.forEach(l => {
+      y = qaiCabe(doc, y, 6);
+      doc.setFontSize(8);
+      doc.text(fmtDataHora(l.criadoEm), QPDF_M + 2, y);
+      const valores = codigosDe(l.valores).map(c => {
+        const i = infoGrandeza(s, c);
+        return `${i.rotulo}: ${fmtValor(l.valores[c], i.unidade)}`;
+      }).join(' · ');
+      doc.text(doc.splitTextToSize(valores || '—', CW - 70)[0], QPDF_M + 42, y);
+      doc.text(l.conforme === true ? 'OK' : l.conforme === false ? 'FORA' : '—', QPDF_W - QPDF_M - 2, y, { align: 'right' });
+      doc.setDrawColor(225); doc.setLineWidth(0.2);
+      doc.line(QPDF_M, y + 2, QPDF_W - QPDF_M, y + 2);
+      y += 5;
+    });
+
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(140);
+      doc.text(`Página ${i} de ${pageCount}`, QPDF_W - QPDF_M, QPDF_H - 10, { align: 'right' });
+      doc.setTextColor(0);
+    }
+
+    const nome = `qai-${s.estabelecimento}-${s.recinto}-${new Date().toISOString().slice(0, 10)}.pdf`.replace(/[^\w.-]+/g, '_');
+    try { doc.save(nome); showToast('✅ ' + nome); }
+    catch (e) { showToast('Erro ao gerar o PDF: ' + e.message, 6000); }
+  });
+}
+
+iniciarQai();
+</script>
+</body>
+</html>
