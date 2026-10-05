@@ -145,6 +145,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .module-card.patrimonio{border-color:#7c3aed;}
 .module-card.relatorios{border-color:#1d4ed8;}
 .module-card.dashboard{border-color:#7c3aed;}
+.module-card.qai{border-color:#0891b2;}
 .module-card.admin{border-color:#dc2626;}
 .module-icon{font-size:28px;line-height:1;}
 .module-name{font-size:var(--fs-sm);font-weight:700;word-break:break-word;}
@@ -158,6 +159,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .module-card.patrimonio .module-count{background:#ede9fe;color:#5b21b6;}
 .module-card.relatorios .module-count{background:#dbeafe;color:#1e3a8a;}
 .module-card.dashboard .module-count{background:#ede9fe;color:#5b21b6;}
+.module-card.qai .module-count{background:#ecfeff;color:#0e7490;}
 .module-card.admin .module-count{background:#fee2e2;color:#991b1b;}
 
 /* ── Activity ── */
@@ -336,7 +338,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20260929.2"></script>
+<script src="api-client.js?v=20261003.1"></script>
 <script src="db.js"></script>
 <script>
 
@@ -512,6 +514,7 @@ function renderDashboard(user) {
     {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Indicadores e relatórios da operação',  count:'Consolidado',                                file:'relatorio.html'},
     {id:'laudo',    icon:'🔎',name:'Laudo',        desc:'Laudos técnicos de vistoria', count:'Vistoria', file:'laudo.html'},
     {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Visão geral da operação em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
+    {id:'qai',      icon:'🌬️',name:'QAI',         desc:'Qualidade do ar interior monitorada por sensores', count:'Sensores',                        file:'qai.html'},
     {id:'admin',    icon:'👑',name:'Administração',desc:'Quem acessa o quê, por perfil e contrato', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
   ].filter(m=>role.modules?.includes(m.id));
 
