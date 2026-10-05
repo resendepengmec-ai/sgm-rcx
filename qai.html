@@ -106,11 +106,13 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     <div class="modal-title">Novo sensor QAI</div>
     <div class="field">
       <label>Estabelecimento</label>
-      <input type="text" id="novo-estabelecimento" maxlength="160" placeholder="Ex.: Unidade Centro">
+      <input type="text" id="novo-estabelecimento" list="dl-estab-novo" autocomplete="off" maxlength="160" placeholder="Digite ou escolha um local do contrato" oninput="atualizarDatalistRecinto('dl-recinto-novo', this.value)">
+      <datalist id="dl-estab-novo"></datalist>
     </div>
     <div class="field">
       <label>Recinto</label>
-      <input type="text" id="novo-recinto" maxlength="160" placeholder="Ex.: Sala 203">
+      <input type="text" id="novo-recinto" list="dl-recinto-novo" autocomplete="off" maxlength="160" placeholder="Digite ou escolha um recinto">
+      <datalist id="dl-recinto-novo"></datalist>
     </div>
     <div class="qai-sub">
       O sensor liga ao cadastro de equipamentos pelo mesmo nome de
@@ -152,6 +154,8 @@ let LINHAS = [];            // dashboard do contrato selecionado
 let SENSOR_ABERTO = null;   // sensor completo exibido no modal
 let LEITURAS_ABERTO = [];
 let CHART_LEITURAS = null;
+let LOCAIS = [];             // estabelecimentos/recintos do contrato (autocomplete)
+let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
 let DISPONIVEIS_RENDER = []; // ordem das linhas de grandezas, lida no salvar
 let LIMITES_RENDER = [];     // ordem das linhas de limites, lida no salvar
 
@@ -214,6 +218,37 @@ function tempoRelativo(ts) {
   const h = Math.floor(min / 60);
   if (h < 24) return `há ${h}h`;
   return `há ${Math.floor(h / 24)}d`;
+}
+
+// ── Locais do contrato (autocomplete do cadastro) ──────────────────
+// Sugestões vêm dos equipamentos já cadastrados no contrato. O campo
+// continua aceitando texto livre, para um local que ainda não tem
+// equipamento; a sugestão só evita grafias diferentes do mesmo lugar.
+function _normTexto(v) { return String(v || '').trim().toLocaleLowerCase('pt-BR'); }
+function recintosDe(locais, estabelecimento) {
+  const alvo = _normTexto(estabelecimento);
+  const achado = (locais || []).find(l => _normTexto(l.estabelecimento) === alvo);
+  return achado ? achado.recintos : [];
+}
+async function carregarLocais(contrato) {
+  if (!contrato) { LOCAIS = []; LOCAIS_CONTRATO = null; return; }
+  if (LOCAIS_CONTRATO === contrato) return;
+  try {
+    LOCAIS = await DB.getLocaisQai(contrato);
+    LOCAIS_CONTRATO = contrato;
+  } catch (e) {
+    LOCAIS = []; LOCAIS_CONTRATO = null;
+    showToast('Não foi possível carregar os locais do contrato: ' + e.message, 5000);
+  }
+}
+function atualizarDatalistRecinto(idRecinto, estabelecimento) {
+  document.getElementById(idRecinto).innerHTML =
+    recintosDe(LOCAIS, estabelecimento).map(r => `<option value="${esc(r)}"></option>`).join('');
+}
+function preencherDatalists(idEstab, idRecinto, estabelecimentoAtual) {
+  document.getElementById(idEstab).innerHTML =
+    LOCAIS.map(l => `<option value="${esc(l.estabelecimento)}"></option>`).join('');
+  atualizarDatalistRecinto(idRecinto, estabelecimentoAtual);
 }
 
 // Rótulo e unidade de um data point, a partir do próprio sensor.
@@ -316,9 +351,12 @@ function renderCard(linha) {
 }
 
 // ── Novo sensor ──────────────────────────────────────────────────────
-function abrirNovoSensor() {
+async function abrirNovoSensor() {
+  const contrato = document.getElementById('f-contrato').value;
+  await carregarLocais(contrato);
   document.getElementById('novo-estabelecimento').value = '';
   document.getElementById('novo-recinto').value = '';
+  preencherDatalists('dl-estab-novo', 'dl-recinto-novo', '');
   abrirModal('modal-novo');
 }
 
@@ -350,6 +388,7 @@ async function abrirSensor(id) {
     ]);
     SENSOR_ABERTO = sensor;
     LEITURAS_ABERTO = leituras;
+    await carregarLocais(sensor.contrato);
     renderModalSensor(aparelhos);
   } catch (e) {
     document.getElementById('sensor-modal-conteudo').innerHTML =
@@ -477,11 +516,18 @@ function renderBasico(s) {
     <div class="card">
       <div class="card-title">Local</div>
       <div class="qai-grid2">
-        <div class="field"><label>Estabelecimento</label><input type="text" id="cfg-estabelecimento" maxlength="160" value="${esc(s.estabelecimento)}"></div>
-        <div class="field"><label>Recinto</label><input type="text" id="cfg-recinto" maxlength="160" value="${esc(s.recinto)}"></div>
+        <div class="field"><label>Estabelecimento</label>
+          <input type="text" id="cfg-estabelecimento" list="dl-estab-cfg" autocomplete="off" maxlength="160" value="${esc(s.estabelecimento)}" oninput="atualizarDatalistRecinto('dl-recinto-cfg', this.value)">
+          <datalist id="dl-estab-cfg"></datalist>
+        </div>
+        <div class="field"><label>Recinto</label>
+          <input type="text" id="cfg-recinto" list="dl-recinto-cfg" autocomplete="off" maxlength="160" value="${esc(s.recinto)}">
+          <datalist id="dl-recinto-cfg"></datalist>
+        </div>
       </div>
       <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarBasico(this)">Salvar local</button></div>
     </div>`;
+  preencherDatalists('dl-estab-cfg', 'dl-recinto-cfg', s.estabelecimento);
 }
 async function salvarBasico(btn) {
   const estabelecimento = document.getElementById('cfg-estabelecimento').value.trim();
@@ -513,18 +559,27 @@ function renderCredenciais(s) {
       </div>
     </div>`;
 }
-async function salvarCredenciais(btn) {
-  const clientId = document.getElementById('cfg-clientid').value.trim();
-  const deviceId = document.getElementById('cfg-deviceid').value.trim();
-  const regiao = document.getElementById('cfg-regiao').value;
+// Lê o formulário de credenciais. Secret em branco = manter o já salvo.
+function lerCredenciaisDoForm() {
+  const credenciais = {
+    clientId: document.getElementById('cfg-clientid').value.trim(),
+    deviceId: document.getElementById('cfg-deviceid').value.trim(),
+    regiao: document.getElementById('cfg-regiao').value,
+  };
   const clientSecret = document.getElementById('cfg-clientsecret').value;
-  const credenciais = { clientId, deviceId, regiao };
   if (clientSecret) credenciais.clientSecret = clientSecret;
-  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ credenciais }, 'Credenciais salvas.'));
+  return credenciais;
 }
+async function salvarCredenciais(btn) {
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ credenciais: lerCredenciaisDoForm() }, 'Credenciais salvas.'));
+}
+// "Testar conexão" usa as credenciais SALVAS no servidor. Por isso o que
+// estiver digitado na tela é salvo antes — senão o teste rodaria com dados
+// antigos (ou vazios) e pareceria que a Tuya recusou um sensor válido.
 async function testarConexaoAtual(btn) {
   await withActionBusy(btn, 'Testando…', async () => {
     try {
+      await patchSensorAtual({ credenciais: lerCredenciaisDoForm() });
       const resultado = await DB.testarConexaoQai(SENSOR_ABERTO.id);
       if (resultado.grandezasOrfas?.length)
         showToast('Atenção: data point(s) ' + resultado.grandezasOrfas.join(', ') + ' não existem mais neste dispositivo.', 7000);

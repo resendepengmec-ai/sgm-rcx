@@ -995,6 +995,7 @@ const DB = {
   getLeiturasQai:     (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/leituras${q}`),
   getAparelhosQai:    id         => API.get(`/qai/sensores/${encodeURIComponent(id)}/aparelhos`),
   getDashboardQai:    (contrato) => API.get(`/qai/dashboard${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}`),
+  getLocaisQai:       (contrato) => API.get(`/qai/locais?contrato=${encodeURIComponent(contrato)}`),
 
 };
 

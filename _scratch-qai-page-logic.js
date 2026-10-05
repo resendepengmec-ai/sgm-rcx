@@ -58,5 +58,15 @@ assert('infoGrandeza de código desconhecido usa o próprio code', sandbox.infoG
 assert('tempoRelativo "agora mesmo"', sandbox.tempoRelativo(Date.now() - 5000) === 'agora mesmo');
 assert('tempoRelativo em minutos', sandbox.tempoRelativo(Date.now() - 5 * 60000) === 'há 5 min');
 
+console.log('── recintosDe: autocomplete de recinto depende do estabelecimento ──');
+const locaisTeste = [
+  { estabelecimento: 'Unidade A', recintos: ['Sala 1', 'Sala 2'] },
+  { estabelecimento: 'Escola B', recintos: ['Lab'] },
+];
+assert('recintos do estabelecimento exato', JSON.stringify(sandbox.recintosDe(locaisTeste, 'Unidade A')) === JSON.stringify(['Sala 1', 'Sala 2']));
+assert('ignora caixa e espaços ao comparar estabelecimento', JSON.stringify(sandbox.recintosDe(locaisTeste, '  unidade a ')) === JSON.stringify(['Sala 1', 'Sala 2']));
+assert('estabelecimento desconhecido (texto livre) não sugere recinto', sandbox.recintosDe(locaisTeste, 'Novo Prédio').length === 0);
+assert('sem locais carregados não quebra', sandbox.recintosDe(null, 'Unidade A').length === 0);
+
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);
