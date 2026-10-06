@@ -68,5 +68,14 @@ assert('ignora caixa e espaços ao comparar estabelecimento', JSON.stringify(san
 assert('estabelecimento desconhecido (texto livre) não sugere recinto', sandbox.recintosDe(locaisTeste, 'Novo Prédio').length === 0);
 assert('sem locais carregados não quebra', sandbox.recintosDe(null, 'Unidade A').length === 0);
 
+console.log('── situacaoGrandeza / textoLimite: tiles do dashboard ──');
+assert('valor dentro dos limites', sandbox.situacaoGrandeza(24, { min: 20, max: 26 }).classe === 'ok');
+assert('valor acima do máximo fica fora', sandbox.situacaoGrandeza(27, { min: 20, max: 26 }).classe === 'fora');
+assert('valor abaixo do mínimo fica fora', sandbox.situacaoGrandeza(18, { min: 20, max: 26 }).classe === 'fora');
+assert('sem limite definido não avalia', sandbox.situacaoGrandeza(24, undefined).classe === 'sem');
+assert('sem leitura não avalia', sandbox.situacaoGrandeza(null, { max: 26 }).texto === 'sem leitura');
+assert('textoLimite com mínimo e máximo', sandbox.textoLimite({ min: 20, max: 26 }, '°C') === 'mín 20 °C · máx 26 °C');
+assert('textoLimite sem limite', sandbox.textoLimite(undefined, '°C') === 'sem limite definido');
+
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);

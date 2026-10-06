@@ -77,6 +77,19 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-aparelho-item:last-child{border-bottom:none;}
 
 .qai-chart-wrap{position:relative;height:200px;margin-top:10px;}
+
+.qai-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.qai-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px;}
+.qai-kpi{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--border);border-radius:10px;padding:12px 14px;}
+.qai-kpi.ok{border-left-color:var(--success);}
+.qai-kpi.fora{border-left-color:var(--danger);}
+.qai-kpi.sem{border-left-color:var(--text-3);}
+.qai-kpi-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-3);}
+.qai-kpi-val{font-size:26px;font-weight:700;margin-top:4px;color:var(--text);}
+.qai-kpi-un{font-size:13px;font-weight:600;color:var(--text-2);margin-left:4px;}
+.qai-kpi-sub{font-size:11px;color:var(--text-2);margin-top:4px;}
+.qai-kpi.fora .qai-kpi-sub{color:var(--danger);}
+.qai-kpi.ok .qai-kpi-sub{color:var(--success);}
 </style>
 </head>
 <body>
@@ -267,6 +280,11 @@ async function iniciarQai() {
   if (!confirmado) return;
   user = confirmado;
   document.getElementById('auth-overlay').style.display = 'none';
+  DB.getPrestadoraConfig().then(async cfg => {
+    cfg = cfg || {};
+    cfg.logo = await resolverLogoDataUrl(cfg);
+    PRESTADORA = cfg;
+  }).catch(() => {});
   try {
     CONTRATOS = await DB.getContratos();
   } catch (e) {
@@ -371,54 +389,84 @@ async function salvarNovoSensor(btn) {
       fecharModal('modal-novo');
       showToast('Sensor criado — configure as credenciais Tuya a seguir.');
       await carregarLista();
-      abrirSensor(sensor.id);
+      abrirSensor(sensor.id, 'config');
     } catch (e) {
       showToast('Erro ao criar sensor: ' + e.message, 6000);
     }
   });
 }
 
-// ── Detalhe/configuração do sensor ──────────────────────────────────
-async function abrirSensor(id) {
+// ── Modal do sensor: duas visões ──────────────────────────────────────
+// "dashboard" (padrão ao clicar no card): grandezas, histórico e PDF.
+// "config": ações, local, credenciais, grandezas, limites e horários.
+let MODO_MODAL = 'dashboard';
+let APARELHOS_ABERTO = [];
+let DASH_LINHA = null; // linha do dashboard do contrato: telemetria "agora" do sensor
+let PRESTADORA = {};   // dados da empresa para o cabeçalho dos PDFs
+
+// modo: 'dashboard' ao abrir pelo card; 'config' ao criar sensor novo; no
+// refresh interno, o chamador passa MODO_MODAL para manter a visão atual.
+async function abrirSensor(id, modo = 'dashboard') {
+  MODO_MODAL = modo;
   abrirModal('modal-sensor');
   document.getElementById('sensor-modal-conteudo').innerHTML = 'Carregando…';
   try {
-    const [sensor, leituras, aparelhos] = await Promise.all([
-      DB.getSensorQai(id), DB.getLeiturasQai(id, '?limite=50'), DB.getAparelhosQai(id),
+    const sensor = await DB.getSensorQai(id);
+    const [leituras, aparelhos, linhas] = await Promise.all([
+      DB.getLeiturasQai(id, '?limite=50'), DB.getAparelhosQai(id), DB.getDashboardQai(sensor.contrato),
     ]);
     SENSOR_ABERTO = sensor;
     LEITURAS_ABERTO = leituras;
+    APARELHOS_ABERTO = aparelhos || [];
+    DASH_LINHA = (linhas || []).find(l => l.sensor.id === id) || null;
     await carregarLocais(sensor.contrato);
-    renderModalSensor(aparelhos);
+    renderModalSensor();
   } catch (e) {
     document.getElementById('sensor-modal-conteudo').innerHTML =
       `<div class="empty">Não foi possível carregar o sensor: ${esc(e.message)}</div>`;
   }
 }
 
-function renderModalSensor(aparelhos) {
+function irParaModo(modo) {
+  MODO_MODAL = modo;
+  renderModalSensor();
+}
+
+function renderModalSensor() {
   const s = SENSOR_ABERTO;
   if (!s) return;
   const el = document.getElementById('sensor-modal-conteudo');
-  el.innerHTML = `
-    <div class="modal-title">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
-    <div id="sec-acoes"></div>
-    <div id="sec-basico"></div>
-    <div id="sec-credenciais"></div>
-    <div id="sec-grandezas"></div>
-    <div id="sec-limites"></div>
-    <div id="sec-horarios"></div>
-    <div id="sec-leituras"></div>
-    <div id="sec-aparelhos"></div>
-  `;
-  renderAcoes(s);
-  renderBasico(s);
-  renderCredenciais(s);
-  renderGrandezas(s);
-  renderLimites(s);
-  renderHorarios(s);
-  renderLeituras(LEITURAS_ABERTO);
-  renderAparelhos(aparelhos || []);
+  const titulo = `<div class="modal-title">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>`;
+  if (MODO_MODAL === 'config') {
+    el.innerHTML = `${titulo}
+      <div class="qai-toolbar"><button class="btn btn-secondary btn-sm" onclick="irParaModo('dashboard')">← Dashboard</button></div>
+      <div id="sec-acoes"></div>
+      <div id="sec-basico"></div>
+      <div id="sec-credenciais"></div>
+      <div id="sec-grandezas"></div>
+      <div id="sec-limites"></div>
+      <div id="sec-horarios"></div>
+      <div id="sec-aparelhos"></div>`;
+    renderAcoes(s);
+    renderBasico(s);
+    renderCredenciais(s);
+    renderGrandezas(s);
+    renderLimites(s);
+    renderHorarios(s);
+    renderAparelhos(APARELHOS_ABERTO);
+  } else {
+    el.innerHTML = `${titulo}
+      <div class="qai-toolbar">
+        <span class="badge ${s.sensorAtivo ? 'ativo' : 'inativo'}">${s.sensorAtivo ? 'Ativo' : 'Inativo'}</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-secondary btn-sm" onclick="irParaModo('config')">⚙ Configurações</button>
+          <button class="btn btn-primary btn-sm" onclick="gerarPdfSensor(this)">📄 Gerar PDF</button>
+        </div>
+      </div>
+      <div id="dash-grandezas"></div>
+      <div id="dash-historico"></div>`;
+    renderDashboard(s);
+  }
 }
 
 // PATCH com _version (lock otimista). Em conflito, recarrega o sensor.
@@ -433,7 +481,7 @@ async function patchSensorAtual(dados, mensagemOk) {
   } catch (e) {
     if (e.code === 'VERSION_CONFLICT') {
       showToast('Este sensor foi alterado em outro envio — recarregando dados atuais…', 5000);
-      await abrirSensor(SENSOR_ABERTO.id);
+      await abrirSensor(SENSOR_ABERTO.id, MODO_MODAL);
     } else {
       showToast('Erro: ' + e.message, 6000);
     }
@@ -491,8 +539,7 @@ async function sincronizarSensorAtual(btn) {
       else if (resultado.motivo === 'janela_ocupada') showToast('Leitura obtida, mas a janela de medição de hoje já estava preenchida.', 6000);
       else if (resultado.motivo === 'sem_dados') showToast('O dispositivo não reportou nenhum data point ativo.', 6000);
       else showToast('Leitura obtida (sem registro formal).', 6000);
-      LEITURAS_ABERTO = await DB.getLeiturasQai(SENSOR_ABERTO.id, '?limite=50');
-      renderLeituras(LEITURAS_ABERTO);
+      await abrirSensor(SENSOR_ABERTO.id, MODO_MODAL);
       carregarLista();
     } catch (e) { showToast('Erro ao sincronizar: ' + e.message, 7000); }
   });
@@ -584,7 +631,7 @@ async function testarConexaoAtual(btn) {
       if (resultado.grandezasOrfas?.length)
         showToast('Atenção: data point(s) ' + resultado.grandezasOrfas.join(', ') + ' não existem mais neste dispositivo.', 7000);
       else showToast(`Conexão OK — ${resultado.grandezasDisponiveis.length} data point(s) detectado(s).`);
-      await abrirSensor(SENSOR_ABERTO.id);
+      await abrirSensor(SENSOR_ABERTO.id, MODO_MODAL);
     } catch (e) { showToast('Falha no teste de conexão: ' + e.message, 7000); }
   });
 }
@@ -726,31 +773,54 @@ async function salvarHorarios(btn) {
 }
 
 // ── Leituras recentes + gráfico ──────────────────────────────────────
-function renderLeituras(leituras) {
-  const linhas = leituras.slice(0, 15).map(l => {
-    const valores = codigosDe(l.valores).map(c => {
-      const i = infoGrandeza(SENSOR_ABERTO, c);
-      return `${i.rotulo}: ${fmtValor(l.valores[c], i.unidade)}`;
-    }).join(' · ');
-    const conforme = l.conforme === true ? '✓' : l.conforme === false ? '⚠' : '—';
-    return `<tr><td>${fmtDataHora(l.criadoEm)}</td><td>${esc(valores)}</td><td>${conforme}</td></tr>`;
-  }).join('');
-  document.getElementById('sec-leituras').innerHTML = `
+// ── Dashboard do sensor: uma tile por grandeza ativa + histórico ────
+// Valor "agora" = telemetria ao vivo do polling; sem telemetria, a última
+// leitura registrada. Situação compara com os limites configurados.
+function situacaoGrandeza(valor, limite) {
+  if (valor == null) return { classe: 'sem', texto: 'sem leitura' };
+  if (!limite || (limite.min == null && limite.max == null)) return { classe: 'sem', texto: 'sem limite' };
+  const fora = (limite.min != null && valor < limite.min) || (limite.max != null && valor > limite.max);
+  return fora ? { classe: 'fora', texto: 'fora do limite' } : { classe: 'ok', texto: 'dentro do limite' };
+}
+function textoLimite(limite, unidade) {
+  if (!limite) return 'sem limite definido';
+  const un = unidade ? ' ' + unidade : '';
+  const partes = [];
+  if (limite.min != null) partes.push(`mín ${limite.min}${un}`);
+  if (limite.max != null) partes.push(`máx ${limite.max}${un}`);
+  return partes.length ? partes.join(' · ') : 'sem limite definido';
+}
+function renderDashboard(s) {
+  const codigos = Object.keys(s.grandezasAtivas || {});
+  const tel = DASH_LINHA?.telemetriaAoVivo;
+  const ultima = LEITURAS_ABERTO[0];
+  const valores = tel ? tel.valores : (ultima ? ultima.valores : {});
+  const fonte = tel ? 'agora · ' + tempoRelativo(tel.recebidoEm)
+    : ultima ? 'última leitura · ' + tempoRelativo(ultima.criadoEm) : 'nenhuma leitura ainda';
+  const limites = s.limites || {};
+
+  document.getElementById('dash-grandezas').innerHTML = codigos.length
+    ? `<div class="qai-sub" style="margin:8px 0 6px">${esc(fonte)}</div>
+       <div class="qai-kpis">${codigos.map(c => {
+         const i = infoGrandeza(s, c);
+         const v = valores[c] ?? null;
+         const sit = situacaoGrandeza(v, limites[c]);
+         return `<div class="qai-kpi ${sit.classe}">
+           <div class="qai-kpi-label">${esc(i.rotulo)}</div>
+           <div class="qai-kpi-val">${v == null ? '—' : esc(fmtValor(v, ''))}<span class="qai-kpi-un">${esc(i.unidade)}</span></div>
+           <div class="qai-kpi-sub">${esc(sit.texto)} · ${esc(textoLimite(limites[c], i.unidade))}</div>
+         </div>`;
+       }).join('')}</div>`
+    : `<div class="card"><div class="qai-sub" style="margin:0">Nenhuma grandeza ativa. Escolha as grandezas em ⚙ Configurações.</div></div>`;
+
+  document.getElementById('dash-historico').innerHTML = `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <div class="card-title" style="margin-bottom:0">Leituras recentes</div>
-        <button class="btn btn-secondary btn-sm" onclick="gerarPdfSensor(this)" ${leituras.length ? '' : 'disabled'}>📄 PDF</button>
-      </div>
-      ${leituras.length ? `
-        <div class="qai-chart-wrap"><canvas id="qai-chart-leituras"></canvas></div>
-        <div style="overflow-x:auto;margin-top:10px">
-          <table class="qai-leitura-tabela">
-            <tr><th>Quando</th><th>Valores</th><th>Conf.</th></tr>
-            ${linhas}
-          </table>
-        </div>` : '<div class="qai-sub">Nenhuma leitura registrada ainda.</div>'}
+      <div class="card-title">Histórico</div>
+      ${LEITURAS_ABERTO.length
+        ? '<div class="qai-chart-wrap"><canvas id="qai-chart-leituras"></canvas></div>'
+        : '<div class="qai-sub" style="margin:0">Nenhuma leitura registrada ainda.</div>'}
     </div>`;
-  if (leituras.length) renderGraficoLeituras(leituras);
+  if (LEITURAS_ABERTO.length) renderGraficoLeituras(LEITURAS_ABERTO);
 }
 function renderGraficoLeituras(leituras) {
   if (CHART_LEITURAS) { CHART_LEITURAS.destroy(); CHART_LEITURAS = null; }
@@ -795,11 +865,99 @@ function renderAparelhos(lista) {
     </div>`;
 }
 
-// ── PDF do sensor ────────────────────────────────────────────────────
-const QPDF_M = 15, QPDF_W = 210, QPDF_H = 297;
-function qaiCabe(doc, y, h) { return (y + h > QPDF_H - QPDF_M) ? (doc.addPage(), QPDF_M) : y; }
+// ── PDF do sensor — cabeçalho e rodapé no padrão dos demais PDFs do SGM ──
+// Mesmo layout de preventiva.html (drawPdfHeader/drawPdfFooters): empresa
+// à esquerda, título e metadados à direita, filete cinza, Helvetica 10,
+// rodapé com contratante, "Gerado em … por …" e "Página X de Y".
+const PDF_M = 20, PDF_W = 210, PDF_H = 297;
+const PDF_RODAPE_Y = 270;   // linha do rodapé, igual aos demais PDFs
+const PDF_CORPO_MAX = 258;  // limite do corpo acima do rodapé
 
-// Captura de gráfico em PNG (mesma técnica de relatorio.html).
+function pdfCabe(doc, y, h) {
+  if (y + h > PDF_CORPO_MAX) { doc.addPage(); return 20; }
+  return y;
+}
+
+function pdfCabecalho(doc, titulo, metaLinhas) {
+  let y = 14, textX = PDF_M;
+  if (PRESTADORA.logo) {
+    const maxW = 24, maxH = 20;
+    let w = maxW, h = PRESTADORA.logoRatio ? maxW * parseFloat(PRESTADORA.logoRatio) : maxW * 0.6;
+    if (h > maxH) { w = w * (maxH / h); h = maxH; }
+    try { doc.addImage(PRESTADORA.logo, 'PNG', PDF_M, y - 2, w, h); textX = PDF_M + w + 6; } catch (e) {}
+  }
+  const maxTextW = PDF_W - PDF_M - textX - 62;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+  const nomeLinhas = doc.splitTextToSize(PRESTADORA.company || 'Empresa prestadora', maxTextW);
+  doc.text(nomeLinhas, textX, y + 2);
+  let ly = y + 2 + nomeLinhas.length * 4.5 + 2.5;
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 90, 90);
+  if (PRESTADORA.address) { const a = doc.splitTextToSize(PRESTADORA.address, maxTextW); doc.text(a, textX, ly); ly += a.length * 4.5; }
+  if (PRESTADORA.cnpj) { doc.text(`CNPJ: ${PRESTADORA.cnpj}`, textX, ly); ly += 4.5; }
+
+  doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20);
+  doc.text(titulo, PDF_W - PDF_M, 14, { align: 'right' });
+  doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 90, 90);
+  let my = 20;
+  metaLinhas.forEach(l => { doc.text(l, PDF_W - PDF_M, my, { align: 'right' }); my += 5.5; });
+  doc.setTextColor(0, 0, 0);
+
+  const ruleY = Math.max(ly, my) + 3;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(PDF_M, ruleY, PDF_W - PDF_M, ruleY);
+  return ruleY + 8;
+}
+
+function pdfRodapes(doc, contratante) {
+  const total = doc.internal.getNumberOfPages();
+  const maxW = PDF_W - PDF_M * 2;
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    let fy = PDF_RODAPE_Y;
+    doc.setDrawColor(220, 220, 220);
+    doc.line(PDF_M, fy, PDF_W - PDF_M, fy);
+    fy += 6;
+    if (contratante) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60, 60, 60);
+      const linhas = doc.splitTextToSize(contratante, maxW).slice(0, 2);
+      doc.text(linhas, PDF_M, fy);
+      fy += linhas.length * 4.5 + 1.5;
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(140, 140, 140);
+    doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, PDF_M, fy);
+    doc.text(`Página ${i} de ${total}`, PDF_W - PDF_M, fy, { align: 'right' });
+    doc.setTextColor(0, 0, 0);
+  }
+}
+
+// Tabela com cabeçalho repetido em cada página; células com quebra de linha.
+function pdfTabela(doc, y, colunas, linhas) {
+  const larguraUtil = PDF_W - PDF_M * 2;
+  const cabecalho = yy => {
+    doc.setFillColor(231, 238, 248);
+    doc.rect(PDF_M, yy - 4, larguraUtil, 6, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(20, 20, 20);
+    colunas.forEach(c => doc.text(c.titulo, c.x, yy, { align: c.align || 'left' }));
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(35, 45, 60);
+    return yy + 5;
+  };
+  y = pdfCabe(doc, y, 14);
+  y = cabecalho(y);
+  for (const linha of linhas) {
+    const celulas = colunas.map((c, i) => doc.splitTextToSize(String(linha[i] ?? '—'), c.largura));
+    const altura = Math.max(...celulas.map(l => l.length)) * 4 + 2;
+    if (y + altura > PDF_CORPO_MAX) { doc.addPage(); y = cabecalho(20); }
+    colunas.forEach((c, i) => doc.text(celulas[i], c.x, y, { align: c.align || 'left' }));
+    doc.setDrawColor(225); doc.setLineWidth(0.2);
+    doc.line(PDF_M, y + altura - 2, PDF_W - PDF_M, y + altura - 2);
+    y += altura;
+  }
+  doc.setTextColor(0, 0, 0);
+  return y + 4;
+}
+
+// Mesma técnica de relatorio.html:renderizarGraficoParaImagem — canvas fora
+// da tela e bytes PNG (Uint8Array), nunca base64.
 async function renderizarGraficoParaImagemQai(config, wPx, hPx) {
   const canvas = document.createElement('canvas');
   canvas.width = wPx; canvas.height = hPx;
@@ -821,52 +979,74 @@ async function gerarPdfSensor(btn) {
   await withActionBusy(btn, 'Gerando…', async () => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const CW = QPDF_W - QPDF_M * 2;
-    let y = QPDF_M;
+    const contrato = CONTRATOS.find(c => c.numero === s.contrato);
+    const contratante = contrato
+      ? `Contratante: ${contrato.razao || '—'}   |   Contrato nº ${contrato.numero}   |   ART: ${contrato.art || '—'}`
+      : '';
+    const CW = PDF_W - PDF_M * 2;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
-    doc.text('RELATÓRIO QAI — QUALIDADE DO AR INTERIOR', QPDF_M, y); y += 7;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.text(`Contrato ${s.contrato} · ${s.estabelecimento} · ${s.recinto}`, QPDF_M, y); y += 5;
-    doc.setFontSize(9); doc.setTextColor(90);
-    doc.text(`Status: ${s.sensorAtivo ? 'Ativo' : 'Inativo'} · Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`, QPDF_M, y); y += 4;
-    doc.setTextColor(0);
-    doc.setDrawColor(180); doc.setLineWidth(0.3);
-    doc.line(QPDF_M, y, QPDF_W - QPDF_M, y); y += 7;
+    let y = pdfCabecalho(doc, 'Qualidade do Ar Interior', [
+      `Contrato ${s.contrato}`,
+      `Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`,
+    ]);
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Limites de conformidade', QPDF_M, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    const limitesCodigos = Object.keys(s.limites || {}).sort();
-    const limitesTexto = limitesCodigos.map(c => {
-      const l = s.limites[c], i = infoGrandeza(s, c);
-      const partes = [];
-      if (l.min != null) partes.push(`mín ${l.min}${i.unidade ? ' ' + i.unidade : ''}`);
-      if (l.max != null) partes.push(`máx ${l.max}${i.unidade ? ' ' + i.unidade : ''}`);
-      return `${i.rotulo}: ${partes.join(' / ')}`;
-    });
-    if (!limitesTexto.length) { doc.text('Nenhum limite configurado.', QPDF_M, y); y += 6; }
-    else { limitesTexto.forEach(t => { doc.text(t, QPDF_M, y); y += 5; }); }
-    y += 2;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+    doc.text('Relatório de Qualidade do Ar Interior', PDF_M, y); y += 7;
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50);
+    const datas = LEITURAS_ABERTO.map(l => l.criadoEm).filter(Boolean).sort((a, b) => a - b);
+    const periodo = datas.length ? `${fmtDataHora(datas[0])} a ${fmtDataHora(datas[datas.length - 1])}` : 'sem leituras';
+    const horarios = s.horarios || [];
+    [
+      `Estabelecimento: ${s.estabelecimento}`,
+      `Recinto: ${s.recinto}`,
+      `Situação do sensor: ${s.sensorAtivo ? 'ativo' : 'inativo'}`,
+      `Janelas de medição: ${horarios.length ? horarios.length + 'x/dia (' + horarios.join(', ') + ')' : 'modo contínuo'}`,
+      `Período das leituras: ${periodo}`,
+    ].forEach(linha => { doc.text(linha, PDF_M, y); y += 5; });
+    y += 4;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Janelas de medição', QPDF_M, y); y += 5;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-    doc.text(s.horarios?.length ? `${s.horarios.length}x/dia — ${s.horarios.join(', ')}` : 'Modo contínuo (toda leitura válida é registrada).', QPDF_M, y);
-    y += 9;
+    // Grandezas: valor "agora" (telemetria, ou última leitura) e situação
+    const codigos = Object.keys(s.grandezasAtivas || {}).sort();
+    const tel = DASH_LINHA?.telemetriaAoVivo;
+    const valores = tel ? tel.valores : (LEITURAS_ABERTO[0]?.valores || {});
+    const limites = s.limites || {};
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+    doc.text('Grandezas medidas', PDF_M, y); y += 5;
+    if (codigos.length) {
+      const linhasGrandezas = codigos.map(c => {
+        const i = infoGrandeza(s, c);
+        const v = valores[c] ?? null;
+        const lim = textoLimite(limites[c], '').replace(' definido', '');
+        const sit = situacaoGrandeza(v, limites[c]);
+        const curta = sit.classe === 'ok' ? 'Dentro' : sit.classe === 'fora' ? 'Fora' : (v == null ? 'Sem leitura' : 'Sem limite');
+        return [i.rotulo, i.unidade || '—', v == null ? '—' : fmtValor(v, ''), lim, curta];
+      });
+      y = pdfTabela(doc, y, [
+        { titulo: 'Grandeza', x: PDF_M + 2, largura: 56 },
+        { titulo: 'Unidade', x: 80, largura: 16 },
+        { titulo: 'Valor', x: 116, align: 'right', largura: 24 },
+        { titulo: 'Limites', x: 124, largura: 44 },
+        { titulo: 'Situação', x: PDF_W - PDF_M - 2, align: 'right', largura: 22 },
+      ], linhasGrandezas);
+    } else {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
+      doc.text('Nenhuma grandeza ativa.', PDF_M, y); y += 8;
+      doc.setTextColor(0, 0, 0);
+    }
 
+    // Histórico: gráfico e tabela de leituras
     if (LEITURAS_ABERTO.length) {
-      y = qaiCabe(doc, y, 80);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-      doc.text('Histórico de leituras', QPDF_M, y); y += 5;
+      y = pdfCabe(doc, y, 90);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+      doc.text('Histórico de leituras', PDF_M, y); y += 5;
       const cronologica = [...LEITURAS_ABERTO].reverse();
-      const codigos = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
-      const cores = coresParaChaves(codigos);
+      const codigosHist = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
+      const cores = coresParaChaves(codigosHist);
       const config = {
         type: 'line',
         data: {
           labels: cronologica.map(l => new Date(l.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })),
-          datasets: codigos.map(c => ({
+          datasets: codigosHist.map(c => ({
             label: infoGrandeza(s, c).rotulo, data: cronologica.map(l => l.valores?.[c] ?? null),
             borderColor: cores.get(c), backgroundColor: cores.get(c) + '33', spanGaps: true, tension: .25, pointRadius: 1,
           })),
@@ -877,44 +1057,24 @@ async function gerarPdfSensor(btn) {
       try {
         const img = await renderizarGraficoParaImagemQai(config, 900, 420);
         const imgH = CW * (img.h / img.w);
-        doc.addImage(img.bytes, 'PNG', QPDF_M, y, CW, imgH);
-        y += imgH + 8;
-      } catch (e) { /* gráfico é complemento visual — segue sem ele se falhar */ }
+        y = pdfCabe(doc, y, imgH + 4);
+        doc.addImage(img.bytes, 'PNG', PDF_M, y, CW, imgH);
+        y += imgH + 6;
+      } catch (e) { /* gráfico é complemento — segue sem ele se falhar */ }
+
+      const linhasHist = LEITURAS_ABERTO.map(l => [
+        fmtDataHora(l.criadoEm),
+        codigosDe(l.valores).map(c => `${infoGrandeza(s, c).rotulo}: ${fmtValor(l.valores[c], infoGrandeza(s, c).unidade)}`).join(' · ') || '—',
+        l.conforme === true ? 'OK' : l.conforme === false ? 'Fora' : '—',
+      ]);
+      y = pdfTabela(doc, y, [
+        { titulo: 'Data/hora', x: PDF_M + 2, largura: 38 },
+        { titulo: 'Valores', x: 62, largura: 110 },
+        { titulo: 'Conf.', x: PDF_W - PDF_M - 2, align: 'right', largura: 16 },
+      ], linhasHist);
     }
 
-    y = qaiCabe(doc, y, 14);
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-    doc.text('Leituras (mais recentes primeiro)', QPDF_M, y); y += 6;
-    doc.setFillColor(231, 238, 248);
-    doc.rect(QPDF_M, y - 4, CW, 6, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8);
-    doc.text('Quando', QPDF_M + 2, y);
-    doc.text('Valores', QPDF_M + 42, y);
-    doc.text('Conf.', QPDF_W - QPDF_M - 2, y, { align: 'right' });
-    y += 5;
-    doc.setFont('helvetica', 'normal');
-    LEITURAS_ABERTO.forEach(l => {
-      y = qaiCabe(doc, y, 6);
-      doc.setFontSize(8);
-      doc.text(fmtDataHora(l.criadoEm), QPDF_M + 2, y);
-      const valores = codigosDe(l.valores).map(c => {
-        const i = infoGrandeza(s, c);
-        return `${i.rotulo}: ${fmtValor(l.valores[c], i.unidade)}`;
-      }).join(' · ');
-      doc.text(doc.splitTextToSize(valores || '—', CW - 70)[0], QPDF_M + 42, y);
-      doc.text(l.conforme === true ? 'OK' : l.conforme === false ? 'FORA' : '—', QPDF_W - QPDF_M - 2, y, { align: 'right' });
-      doc.setDrawColor(225); doc.setLineWidth(0.2);
-      doc.line(QPDF_M, y + 2, QPDF_W - QPDF_M, y + 2);
-      y += 5;
-    });
-
-    const pageCount = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(140);
-      doc.text(`Página ${i} de ${pageCount}`, QPDF_W - QPDF_M, QPDF_H - 10, { align: 'right' });
-      doc.setTextColor(0);
-    }
+    pdfRodapes(doc, contratante);
 
     const nome = `qai-${s.estabelecimento}-${s.recinto}-${new Date().toISOString().slice(0, 10)}.pdf`.replace(/[^\w.-]+/g, '_');
     try { doc.save(nome); showToast('✅ ' + nome); }
