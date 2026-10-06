@@ -90,6 +90,12 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-kpi-sub{font-size:11px;color:var(--text-2);margin-top:4px;}
 .qai-kpi.fora .qai-kpi-sub{color:var(--danger);}
 .qai-kpi.ok .qai-kpi-sub{color:var(--success);}
+
+.qai-dia{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
+.qai-dia input[type=date]{padding:6px 8px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;}
+.qai-grafico-bloco{margin-bottom:14px;}
+.qai-grafico-bloco .qai-chart-wrap{height:240px;}
+.qai-grafico-titulo{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:2px;}
 </style>
 </head>
 <body>
@@ -166,7 +172,10 @@ let CONTRATOS = [];
 let LINHAS = [];            // dashboard do contrato selecionado
 let SENSOR_ABERTO = null;   // sensor completo exibido no modal
 let LEITURAS_ABERTO = [];
-let CHART_LEITURAS = null;
+let CHARTS_DASH = [];       // gráficos do histórico do dia
+let LEITURAS_DIA = [];      // leituras do dia selecionado
+let DIA_SELECIONADO = null; // dia local AAAA-MM-DD
+let DIA_REQ = 0;            // controla respostas de dias antigos
 let LOCAIS = [];             // estabelecimentos/recintos do contrato (autocomplete)
 let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
 let DISPONIVEIS_RENDER = []; // ordem das linhas de grandezas, lida no salvar
@@ -415,6 +424,7 @@ async function abrirSensor(id, modo = 'dashboard') {
     const [leituras, aparelhos, linhas] = await Promise.all([
       DB.getLeiturasQai(id, '?limite=50'), DB.getAparelhosQai(id), DB.getDashboardQai(sensor.contrato),
     ]);
+    if (!SENSOR_ABERTO || SENSOR_ABERTO.id !== sensor.id) DIA_SELECIONADO = null;
     SENSOR_ABERTO = sensor;
     LEITURAS_ABERTO = leituras;
     APARELHOS_ABERTO = aparelhos || [];
@@ -815,42 +825,193 @@ function renderDashboard(s) {
 
   document.getElementById('dash-historico').innerHTML = `
     <div class="card">
-      <div class="card-title">Histórico</div>
-      ${LEITURAS_ABERTO.length
-        ? '<div class="qai-chart-wrap"><canvas id="qai-chart-leituras"></canvas></div>'
-        : '<div class="qai-sub" style="margin:0">Nenhuma leitura registrada ainda.</div>'}
+      <div class="card-title">Histórico do dia</div>
+      <div class="qai-dia">
+        <button class="btn btn-secondary btn-sm" onclick="mudarDia(-1)" aria-label="Dia anterior">‹</button>
+        <input type="date" id="dash-dia" value="${esc(DIA_SELECIONADO || '')}" onchange="escolherDia(this.value)">
+        <button class="btn btn-secondary btn-sm" onclick="mudarDia(1)" aria-label="Próximo dia">›</button>
+        <span class="qai-sub" id="dash-dia-info" style="margin:0"></span>
+      </div>
+      <div id="dash-graficos"></div>
     </div>`;
-  if (LEITURAS_ABERTO.length) renderGraficoLeituras(LEITURAS_ABERTO);
+  carregarDiaDashboard();
 }
-function renderGraficoLeituras(leituras) {
-  if (CHART_LEITURAS) { CHART_LEITURAS.destroy(); CHART_LEITURAS = null; }
-  const ctx = document.getElementById('qai-chart-leituras');
-  if (!ctx) return;
-  const cronologica = [...leituras].reverse(); // backend devolve mais recente primeiro
-  const labels = cronologica.map(l => new Date(l.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
-  const codigos = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
+
+// ── Histórico por dia ────────────────────────────────────────────────
+// Cada dia é buscado no servidor (desde/ate), para o gráfico não depender
+// do limite das últimas leituras. Dia = dia local do navegador.
+function diaLocalDe(ts) {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function limitesDoDia(dia) {
+  const [y, m, d] = dia.split('-').map(Number);
+  const ini = new Date(y, m - 1, d).getTime();
+  return { desde: ini, ate: ini + 86400000 - 1 };
+}
+function deslocarDia(dia, n) {
+  const [y, m, d] = dia.split('-').map(Number);
+  return diaLocalDe(new Date(y, m - 1, d + n).getTime());
+}
+function escolherDia(dia) {
+  if (!dia) return;
+  DIA_SELECIONADO = dia;
+  carregarDiaDashboard();
+}
+function mudarDia(n) {
+  DIA_SELECIONADO = deslocarDia(DIA_SELECIONADO || diaLocalDe(Date.now()), n);
+  const campo = document.getElementById('dash-dia');
+  if (campo) campo.value = DIA_SELECIONADO;
+  carregarDiaDashboard();
+}
+async function carregarDiaDashboard() {
+  const s = SENSOR_ABERTO;
+  if (!s) return;
+  if (!DIA_SELECIONADO) DIA_SELECIONADO = LEITURAS_ABERTO[0] ? diaLocalDe(LEITURAS_ABERTO[0].criadoEm) : diaLocalDe(Date.now());
+  const req = ++DIA_REQ;
+  const { desde, ate } = limitesDoDia(DIA_SELECIONADO);
+  const info = document.getElementById('dash-dia-info');
+  if (info) info.textContent = 'carregando…';
+  try {
+    const leituras = await DB.getLeiturasQai(s.id, `?desde=${desde}&ate=${ate}&limite=5000`);
+    if (req !== DIA_REQ) return; // resposta de um dia que já não está selecionado
+    LEITURAS_DIA = leituras;
+    if (info) info.textContent = `${leituras.length} leitura(s)`;
+    renderGraficosDashboard(s);
+  } catch (e) {
+    if (info) info.textContent = '';
+    showToast('Não foi possível carregar o dia: ' + e.message, 5000);
+  }
+}
+
+// ── Gráficos: grupos de até 2 grandezas, eixo X por horário de amostragem ──
+const ABREV_TIPO = { temperatura: 'Temp', umidade: 'UR', co2: 'CO₂', tvoc: 'TVOC', pm25: 'MP2,5', pm10: 'MP10' };
+function abreviacaoGrandeza(sensor, code) {
+  const tipo = sensor?.grandezasAtivas?.[code]?.tipo;
+  if (tipo && ABREV_TIPO[tipo]) return ABREV_TIPO[tipo];
+  const rotulo = infoGrandeza(sensor, code).rotulo;
+  return rotulo.length > 10 ? rotulo.slice(0, 10) + '…' : rotulo;
+}
+function paresDeGrandezas(codigos) {
+  const grupos = [];
+  for (let i = 0; i < codigos.length; i += 2) grupos.push(codigos.slice(i, i + 2));
+  return grupos;
+}
+// Passo do eixo X: 24h dividido pelas medições do dia (12x → 2h, 2x → 12h).
+// Sem horários configurados (modo contínuo), usa 2h.
+function passoHoras(sensor) {
+  const n = (sensor?.horarios || []).length;
+  return n ? 24 / n : 2;
+}
+function rotuloHora(min) {
+  if (min >= 1440) return '24:00';
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+function pontosDoCodigo(leituras, codigo) {
+  return leituras
+    .filter(l => l.valores?.[codigo] != null)
+    .map(l => {
+      const d = new Date(l.criadoEm);
+      return { x: d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60, y: l.valores[codigo] };
+    })
+    .sort((a, b) => a.x - b.x);
+}
+function renderGraficosDashboard(s) {
+  CHARTS_DASH.forEach(c => c.destroy());
+  CHARTS_DASH = [];
+  const cont = document.getElementById('dash-graficos');
+  if (!cont) return;
+  const codigos = Object.keys(s.grandezasAtivas || {});
+  if (!codigos.length) {
+    cont.innerHTML = '<div class="qai-sub" style="margin:0">Nenhuma grandeza ativa. Escolha as grandezas em ⚙ Configurações.</div>';
+    return;
+  }
+  if (!LEITURAS_DIA.length) {
+    cont.innerHTML = '<div class="qai-sub" style="margin:0">Sem leituras neste dia.</div>';
+    return;
+  }
+
+  const passo = passoHoras(s);
   const cores = coresParaChaves(codigos);
-  CHART_LEITURAS = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: codigos.map(c => ({
-        label: infoGrandeza(SENSOR_ABERTO, c).rotulo,
-        data: cronologica.map(l => l.valores?.[c] ?? null),
+  const grupos = paresDeGrandezas(codigos);
+  cont.innerHTML = grupos.map((grupo, k) => `
+    <div class="qai-grafico-bloco">
+      <div class="qai-grafico-titulo">${grupo.map(c => esc(abreviacaoGrandeza(s, c))).join(' × ')}</div>
+      <div class="qai-chart-wrap"><canvas id="ch-dash-${k}"></canvas></div>
+    </div>`).join('');
+
+  grupos.forEach((grupo, k) => {
+    const ctx = document.getElementById(`ch-dash-${k}`);
+    if (!ctx) return;
+    const unidades = grupo.map(c => infoGrandeza(s, c).unidade);
+    const doisEixos = grupo.length === 2 && unidades[0] !== unidades[1];
+
+    const datasets = grupo.map((c, idx) => {
+      const i = infoGrandeza(s, c);
+      return {
+        label: i.rotulo,
+        unidade: i.unidade,
+        data: pontosDoCodigo(LEITURAS_DIA, c),
+        yAxisID: doisEixos && idx === 1 ? 'y1' : 'y',
         borderColor: cores.get(c),
         backgroundColor: cores.get(c) + '33',
-        spanGaps: true, tension: .25, pointRadius: 2,
-      })),
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color: '#475569', font: { size: 11 } } } },
-      scales: {
-        x: { ticks: { color: '#475569', font: { size: 9 } }, grid: { display: false } },
-        y: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' } },
+        tension: .2, pointRadius: 2, showLine: true,
+      };
+    });
+
+    const corEixo = (c) => cores.get(c);
+    const escalas = {
+      x: {
+        type: 'linear', min: 0, max: 1440,
+        ticks: { stepSize: passo * 60, autoSkip: false, color: '#475569', font: { size: 10 }, callback: v => rotuloHora(v) },
+        grid: { display: false },
+        title: { display: true, text: 'Horário', color: '#475569', font: { size: 10 } },
       },
-    },
+      y: {
+        type: 'linear', position: 'left',
+        title: {
+          display: true,
+          text: doisEixos
+            ? `${abreviacaoGrandeza(s, grupo[0])} (${unidades[0]})`
+            : `${grupo.map(c => abreviacaoGrandeza(s, c)).join(' / ')}${unidades[0] ? ' (' + unidades[0] + ')' : ''}`,
+          color: doisEixos ? corEixo(grupo[0]) : '#475569',
+          font: { size: 10, weight: '600' },
+        },
+        ticks: { color: '#475569', font: { size: 10 } },
+        grid: { color: '#e2e8f0' },
+      },
+    };
+    if (doisEixos) {
+      escalas.y1 = {
+        type: 'linear', position: 'right',
+        title: { display: true, text: `${abreviacaoGrandeza(s, grupo[1])} (${unidades[1]})`, color: corEixo(grupo[1]), font: { size: 10, weight: '600' } },
+        ticks: { color: '#475569', font: { size: 10 } },
+        grid: { drawOnChartArea: false },
+      };
+    }
+
+    CHARTS_DASH.push(new Chart(ctx, {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+        plugins: {
+          legend: { labels: { color: '#475569', font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              title: items => items.length ? rotuloHora(items[0].parsed.x) : '',
+              label: it => `${it.dataset.label}: ${fmtValor(it.parsed.y, it.dataset.unidade)}`,
+            },
+          },
+        },
+        scales: escalas,
+      },
+    }));
   });
+  const info = document.getElementById('dash-dia-info');
+  if (info) info.textContent = `${LEITURAS_DIA.length} leitura(s) · passo ${passo}h`;
 }
 
 // ── Aparelhos do recinto (calculado por estabelecimento+recinto) ───

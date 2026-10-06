@@ -23,7 +23,7 @@ const sandbox = {
   guardaDeModulo: async () => null,
   esc: s => String(s ?? ''),
   withActionBusy: async (btn, label, task) => task(),
-  Chart: function () { this.destroy = () => {}; },
+  Chart: function (ctx, cfg) { this.cfg = cfg; this.destroy = () => {}; (sandbox.__charts = sandbox.__charts || []).push(this); },
   DB: {},
 };
 sandbox.window = sandbox;
@@ -76,6 +76,50 @@ assert('sem limite definido não avalia', sandbox.situacaoGrandeza(24, undefined
 assert('sem leitura não avalia', sandbox.situacaoGrandeza(null, { max: 26 }).texto === 'sem leitura');
 assert('textoLimite com mínimo e máximo', sandbox.textoLimite({ min: 20, max: 26 }, '°C') === 'mín 20 °C · máx 26 °C');
 assert('textoLimite sem limite', sandbox.textoLimite(undefined, '°C') === 'sem limite definido');
+
+console.log('── histórico do dia: grupos de 2, eixos e passo do X ──');
+{
+  const dia = new Date(2026, 9, 5).getTime();
+  const h = (hh) => new Date(2026, 9, 5, hh, 0).getTime();
+  vm.runInContext(`
+    SENSOR_ABERTO = {
+      id: 's9', horarios: ['00:00','02:00','04:00','06:00','08:00','10:00','12:00','14:00','16:00','18:00','20:00','22:00'],
+      grandezasAtivas: {
+        temp_current: { tipo: 'temperatura', rotulo: 'Temperatura', unidade: '°C' },
+        humidity_value: { tipo: 'umidade', rotulo: 'Umidade relativa', unidade: '%' },
+        co2_value: { tipo: 'co2', rotulo: 'CO₂', unidade: 'ppm' },
+      },
+    };
+    LEITURAS_DIA = [
+      { criadoEm: ${h(8)}, valores: { temp_current: 24, humidity_value: 60, co2_value: 700 } },
+      { criadoEm: ${h(14)}, valores: { temp_current: 27, humidity_value: 55, co2_value: 900 } },
+    ];
+    renderGraficosDashboard(SENSOR_ABERTO);
+  `, sandbox);
+  const charts = sandbox.__charts;
+  assert('3 grandezas viram 2 gráficos (grupos de no máximo 2)', charts.length === 2);
+  const g1 = charts[0].cfg, g2 = charts[1].cfg;
+  assert('grupo com unidades diferentes usa eixo esquerdo e direito', !!g1.options.scales.y1 && g1.options.scales.y1.position === 'right' && g1.options.scales.y.position === 'left');
+  assert('2ª grandeza do grupo está no eixo y1 (direito)', g1.data.datasets[1].yAxisID === 'y1' && g1.data.datasets[0].yAxisID === 'y');
+  assert('título do eixo esquerdo traz abreviação e unidade', g1.options.scales.y.title.text === 'Temp (°C)');
+  assert('título do eixo direito traz abreviação e unidade', g1.options.scales.y1.title.text === 'UR (%)');
+  assert('grupo com uma grandeza não tem eixo direito', !g2.options.scales.y1 && g2.options.scales.y.title.text === 'CO₂ (ppm)');
+  assert('eixo X: 12 horários/dia -> passo de 2h (stepSize 120 min)', g1.options.scales.x.ticks.stepSize === 120);
+  assert('rótulo do eixo X a cada 2h (02:00)', g1.options.scales.x.ticks.callback(120) === '02:00');
+  assert('rótulo do fim do dia é 24:00', g1.options.scales.x.ticks.callback(1440) === '24:00');
+  vm.runInContext(`
+    SENSOR_ABERTO.horarios = ['08:00', '20:00'];
+    renderGraficosDashboard(SENSOR_ABERTO);
+  `, sandbox);
+  const c2 = sandbox.__charts.slice(2)[0].cfg;
+  assert('2 horários/dia -> passo de 12h (stepSize 720 min)', c2.options.scales.x.ticks.stepSize === 720);
+  assert('ponto de 08:00 posicionado no eixo em minutos (480)', c2.data.datasets[0].data[0].x === 480);
+  assert('sem horários configurados (contínuo) usa passo de 2h', sandbox.passoHoras({ horarios: [] }) === 2);
+  assert('paresDeGrandezas agrupa de dois em dois', JSON.stringify(sandbox.paresDeGrandezas(['a','b','c','d','e'])) === JSON.stringify([['a','b'],['c','d'],['e']]));
+  assert('abreviação conhecida por tipo', sandbox.abreviacaoGrandeza({ grandezasAtivas: { x: { tipo: 'pm25' } } }, 'x') === 'MP2,5');
+  assert('dia local e deslocamento de dia', sandbox.diaLocalDe(dia) === '2026-10-05' && sandbox.deslocarDia('2026-10-31', 1) === '2026-11-01');
+  assert('limites do dia cobrem 24h', sandbox.limitesDoDia('2026-10-05').ate - sandbox.limitesDoDia('2026-10-05').desde === 86399999);
+}
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);
