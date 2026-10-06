@@ -96,6 +96,8 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-grafico-bloco{margin-bottom:14px;}
 .qai-grafico-bloco .qai-chart-wrap{height:240px;}
 .qai-grafico-titulo{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:2px;}
+.qai-check{display:block;font-size:13px;margin:6px 0;cursor:pointer;}
+#pdf-painel{margin-bottom:12px;}
 </style>
 </head>
 <body>
@@ -470,9 +472,10 @@ function renderModalSensor() {
         <span class="badge ${s.sensorAtivo ? 'ativo' : 'inativo'}">${s.sensorAtivo ? 'Ativo' : 'Inativo'}</span>
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="irParaModo('config')">⚙ Configurações</button>
-          <button class="btn btn-primary btn-sm" onclick="gerarPdfSensor(this)">📄 Gerar PDF</button>
+          <button class="btn btn-primary btn-sm" onclick="abrirPainelPdf()">📄 Gerar PDF</button>
         </div>
       </div>
+      <div id="pdf-painel" style="display:none"></div>
       <div id="dash-grandezas"></div>
       <div id="dash-historico"></div>`;
     renderDashboard(s);
@@ -884,7 +887,9 @@ async function carregarDiaDashboard() {
   }
 }
 
-// ── Gráficos: grupos de até 2 grandezas, eixo X por horário de amostragem ──
+// ── Gráficos do histórico: grupos de até 2 grandezas ─────────────────
+// Escalas e datasets são montados aqui e reutilizados pelo PDF, para que
+// os dois mostrem o mesmo tipo de gráfico (eixo esquerdo/direito por unidade).
 const ABREV_TIPO = { temperatura: 'Temp', umidade: 'UR', co2: 'CO₂', tvoc: 'TVOC', pm25: 'MP2,5', pm10: 'MP10' };
 function abreviacaoGrandeza(sensor, code) {
   const tipo = sensor?.grandezasAtivas?.[code]?.tipo;
@@ -908,7 +913,8 @@ function rotuloHora(min) {
   const m = ((Math.round(min) % 1440) + 1440) % 1440;
   return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 }
-function pontosDoCodigo(leituras, codigo) {
+// Dashboard (um dia): X = minuto do dia.
+function pontosDoDia(leituras, codigo) {
   return leituras
     .filter(l => l.valores?.[codigo] != null)
     .map(l => {
@@ -916,6 +922,80 @@ function pontosDoCodigo(leituras, codigo) {
       return { x: d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60, y: l.valores[codigo] };
     })
     .sort((a, b) => a.x - b.x);
+}
+// PDF (período): X = instante em ms.
+function pontosDoPeriodo(leituras, codigo) {
+  return leituras
+    .filter(l => l.valores?.[codigo] != null)
+    .map(l => ({ x: l.criadoEm, y: l.valores[codigo] }));
+}
+// Escalas de Y do grupo: uma grandeza por eixo quando as unidades diferem.
+function escalasYDoGrupo(s, grupo, cores) {
+  const unidades = grupo.map(c => infoGrandeza(s, c).unidade);
+  const doisEixos = grupo.length === 2 && unidades[0] !== unidades[1];
+  const escalas = {
+    y: {
+      type: 'linear', position: 'left', grace: '5%',
+      title: {
+        display: true,
+        text: doisEixos
+          ? `${abreviacaoGrandeza(s, grupo[0])} (${unidades[0]})`
+          : `${grupo.map(c => abreviacaoGrandeza(s, c)).join(' / ')}${unidades[0] ? ' (' + unidades[0] + ')' : ''}`,
+        color: doisEixos ? cores.get(grupo[0]) : '#475569',
+        font: { size: 10, weight: '600' },
+      },
+      ticks: { color: '#475569', font: { size: 10 } },
+      grid: { color: '#e2e8f0' },
+    },
+  };
+  if (doisEixos) {
+    escalas.y1 = {
+      type: 'linear', position: 'right', grace: '5%',
+      title: { display: true, text: `${abreviacaoGrandeza(s, grupo[1])} (${unidades[1]})`, color: cores.get(grupo[1]), font: { size: 10, weight: '600' } },
+      ticks: { color: '#475569', font: { size: 10 } },
+      grid: { drawOnChartArea: false },
+    };
+  }
+  return { doisEixos, escalas };
+}
+function datasetsDoGrupo(s, grupo, cores, doisEixos, leituras, pontosFn) {
+  return grupo.map((c, idx) => {
+    const i = infoGrandeza(s, c);
+    return {
+      label: i.rotulo,
+      unidade: i.unidade,
+      data: pontosFn(leituras, c),
+      yAxisID: doisEixos && idx === 1 ? 'y1' : 'y',
+      borderColor: cores.get(c),
+      backgroundColor: cores.get(c) + '33',
+      tension: .2, pointRadius: 2, showLine: true,
+    };
+  });
+}
+// Autoscale do X: vai do primeiro ao último ponto, alinhado ao passo.
+function dominioAutoX(datasets, passoMin) {
+  const xs = datasets.flatMap(d => d.data.map(p => p.x));
+  if (!xs.length) return { min: 0, max: 1440 };
+  const lo = Math.max(0, Math.floor(Math.min(...xs) / passoMin) * passoMin);
+  let hi = Math.min(1440, Math.ceil(Math.max(...xs) / passoMin) * passoMin);
+  if (hi <= lo) hi = Math.min(1440, lo + passoMin);
+  return { min: lo, max: hi };
+}
+function opcoesGraficoBase(escalas, tituloTooltip) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+    plugins: {
+      legend: { labels: { color: '#475569', font: { size: 11 } } },
+      tooltip: {
+        callbacks: {
+          title: tituloTooltip,
+          label: it => `${it.dataset.label}: ${fmtValor(it.parsed.y, it.dataset.unidade)}`,
+        },
+      },
+    },
+    scales: escalas,
+  };
 }
 function renderGraficosDashboard(s) {
   CHARTS_DASH.forEach(c => c.destroy());
@@ -944,70 +1024,19 @@ function renderGraficosDashboard(s) {
   grupos.forEach((grupo, k) => {
     const ctx = document.getElementById(`ch-dash-${k}`);
     if (!ctx) return;
-    const unidades = grupo.map(c => infoGrandeza(s, c).unidade);
-    const doisEixos = grupo.length === 2 && unidades[0] !== unidades[1];
-
-    const datasets = grupo.map((c, idx) => {
-      const i = infoGrandeza(s, c);
-      return {
-        label: i.rotulo,
-        unidade: i.unidade,
-        data: pontosDoCodigo(LEITURAS_DIA, c),
-        yAxisID: doisEixos && idx === 1 ? 'y1' : 'y',
-        borderColor: cores.get(c),
-        backgroundColor: cores.get(c) + '33',
-        tension: .2, pointRadius: 2, showLine: true,
-      };
-    });
-
-    const corEixo = (c) => cores.get(c);
-    const escalas = {
-      x: {
-        type: 'linear', min: 0, max: 1440,
-        ticks: { stepSize: passo * 60, autoSkip: false, color: '#475569', font: { size: 10 }, callback: v => rotuloHora(v) },
-        grid: { display: false },
-        title: { display: true, text: 'Horário', color: '#475569', font: { size: 10 } },
-      },
-      y: {
-        type: 'linear', position: 'left',
-        title: {
-          display: true,
-          text: doisEixos
-            ? `${abreviacaoGrandeza(s, grupo[0])} (${unidades[0]})`
-            : `${grupo.map(c => abreviacaoGrandeza(s, c)).join(' / ')}${unidades[0] ? ' (' + unidades[0] + ')' : ''}`,
-          color: doisEixos ? corEixo(grupo[0]) : '#475569',
-          font: { size: 10, weight: '600' },
-        },
-        ticks: { color: '#475569', font: { size: 10 } },
-        grid: { color: '#e2e8f0' },
-      },
+    const { doisEixos, escalas } = escalasYDoGrupo(s, grupo, cores);
+    const datasets = datasetsDoGrupo(s, grupo, cores, doisEixos, LEITURAS_DIA, pontosDoDia);
+    const dom = dominioAutoX(datasets, passo * 60);
+    escalas.x = {
+      type: 'linear', min: dom.min, max: dom.max,
+      ticks: { stepSize: passo * 60, autoSkip: false, color: '#475569', font: { size: 10 }, callback: v => rotuloHora(v) },
+      grid: { display: false },
+      title: { display: true, text: 'Horário', color: '#475569', font: { size: 10 } },
     };
-    if (doisEixos) {
-      escalas.y1 = {
-        type: 'linear', position: 'right',
-        title: { display: true, text: `${abreviacaoGrandeza(s, grupo[1])} (${unidades[1]})`, color: corEixo(grupo[1]), font: { size: 10, weight: '600' } },
-        ticks: { color: '#475569', font: { size: 10 } },
-        grid: { drawOnChartArea: false },
-      };
-    }
-
     CHARTS_DASH.push(new Chart(ctx, {
       type: 'line',
       data: { datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        interaction: { mode: 'nearest', intersect: false, axis: 'x' },
-        plugins: {
-          legend: { labels: { color: '#475569', font: { size: 11 } } },
-          tooltip: {
-            callbacks: {
-              title: items => items.length ? rotuloHora(items[0].parsed.x) : '',
-              label: it => `${it.dataset.label}: ${fmtValor(it.parsed.y, it.dataset.unidade)}`,
-            },
-          },
-        },
-        scales: escalas,
-      },
+      options: opcoesGraficoBase(escalas, items => items.length ? rotuloHora(items[0].parsed.x) : ''),
     }));
   });
   const info = document.getElementById('dash-dia-info');
@@ -1026,6 +1055,47 @@ function renderAparelhos(lista) {
     </div>`;
 }
 
+// ── Painel de geração do PDF: período e grandezas ───────────────────
+function abrirPainelPdf() {
+  const s = SENSOR_ABERTO;
+  const painel = document.getElementById('pdf-painel');
+  if (!s || !painel) return;
+  const diaPadrao = DIA_SELECIONADO || diaLocalDe(Date.now());
+  const codigos = Object.keys(s.grandezasAtivas || {});
+  painel.innerHTML = `
+    <div class="card">
+      <div class="card-title">Gerar PDF</div>
+      <div class="qai-grid2">
+        <div class="field"><label>De</label><input type="date" id="pdf-de" value="${esc(diaPadrao)}"></div>
+        <div class="field"><label>Até</label><input type="date" id="pdf-ate" value="${esc(diaPadrao)}"></div>
+      </div>
+      <div class="qai-sub">Grandezas incluídas na avaliação</div>
+      ${codigos.length
+        ? codigos.map((c, i) => `<label class="qai-check"><input type="checkbox" id="pdf-g-${i}" value="${esc(c)}" checked> ${esc(infoGrandeza(s, c).rotulo)}${infoGrandeza(s, c).unidade ? ' (' + esc(infoGrandeza(s, c).unidade) + ')' : ''}</label>`).join('')
+        : '<div class="qai-sub" style="margin:0">Nenhuma grandeza ativa.</div>'}
+      <div class="action-bar">
+        <button class="btn btn-secondary btn-sm" onclick="fecharPainelPdf()">Cancelar</button>
+        <button class="btn btn-primary btn-sm" onclick="gerarPdfComOpcoes(this)" ${codigos.length ? '' : 'disabled'}>📄 Gerar PDF</button>
+      </div>
+    </div>`;
+  painel.style.display = 'block';
+}
+function fecharPainelPdf() {
+  const painel = document.getElementById('pdf-painel');
+  if (painel) painel.style.display = 'none';
+}
+function gerarPdfComOpcoes(btn) {
+  const s = SENSOR_ABERTO;
+  if (!s) return;
+  const de = document.getElementById('pdf-de')?.value;
+  const ate = document.getElementById('pdf-ate')?.value;
+  if (!de || !ate) { showToast('Informe o período do PDF.'); return; }
+  if (de > ate) { showToast('A data inicial é posterior à final.'); return; }
+  const codigos = Object.keys(s.grandezasAtivas || {}).filter((c, i) => document.getElementById(`pdf-g-${i}`)?.checked);
+  if (!codigos.length) { showToast('Escolha ao menos uma grandeza.'); return; }
+  gerarPdfSensor(btn, { de, ate, codigos });
+}
+
 // ── PDF do sensor — cabeçalho e rodapé no padrão dos demais PDFs do SGM ──
 // Mesmo layout de preventiva.html (drawPdfHeader/drawPdfFooters): empresa
 // à esquerda, título e metadados à direita, filete cinza, Helvetica 10,
@@ -1033,6 +1103,7 @@ function renderAparelhos(lista) {
 const PDF_M = 20, PDF_W = 210, PDF_H = 297;
 const PDF_RODAPE_Y = 270;   // linha do rodapé, igual aos demais PDFs
 const PDF_CORPO_MAX = 258;  // limite do corpo acima do rodapé
+const PDF_MAX_TABELA = 300; // acima disso a tabela de leituras é omitida (o resumo e os gráficos cobrem o período)
 
 function pdfCabe(doc, y, h) {
   if (y + h > PDF_CORPO_MAX) { doc.addPage(); return 20; }
@@ -1133,11 +1204,51 @@ async function renderizarGraficoParaImagemQai(config, wPx, hPx) {
   return { bytes, w: wPx, h: hPx };
 }
 
-async function gerarPdfSensor(btn) {
+// Resumo de avaliação de uma grandeza no período. null se não houver valores.
+function resumoGrandeza(s, codigo, leituras) {
+  const vals = leituras.map(l => l.valores?.[codigo]).filter(v => v != null);
+  if (!vals.length) return null;
+  const lim = (s.limites || {})[codigo];
+  const fora = lim
+    ? vals.filter(v => (lim.min != null && v < lim.min) || (lim.max != null && v > lim.max)).length
+    : null;
+  return {
+    n: vals.length,
+    ultimo: vals[vals.length - 1],
+    min: Math.min(...vals),
+    max: Math.max(...vals),
+    media: vals.reduce((a, b) => a + b, 0) / vals.length,
+    pctFora: fora == null ? null : fora / vals.length,
+  };
+}
+function fmtDiaBR(dia) {
+  const [y, m, d] = dia.split('-');
+  return `${d}/${m}/${y}`;
+}
+// Tick do eixo de tempo no PDF: hora se o período cabe em 2 dias, senão data.
+function rotuloTempoPdf(ms, spanDias) {
+  const d = new Date(ms);
+  const hora = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+  return spanDias <= 2 ? hora : d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1).toString().padStart(2, '0');
+}
+
+async function gerarPdfSensor(btn, opcoes) {
   if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
   const s = SENSOR_ABERTO;
   if (!s) return;
+  const de = opcoes?.de || diaLocalDe(Date.now());
+  const ate = opcoes?.ate || de;
+  const codigos = (opcoes?.codigos?.length ? opcoes.codigos : Object.keys(s.grandezasAtivas || {}));
   await withActionBusy(btn, 'Gerando…', async () => {
+    const { desde } = limitesDoDia(de);
+    const { ate: fimPeriodo } = limitesDoDia(ate);
+    const buscadas = await DB.getLeiturasQai(s.id, `?desde=${desde}&ate=${fimPeriodo}&limite=5000`);
+    const truncado = buscadas.length >= 5000;
+    // Servidor devolve mais recente primeiro; o PDF é cronológico.
+    const leituras = buscadas
+      .filter(l => codigos.some(c => l.valores?.[c] != null))
+      .reverse();
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const contrato = CONTRATOS.find(c => c.numero === s.contrato);
@@ -1145,99 +1256,115 @@ async function gerarPdfSensor(btn) {
       ? `Contratante: ${contrato.razao || '—'}   |   Contrato nº ${contrato.numero}   |   ART: ${contrato.art || '—'}`
       : '';
     const CW = PDF_W - PDF_M * 2;
+    const cores = coresParaChaves(Object.keys(s.grandezasAtivas || {}));
+    const periodoTexto = de === ate ? fmtDiaBR(de) : `${fmtDiaBR(de)} a ${fmtDiaBR(ate)}`;
 
     let y = pdfCabecalho(doc, 'Qualidade do Ar Interior', [
       `Contrato ${s.contrato}`,
+      `Período: ${periodoTexto}`,
       `Emitido em ${new Date().toLocaleString('pt-BR')} por ${user?.name || ''}`,
     ]);
 
     doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-    doc.text('Relatório de Qualidade do Ar Interior', PDF_M, y); y += 7;
+    doc.text('Avaliação da qualidade do ar interior', PDF_M, y); y += 7;
     doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50);
-    const datas = LEITURAS_ABERTO.map(l => l.criadoEm).filter(Boolean).sort((a, b) => a - b);
-    const periodo = datas.length ? `${fmtDataHora(datas[0])} a ${fmtDataHora(datas[datas.length - 1])}` : 'sem leituras';
     const horarios = s.horarios || [];
     [
       `Estabelecimento: ${s.estabelecimento}`,
       `Recinto: ${s.recinto}`,
-      `Situação do sensor: ${s.sensorAtivo ? 'ativo' : 'inativo'}`,
       `Janelas de medição: ${horarios.length ? horarios.length + 'x/dia (' + horarios.join(', ') + ')' : 'modo contínuo'}`,
-      `Período das leituras: ${periodo}`,
+      `Leituras no período: ${leituras.length}${truncado ? ' (limite de 5.000 atingido: o período foi truncado)' : ''}`,
     ].forEach(linha => { doc.text(linha, PDF_M, y); y += 5; });
     y += 4;
 
-    // Grandezas: valor "agora" (telemetria, ou última leitura) e situação
-    const codigos = Object.keys(s.grandezasAtivas || {}).sort();
-    const tel = DASH_LINHA?.telemetriaAoVivo;
-    const valores = tel ? tel.valores : (LEITURAS_ABERTO[0]?.valores || {});
-    const limites = s.limites || {};
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-    doc.text('Grandezas medidas', PDF_M, y); y += 5;
-    if (codigos.length) {
-      const linhasGrandezas = codigos.map(c => {
+    if (!leituras.length) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
+      doc.text('Nenhuma leitura registrada para as grandezas e o período selecionados.', PDF_M, y);
+      y += 8;
+    } else {
+      // Resumo por grandeza
+      y = pdfCabe(doc, y, 20);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+      doc.text('Resumo por grandeza', PDF_M, y); y += 5;
+      const linhasResumo = codigos.map(c => {
         const i = infoGrandeza(s, c);
-        const v = valores[c] ?? null;
-        const lim = textoLimite(limites[c], '').replace(' definido', '');
-        const sit = situacaoGrandeza(v, limites[c]);
-        const curta = sit.classe === 'ok' ? 'Dentro' : sit.classe === 'fora' ? 'Fora' : (v == null ? 'Sem leitura' : 'Sem limite');
-        return [i.rotulo, i.unidade || '—', v == null ? '—' : fmtValor(v, ''), lim, curta];
+        const r = resumoGrandeza(s, c, leituras);
+        if (!r) return [i.rotulo, i.unidade || '—', '—', '—', '—', '—', '—'];
+        return [
+          i.rotulo, i.unidade || '—',
+          fmtValor(r.ultimo, ''), fmtValor(r.min, ''), fmtValor(r.max, ''), fmtValor(r.media, ''),
+          r.pctFora == null ? 'sem limite' : `${Math.round(r.pctFora * 100)}%`,
+        ];
       });
       y = pdfTabela(doc, y, [
-        { titulo: 'Grandeza', x: PDF_M + 2, largura: 56 },
-        { titulo: 'Unidade', x: 80, largura: 16 },
-        { titulo: 'Valor', x: 116, align: 'right', largura: 24 },
-        { titulo: 'Limites', x: 124, largura: 44 },
-        { titulo: 'Situação', x: PDF_W - PDF_M - 2, align: 'right', largura: 22 },
-      ], linhasGrandezas);
-    } else {
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(90, 90, 90);
-      doc.text('Nenhuma grandeza ativa.', PDF_M, y); y += 8;
-      doc.setTextColor(0, 0, 0);
-    }
+        { titulo: 'Grandeza', x: PDF_M + 2, largura: 44 },
+        { titulo: 'Unidade', x: 68, largura: 14 },
+        { titulo: 'Último', x: 100, align: 'right', largura: 16 },
+        { titulo: 'Mín', x: 116, align: 'right', largura: 14 },
+        { titulo: 'Máx', x: 130, align: 'right', largura: 14 },
+        { titulo: 'Média', x: 146, align: 'right', largura: 14 },
+        { titulo: 'Fora do limite', x: PDF_W - PDF_M - 2, align: 'right', largura: 22 },
+      ], linhasResumo);
 
-    // Histórico: gráfico e tabela de leituras
-    if (LEITURAS_ABERTO.length) {
-      y = pdfCabe(doc, y, 90);
+      const limitesTexto = codigos.filter(c => (s.limites || {})[c]).map(c => {
+        const i = infoGrandeza(s, c);
+        return `${i.rotulo}: ${textoLimite(s.limites[c], i.unidade)}`;
+      });
+      if (limitesTexto.length) {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60);
+        limitesTexto.forEach(t => { y = pdfCabe(doc, y, 5); doc.text(t, PDF_M, y); y += 4.5; });
+        doc.setTextColor(0, 0, 0);
+        y += 3;
+      }
+
+      // Gráficos: mesmo agrupamento do dashboard, X ajustado ao período
+      const grupos = paresDeGrandezas(codigos);
+      const spanDias = Math.max(1, Math.round((limitesDoDia(ate).ate - limitesDoDia(de).desde) / 86400000));
+      y = pdfCabe(doc, y, 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
-      doc.text('Histórico de leituras', PDF_M, y); y += 5;
-      const cronologica = [...LEITURAS_ABERTO].reverse();
-      const codigosHist = [...new Set(cronologica.flatMap(l => Object.keys(l.valores || {})))].sort();
-      const cores = coresParaChaves(codigosHist);
-      const config = {
-        type: 'line',
-        data: {
-          labels: cronologica.map(l => new Date(l.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })),
-          datasets: codigosHist.map(c => ({
-            label: infoGrandeza(s, c).rotulo, data: cronologica.map(l => l.valores?.[c] ?? null),
-            borderColor: cores.get(c), backgroundColor: cores.get(c) + '33', spanGaps: true, tension: .25, pointRadius: 1,
-          })),
-        },
-        options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } },
-          scales: { x: { ticks: { font: { size: 7 } } }, y: { ticks: { font: { size: 8 } } } } },
-      };
-      try {
-        const img = await renderizarGraficoParaImagemQai(config, 900, 420);
-        const imgH = CW * (img.h / img.w);
-        y = pdfCabe(doc, y, imgH + 4);
-        doc.addImage(img.bytes, 'PNG', PDF_M, y, CW, imgH);
-        y += imgH + 6;
-      } catch (e) { /* gráfico é complemento — segue sem ele se falhar */ }
+      doc.text('Evolução no período', PDF_M, y); y += 5;
+      for (const grupo of grupos) {
+        const { doisEixos, escalas } = escalasYDoGrupo(s, grupo, cores);
+        const datasets = datasetsDoGrupo(s, grupo, cores, doisEixos, leituras, pontosDoPeriodo);
+        const xs = datasets.flatMap(d => d.data.map(p => p.x));
+        if (!xs.length) continue;
+        escalas.x = {
+          type: 'linear', min: Math.min(...xs), max: Math.max(...xs),
+          ticks: { maxTicksLimit: 10, color: '#475569', font: { size: 8 }, callback: v => rotuloTempoPdf(v, spanDias) },
+          grid: { display: false },
+        };
+        const config = { type: 'line', data: { datasets }, options: { ...opcoesGraficoBase(escalas, () => ''), plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } } };
+        try {
+          const img = await renderizarGraficoParaImagemQai(config, 900, 380);
+          const imgH = CW * (img.h / img.w);
+          y = pdfCabe(doc, y, imgH + 4);
+          doc.addImage(img.bytes, 'PNG', PDF_M, y, CW, imgH);
+          y += imgH + 6;
+        } catch (e) { /* gráfico é complemento; a avaliação numérica continua no PDF */ }
+      }
 
-      const linhasHist = LEITURAS_ABERTO.map(l => [
-        fmtDataHora(l.criadoEm),
-        codigosDe(l.valores).map(c => `${infoGrandeza(s, c).rotulo}: ${fmtValor(l.valores[c], infoGrandeza(s, c).unidade)}`).join(' · ') || '—',
-        l.conforme === true ? 'OK' : l.conforme === false ? 'Fora' : '—',
-      ]);
-      y = pdfTabela(doc, y, [
-        { titulo: 'Data/hora', x: PDF_M + 2, largura: 38 },
-        { titulo: 'Valores', x: 62, largura: 110 },
-        { titulo: 'Conf.', x: PDF_W - PDF_M - 2, align: 'right', largura: 16 },
-      ], linhasHist);
+      // Leituras, quando couberem na tabela
+      if (leituras.length <= PDF_MAX_TABELA) {
+        const linhasHist = leituras.map(l => [
+          fmtDataHora(l.criadoEm),
+          codigos.filter(c => l.valores?.[c] != null).map(c => `${infoGrandeza(s, c).rotulo}: ${fmtValor(l.valores[c], infoGrandeza(s, c).unidade)}`).join(' · ') || '—',
+          l.conforme === true ? 'OK' : l.conforme === false ? 'Fora' : '—',
+        ]);
+        y = pdfTabela(doc, y, [
+          { titulo: 'Data/hora', x: PDF_M + 2, largura: 38 },
+          { titulo: 'Valores', x: 62, largura: 110 },
+          { titulo: 'Conf.', x: PDF_W - PDF_M - 2, align: 'right', largura: 16 },
+        ], linhasHist);
+      } else {
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+        doc.text(`Tabela de leituras omitida (${leituras.length} registros). Resumo e gráficos cobrem o período.`, PDF_M, y);
+        doc.setTextColor(0, 0, 0);
+      }
     }
 
     pdfRodapes(doc, contratante);
 
-    const nome = `qai-${s.estabelecimento}-${s.recinto}-${new Date().toISOString().slice(0, 10)}.pdf`.replace(/[^\w.-]+/g, '_');
+    const nome = `qai-${s.estabelecimento}-${s.recinto}-${de}_${ate}.pdf`.replace(/[^\w.-]+/g, '_');
     try { doc.save(nome); showToast('✅ ' + nome); }
     catch (e) { showToast('Erro ao gerar o PDF: ' + e.message, 6000); }
   });
