@@ -121,5 +121,67 @@ console.log('── histórico do dia: grupos de 2, eixos e passo do X ──');
   assert('limites do dia cobrem 24h', sandbox.limitesDoDia('2026-10-05').ate - sandbox.limitesDoDia('2026-10-05').desde === 86399999);
 }
 
+console.log('── agrupar por unidade: duas de °C ficam no mesmo eixo ──');
+{
+  const s9 = {
+    horarios: [],
+    grandezasAtivas: {
+      temp_current: { tipo: 'temperatura', rotulo: 'Temperatura', unidade: '°C' },
+      temp_current_external: { tipo: null, rotulo: 'Temperatura externa', unidade: '°C' },
+      humidity_value: { tipo: 'umidade', rotulo: 'Umidade relativa', unidade: '%' },
+    },
+  };
+  const buckets = sandbox.agruparPorUnidade(s9, Object.keys(s9.grandezasAtivas));
+  assert('2 unidades distintas (°C e %) viram 2 buckets', buckets.length === 2);
+  assert('as duas grandezas de °C ficam no mesmo bucket', buckets[0].unidade === '°C' && buckets[0].codigos.length === 2);
+  const grupos = sandbox.paresDeGrandezas(buckets);
+  assert('só 2 buckets -> 1 grupo com os 2 eixos', grupos.length === 1 && grupos[0].length === 2);
+
+  vm.runInContext(`
+    SENSOR_ABERTO = ${JSON.stringify(s9)};
+    LEITURAS_DIA = [
+      { criadoEm: ${new Date(2026, 9, 5, 8, 0).getTime()}, valores: { temp_current: 22, temp_current_external: 19, humidity_value: 60 } },
+      { criadoEm: ${new Date(2026, 9, 5, 14, 0).getTime()}, valores: { temp_current: 25, temp_current_external: 21, humidity_value: 58 } },
+    ];
+    renderGraficosDashboard(SENSOR_ABERTO);
+  `, sandbox);
+  const graf = sandbox.__charts.at(-1).cfg;
+  assert('1 gráfico só (as 2 unidades cabem num grupo de até 2 eixos)', graf.data.datasets.length === 3);
+  const porLabel = Object.fromEntries(graf.data.datasets.map(d => [d.label, d.yAxisID]));
+  assert('as duas grandezas de °C compartilham o eixo y', porLabel['Temperatura'] === 'y' && porLabel['Temperatura externa'] === 'y');
+  assert('a grandeza de % vai para o eixo y1 (direito)', porLabel['Umidade relativa'] === 'y1');
+}
+
+console.log('── faixasDoLimite: verde entre os limites, vermelho fora ──');
+assert('min e máx: verde no meio, vermelho acima e abaixo',
+  JSON.stringify(sandbox.faixasDoLimite({ min: 20, max: 26 }, { min: 15, max: 30 })) ===
+  JSON.stringify([{ de: 20, para: 26, cor: 'verde' }, { de: 26, para: 30, cor: 'vermelho' }, { de: 15, para: 20, cor: 'vermelho' }]));
+assert('só máx (ex.: CO₂): verde até o máx, vermelho acima',
+  JSON.stringify(sandbox.faixasDoLimite({ max: 1000 }, { min: 500, max: 1300 })) ===
+  JSON.stringify([{ de: 500, para: 1000, cor: 'verde' }, { de: 1000, para: 1300, cor: 'vermelho' }]));
+assert('domínio inteiramente dentro do limite: sem faixa vermelha',
+  JSON.stringify(sandbox.faixasDoLimite({ min: 20, max: 26 }, { min: 20, max: 26 })) ===
+  JSON.stringify([{ de: 20, para: 26, cor: 'verde' }]));
+assert('sem limite configurado: nenhuma faixa', sandbox.faixasDoLimite(null, { min: 0, max: 10 }).length === 0);
+assert('sem domínio (sem dados nem limite): nenhuma faixa', sandbox.faixasDoLimite({ max: 10 }, null).length === 0);
+
+console.log('── domínio do eixo sempre inclui o limite, mesmo fora da faixa dos dados ──');
+{
+  const bucket = { unidade: 'ppm', codigos: ['co2_value'] };
+  const leituras = [{ valores: { co2_value: 700 } }, { valores: { co2_value: 1300 } }];
+  const dom = sandbox.dominioYDoBucket(bucket, leituras, sandbox.pontosDoPeriodo, { max: 1000 });
+  assert('excursão acima do limite (1300) fica dentro do domínio', dom.max >= 1300);
+  assert('o limite de 1000 também fica dentro do domínio (não só os dados)', dom.min <= 1000 && dom.max >= 1000);
+}
+
+console.log('── limiteUniformeDoBucket: só sombreia quando o limite é o mesmo para todas ──');
+{
+  const limiteIgual = { min: 20, max: 26 };
+  const sIgual = { limites: { a: limiteIgual, b: { min: 20, max: 26 } } };
+  assert('limites iguais (mesmo valor, objetos diferentes) -> usa o limite', JSON.stringify(sandbox.limiteUniformeDoBucket(sIgual, { codigos: ['a', 'b'] })) === JSON.stringify(limiteIgual));
+  const sDiferente = { limites: { a: { max: 26 }, b: { max: 30 } } };
+  assert('limites diferentes entre as grandezas do bucket -> não sombreia', sandbox.limiteUniformeDoBucket(sDiferente, { codigos: ['a', 'b'] }) === null);
+}
+
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);

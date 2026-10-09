@@ -929,48 +929,129 @@ function pontosDoPeriodo(leituras, codigo) {
     .filter(l => l.valores?.[codigo] != null)
     .map(l => ({ x: l.criadoEm, y: l.valores[codigo] }));
 }
-// Escalas de Y do grupo: uma grandeza por eixo quando as unidades diferem.
-function escalasYDoGrupo(s, grupo, cores) {
-  const unidades = grupo.map(c => infoGrandeza(s, c).unidade);
-  const doisEixos = grupo.length === 2 && unidades[0] !== unidades[1];
-  const escalas = {
-    y: {
-      type: 'linear', position: 'left', grace: '5%',
-      title: {
-        display: true,
-        text: doisEixos
-          ? `${abreviacaoGrandeza(s, grupo[0])} (${unidades[0]})`
-          : `${grupo.map(c => abreviacaoGrandeza(s, c)).join(' / ')}${unidades[0] ? ' (' + unidades[0] + ')' : ''}`,
-        color: doisEixos ? cores.get(grupo[0]) : '#475569',
-        font: { size: 10, weight: '600' },
-      },
-      ticks: { color: '#475569', font: { size: 10 } },
-      grid: { color: '#e2e8f0' },
+// Agrupa grandezas ATIVAS pela própria unidade (ex.: duas de °C ficam
+// juntas no mesmo eixo) — é isso que faz "Temperatura com Temperatura",
+// "% com %" etc. acontecer mesmo quando há mais de uma grandeza por
+// unidade. A ordem de primeira aparição é preservada.
+function agruparPorUnidade(s, codigos) {
+  const mapa = new Map();
+  for (const c of codigos) {
+    const u = infoGrandeza(s, c).unidade || '';
+    if (!mapa.has(u)) mapa.set(u, []);
+    mapa.get(u).push(c);
+  }
+  return [...mapa.entries()].map(([unidade, lista]) => ({ unidade, codigos: lista }));
+}
+// Limite usado para sombrear o eixo: só faz sentido um único limite por
+// eixo. Se o bucket tiver mais de uma grandeza (mesma unidade) com limites
+// DIFERENTES entre si, não há uma faixa única pra desenhar — pula a
+// sombra nesse eixo em vez de mostrar algo que induziria a erro.
+function limiteUniformeDoBucket(s, bucket) {
+  const limites = s?.limites || {};
+  const vistos = bucket.codigos.map(c => limites[c] || null);
+  const primeiro = JSON.stringify(vistos[0] || null);
+  return vistos.every(v => JSON.stringify(v || null) === primeiro) ? vistos[0] : null;
+}
+// Domínio do eixo: SEMPRE inclui a faixa de limites (não só os dados) —
+// por isso a margem de segurança e uma excursão acima/abaixo do limite
+// ficam visíveis mesmo quando os dados do período não chegam lá.
+function dominioYDoBucket(bucket, leituras, pontosFn, limite) {
+  const valores = bucket.codigos.flatMap(c => pontosFn(leituras, c).map(p => p.y));
+  if (!valores.length && !limite) return null; // nada pra mostrar: deixa o Chart.js decidir
+  let lo = valores.length ? Math.min(...valores) : (limite.min ?? limite.max);
+  let hi = valores.length ? Math.max(...valores) : (limite.max ?? limite.min);
+  if (limite?.min != null) lo = Math.min(lo, limite.min);
+  if (limite?.max != null) hi = Math.max(hi, limite.max);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const folga = (hi - lo) * 0.1;
+  return { min: lo - folga, max: hi + folga };
+}
+// Verde entre os limites, vermelho fora deles — só a parte que cabe no
+// domínio visível do eixo (dominio.min/max já calculado acima).
+function faixasDoLimite(limite, dominio) {
+  if (!limite || !dominio) return [];
+  const { min: dMin, max: dMax } = dominio;
+  const faixas = [];
+  if (limite.min != null && limite.max != null) {
+    faixas.push({ de: limite.min, para: limite.max, cor: 'verde' });
+    if (limite.max < dMax) faixas.push({ de: limite.max, para: dMax, cor: 'vermelho' });
+    if (limite.min > dMin) faixas.push({ de: dMin, para: limite.min, cor: 'vermelho' });
+  } else if (limite.max != null) {
+    faixas.push({ de: dMin, para: limite.max, cor: 'verde' });
+    if (limite.max < dMax) faixas.push({ de: limite.max, para: dMax, cor: 'vermelho' });
+  } else if (limite.min != null) {
+    faixas.push({ de: limite.min, para: dMax, cor: 'verde' });
+    if (limite.min > dMin) faixas.push({ de: dMin, para: limite.min, cor: 'vermelho' });
+  }
+  return faixas;
+}
+// Plugin inline do Chart.js: pinta as faixas atrás das linhas, por eixo
+// (y e/ou y1). Usa a própria escala pra converter valor em pixel, então
+// acompanha o zoom/autoscale sem recalcular nada aqui.
+function pluginFaixaLimites(faixasPorEixo) {
+  return {
+    id: 'qaiFaixaLimites',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea } = chart;
+      Object.entries(faixasPorEixo || {}).forEach(([eixoId, faixas]) => {
+        const escala = chart.scales[eixoId];
+        if (!escala || !faixas?.length) return;
+        faixas.forEach(f => {
+          const p1 = escala.getPixelForValue(f.de), p2 = escala.getPixelForValue(f.para);
+          const top = Math.min(p1, p2), bottom = Math.max(p1, p2);
+          ctx.save();
+          ctx.fillStyle = f.cor === 'verde' ? 'rgba(22,163,74,0.12)' : 'rgba(220,38,38,0.12)';
+          ctx.fillRect(chartArea.left, top, chartArea.right - chartArea.left, bottom - top);
+          ctx.restore();
+        });
+      });
     },
   };
-  if (doisEixos) {
-    escalas.y1 = {
-      type: 'linear', position: 'right', grace: '5%',
-      title: { display: true, text: `${abreviacaoGrandeza(s, grupo[1])} (${unidades[1]})`, color: cores.get(grupo[1]), font: { size: 10, weight: '600' } },
-      ticks: { color: '#475569', font: { size: 10 } },
-      grid: { drawOnChartArea: false },
-    };
-  }
-  return { doisEixos, escalas };
 }
-function datasetsDoGrupo(s, grupo, cores, doisEixos, leituras, pontosFn) {
-  return grupo.map((c, idx) => {
-    const i = infoGrandeza(s, c);
+// Escalas de Y do grupo: 1 bucket = 1 eixo. 2 buckets (unidades
+// diferentes) = esquerdo + direito. Dentro de um bucket, todas as
+// grandezas da mesma unidade compartilham o mesmo eixo.
+function escalasYDoGrupo(s, grupo, cores, leituras, pontosFn) {
+  const doisEixos = grupo.length === 2;
+  const montarEixo = (bucket, pos) => {
+    const limite = limiteUniformeDoBucket(s, bucket);
+    const dominio = dominioYDoBucket(bucket, leituras, pontosFn, limite);
+    const titulo = `${bucket.codigos.map(c => abreviacaoGrandeza(s, c)).join('/')}${bucket.unidade ? ' (' + bucket.unidade + ')' : ''}`;
+    const cor = bucket.codigos.length === 1 ? cores.get(bucket.codigos[0]) : '#475569';
     return {
-      label: i.rotulo,
-      unidade: i.unidade,
-      data: pontosFn(leituras, c),
-      yAxisID: doisEixos && idx === 1 ? 'y1' : 'y',
-      borderColor: cores.get(c),
-      backgroundColor: cores.get(c) + '33',
-      tension: .2, pointRadius: 2, showLine: true,
+      dominio, faixas: faixasDoLimite(limite, dominio),
+      escala: {
+        type: 'linear', position: pos, min: dominio?.min, max: dominio?.max,
+        title: { display: true, text: titulo, color: cor, font: { size: 10, weight: '600' } },
+        ticks: { color: '#475569', font: { size: 10 } },
+        grid: pos === 'left' ? { color: '#e2e8f0' } : { drawOnChartArea: false },
+      },
     };
+  };
+  const e0 = montarEixo(grupo[0], 'left');
+  const escalas = { y: e0.escala };
+  const faixasPorEixo = { y: e0.faixas };
+  if (doisEixos) {
+    const e1 = montarEixo(grupo[1], 'right');
+    escalas.y1 = e1.escala;
+    faixasPorEixo.y1 = e1.faixas;
+  }
+  return { doisEixos, escalas, faixasPorEixo };
+}
+function datasetsDoGrupo(s, grupo, cores, leituras, pontosFn) {
+  const out = [];
+  grupo.forEach((bucket, idx) => {
+    bucket.codigos.forEach(c => {
+      const i = infoGrandeza(s, c);
+      out.push({
+        label: i.rotulo, unidade: i.unidade, data: pontosFn(leituras, c),
+        yAxisID: idx === 1 ? 'y1' : 'y',
+        borderColor: cores.get(c), backgroundColor: cores.get(c) + '33',
+        tension: .2, pointRadius: 2, showLine: true,
+      });
+    });
   });
+  return out;
 }
 // Autoscale do X: vai do primeiro ao último ponto, alinhado ao passo.
 function dominioAutoX(datasets, passoMin) {
@@ -1014,18 +1095,19 @@ function renderGraficosDashboard(s) {
 
   const passo = passoHoras(s);
   const cores = coresParaChaves(codigos);
-  const grupos = paresDeGrandezas(codigos);
+  const buckets = agruparPorUnidade(s, codigos);
+  const grupos = paresDeGrandezas(buckets);
   cont.innerHTML = grupos.map((grupo, k) => `
     <div class="qai-grafico-bloco">
-      <div class="qai-grafico-titulo">${grupo.map(c => esc(abreviacaoGrandeza(s, c))).join(' × ')}</div>
+      <div class="qai-grafico-titulo">${grupo.flatMap(b => b.codigos).map(c => esc(abreviacaoGrandeza(s, c))).join(' × ')}</div>
       <div class="qai-chart-wrap"><canvas id="ch-dash-${k}"></canvas></div>
     </div>`).join('');
 
   grupos.forEach((grupo, k) => {
     const ctx = document.getElementById(`ch-dash-${k}`);
     if (!ctx) return;
-    const { doisEixos, escalas } = escalasYDoGrupo(s, grupo, cores);
-    const datasets = datasetsDoGrupo(s, grupo, cores, doisEixos, LEITURAS_DIA, pontosDoDia);
+    const datasets = datasetsDoGrupo(s, grupo, cores, LEITURAS_DIA, pontosDoDia);
+    const { escalas, faixasPorEixo } = escalasYDoGrupo(s, grupo, cores, LEITURAS_DIA, pontosDoDia);
     const dom = dominioAutoX(datasets, passo * 60);
     escalas.x = {
       type: 'linear', min: dom.min, max: dom.max,
@@ -1037,6 +1119,7 @@ function renderGraficosDashboard(s) {
       type: 'line',
       data: { datasets },
       options: opcoesGraficoBase(escalas, items => items.length ? rotuloHora(items[0].parsed.x) : ''),
+      plugins: [pluginFaixaLimites(faixasPorEixo)],
     }));
   });
   const info = document.getElementById('dash-dia-info');
@@ -1317,23 +1400,28 @@ async function gerarPdfSensor(btn, opcoes) {
         y += 3;
       }
 
-      // Gráficos: mesmo agrupamento do dashboard, X ajustado ao período
-      const grupos = paresDeGrandezas(codigos);
+      // Gráficos: mesmo agrupamento por unidade do dashboard, X ajustado ao período
+      const buckets = agruparPorUnidade(s, codigos);
+      const grupos = paresDeGrandezas(buckets);
       const spanDias = Math.max(1, Math.round((limitesDoDia(ate).ate - limitesDoDia(de).desde) / 86400000));
       y = pdfCabe(doc, y, 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
       doc.text('Evolução no período', PDF_M, y); y += 5;
       for (const grupo of grupos) {
-        const { doisEixos, escalas } = escalasYDoGrupo(s, grupo, cores);
-        const datasets = datasetsDoGrupo(s, grupo, cores, doisEixos, leituras, pontosDoPeriodo);
+        const datasets = datasetsDoGrupo(s, grupo, cores, leituras, pontosDoPeriodo);
         const xs = datasets.flatMap(d => d.data.map(p => p.x));
         if (!xs.length) continue;
+        const { escalas, faixasPorEixo } = escalasYDoGrupo(s, grupo, cores, leituras, pontosDoPeriodo);
         escalas.x = {
           type: 'linear', min: Math.min(...xs), max: Math.max(...xs),
           ticks: { maxTicksLimit: 10, color: '#475569', font: { size: 8 }, callback: v => rotuloTempoPdf(v, spanDias) },
           grid: { display: false },
         };
-        const config = { type: 'line', data: { datasets }, options: { ...opcoesGraficoBase(escalas, () => ''), plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } } };
+        const config = {
+          type: 'line', data: { datasets },
+          options: { ...opcoesGraficoBase(escalas, () => ''), plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 } } } } },
+          plugins: [pluginFaixaLimites(faixasPorEixo)],
+        };
         try {
           const img = await renderizarGraficoParaImagemQai(config, 900, 380);
           const imgH = CW * (img.h / img.w);
