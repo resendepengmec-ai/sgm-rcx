@@ -32,7 +32,7 @@ const sandbox = {
   console,
   document: { getElementById: () => stubEl, querySelector: () => null },
   guardaDeModulo: async () => null,
-  esc: s => String(s ?? ''),
+  esc: s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
   withActionBusy: async (btn, label, task) => task(),
   Chart: function (ctx, cfg) { this.cfg = cfg; this.destroy = () => {}; (sandbox.__charts = sandbox.__charts || []).push(this); },
   DB: {

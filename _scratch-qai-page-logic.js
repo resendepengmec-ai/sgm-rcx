@@ -21,7 +21,9 @@ const sandbox = {
   console,
   document: { getElementById: () => stubEl, querySelector: () => null },
   guardaDeModulo: async () => null,
-  esc: s => String(s ?? ''),
+  // Mesma implementação de api-client.js:esc — um stub que não escapasse
+  // deixaria passar um teste de XSS que não testa nada de verdade.
+  esc: s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
   withActionBusy: async (btn, label, task) => task(),
   Chart: function (ctx, cfg) { this.cfg = cfg; this.destroy = () => {}; (sandbox.__charts = sandbox.__charts || []).push(this); },
   DB: {},
@@ -181,6 +183,48 @@ console.log('── limiteUniformeDoBucket: só sombreia quando o limite é o me
   assert('limites iguais (mesmo valor, objetos diferentes) -> usa o limite', JSON.stringify(sandbox.limiteUniformeDoBucket(sIgual, { codigos: ['a', 'b'] })) === JSON.stringify(limiteIgual));
   const sDiferente = { limites: { a: { max: 26 }, b: { max: 30 } } };
   assert('limites diferentes entre as grandezas do bucket -> não sombreia', sandbox.limiteUniformeDoBucket(sDiferente, { codigos: ['a', 'b'] }) === null);
+}
+
+console.log('── gauge: geometria (ângulo, ponto, domínio) ──');
+assert('valor no mínimo do domínio -> 180° (esquerda)', sandbox.anguloDoValor(0, { min: 0, max: 100 }) === 180);
+assert('valor no máximo do domínio -> 0° (direita)', sandbox.anguloDoValor(100, { min: 0, max: 100 }) === 0);
+assert('valor no meio -> 90° (topo)', sandbox.anguloDoValor(50, { min: 0, max: 100 }) === 90);
+assert('valor abaixo do domínio é grampeado em 180°', sandbox.anguloDoValor(-10, { min: 0, max: 100 }) === 180);
+assert('valor acima do domínio é grampeado em 0°', sandbox.anguloDoValor(200, { min: 0, max: 100 }) === 0);
+{
+  const p0 = sandbox.pontoDoAngulo(50, 50, 40, 180);
+  assert('180° fica no ponto mais à esquerda do arco', Math.abs(p0.x - 10) < 1e-6 && Math.abs(p0.y - 50) < 1e-6);
+  const p90 = sandbox.pontoDoAngulo(50, 50, 40, 90);
+  assert('90° fica no topo do arco (y menor, SVG cresce pra baixo)', Math.abs(p90.x - 50) < 1e-6 && Math.abs(p90.y - 10) < 1e-6);
+  const p1 = sandbox.pontoDoAngulo(50, 50, 40, 0);
+  assert('0° fica no ponto mais à direita do arco', Math.abs(p1.x - 90) < 1e-6 && Math.abs(p1.y - 50) < 1e-6);
+}
+assert('domínio do gauge sem valor nem limite é nulo', sandbox.dominioGauge(null, null) === null);
+{
+  const d = sandbox.dominioGauge(27, { min: 20, max: 26 });
+  assert('domínio do gauge inclui o valor acima do limite (excursão visível)', d.max >= 27);
+  assert('domínio do gauge inclui o limite mesmo com valor dentro dele', sandbox.dominioGauge(24, { min: 20, max: 26 }).min <= 20);
+}
+
+console.log('── gauge: SVG montado (trilhas, agulha, rótulo) ──');
+{
+  const svgComLimite = sandbox.montarGaugeSvg({ valor: 24, limite: { min: 20, max: 26 }, rotulo: 'Temperatura', unidade: '°C' });
+  assert('com min+max: 3 trilhas (verde entre, vermelho acima e abaixo)', (svgComLimite.match(/<path/g) || []).length === 3);
+  assert('tem agulha quando há valor', svgComLimite.includes('<line') && svgComLimite.includes('<circle'));
+  assert('mostra o valor formatado com unidade', svgComLimite.includes('24 °C'));
+  assert('mostra o rótulo', svgComLimite.includes('Temperatura'));
+
+  const svgSemLimite = sandbox.montarGaugeSvg({ valor: 24, limite: null, rotulo: 'X', unidade: '' });
+  assert('sem limite: 1 trilha cinza (sem faixa verde/vermelha)', (svgSemLimite.match(/<path/g) || []).length === 1 && svgSemLimite.includes('#cbd5e1'));
+
+  const svgSemValor = sandbox.montarGaugeSvg({ valor: null, limite: { max: 1000 }, rotulo: 'CO₂', unidade: 'ppm' });
+  assert('sem valor: mostra travessão, sem agulha', svgSemValor.includes('—') && !svgSemValor.includes('<line'));
+
+  const svgSemNada = sandbox.montarGaugeSvg({ valor: null, limite: null, rotulo: 'Y', unidade: '' });
+  assert('sem valor nem limite: arco cinza neutro, sem quebrar', svgSemNada.includes('<svg') && svgSemNada.includes('—'));
+
+  const svgEscapa = sandbox.montarGaugeSvg({ valor: 1, limite: null, rotulo: '<img onerror=x>', unidade: '' });
+  assert('rótulo malicioso é escapado', !svgEscapa.includes('<img'));
 }
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);

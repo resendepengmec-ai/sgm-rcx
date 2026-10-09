@@ -91,6 +91,15 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-kpi.fora .qai-kpi-sub{color:var(--danger);}
 .qai-kpi.ok .qai-kpi-sub{color:var(--success);}
 
+.qai-visual-toggle{display:flex;gap:6px;margin-bottom:4px;}
+.qai-visual-btn{flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;}
+.qai-visual-btn.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
+.qai-gauges{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
+.qai-gauge-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 10px 10px;text-align:center;}
+.qai-gauge-svg{width:100%;height:auto;display:block;}
+.qai-gauge-rotulo{font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-top:2px;}
+.qai-gauge-valor{font-size:20px;font-weight:700;color:var(--text);margin-top:2px;font-variant-numeric:tabular-nums;}
+
 .qai-dia{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;}
 .qai-dia input[type=date]{padding:6px 8px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;}
 .qai-grafico-bloco{margin-bottom:14px;}
@@ -177,6 +186,7 @@ let LEITURAS_ABERTO = [];
 let CHARTS_DASH = [];       // gráficos do histórico do dia
 let LEITURAS_DIA = [];      // leituras do dia selecionado
 let DIA_SELECIONADO = null; // dia local AAAA-MM-DD
+let MODO_VISUAL = 'grafico'; // 'grafico' (tiles) ou 'gauge' (medidor) — só afeta o valor atual
 let DIA_REQ = 0;            // controla respostas de dias antigos
 let LOCAIS = [];             // estabelecimentos/recintos do contrato (autocomplete)
 let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
@@ -803,6 +813,83 @@ function textoLimite(limite, unidade) {
   if (limite.max != null) partes.push(`máx ${limite.max}${un}`);
   return partes.length ? partes.join(' · ') : 'sem limite definido';
 }
+// ── Gauge: arco semicircular em SVG inline (sem lib) ────────────────
+// Reaproveita faixasDoLimite (mesma regra de verde/vermelho dos gráficos
+// de linha) — a única diferença é desenhar como arco, não como fundo.
+// Domínio sempre inclui o limite, igual ao eixo Y dos gráficos: a faixa
+// alvo fica visível mesmo quando o valor atual está longe dela.
+function dominioGauge(valor, limite) {
+  if (valor == null && !limite) return null;
+  let lo = valor != null ? valor : (limite.min ?? limite.max);
+  let hi = valor != null ? valor : (limite.max ?? limite.min);
+  if (limite?.min != null) lo = Math.min(lo, limite.min);
+  if (limite?.max != null) hi = Math.max(hi, limite.max);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const folga = (hi - lo) * 0.15;
+  return { min: lo - folga, max: hi + folga };
+}
+// 180° (esquerda) a 0° (direita) — valor mínimo à esquerda, máximo à direita.
+function anguloDoValor(valor, dominio) {
+  const frac = Math.min(1, Math.max(0, (valor - dominio.min) / (dominio.max - dominio.min)));
+  return 180 - frac * 180;
+}
+function pontoDoAngulo(cx, cy, r, anguloGraus) {
+  const rad = anguloGraus * Math.PI / 180;
+  return { x: cx + r * Math.cos(rad), y: cy - r * Math.sin(rad) };
+}
+function arcoSvgPath(cx, cy, r, anguloInicial, anguloFinal) {
+  const p1 = pontoDoAngulo(cx, cy, r, anguloInicial);
+  const p2 = pontoDoAngulo(cx, cy, r, anguloFinal);
+  const longo = Math.abs(anguloInicial - anguloFinal) > 180 ? 1 : 0;
+  return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${r} ${r} 0 ${longo} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+}
+const CORES_FAIXA_GAUGE = { verde: '#16a34a', vermelho: '#dc2626' };
+function montarGaugeSvg({ valor, limite, rotulo, unidade }) {
+  const W = 160, H = 100, cx = W / 2, cy = 84, r = 62;
+  const dominio = dominioGauge(valor, limite);
+  const rotuloHtml = `<div class="qai-gauge-rotulo">${esc(rotulo)}</div>
+    <div class="qai-gauge-valor">${valor == null ? '—' : esc(fmtValor(valor, unidade))}</div>`;
+  if (!dominio) {
+    return `<svg viewBox="0 0 ${W} ${H}" class="qai-gauge-svg">
+      <path d="${arcoSvgPath(cx, cy, r, 180, 0)}" fill="none" stroke="#e2e8f0" stroke-width="12"/>
+    </svg>${rotuloHtml}`;
+  }
+  const faixas = faixasDoLimite(limite, dominio);
+  const trilhas = (faixas.length ? faixas : [{ de: dominio.min, para: dominio.max, cor: null }]).map(f => {
+    const a1 = anguloDoValor(f.de, dominio), a2 = anguloDoValor(f.para, dominio);
+    const cor = f.cor ? CORES_FAIXA_GAUGE[f.cor] : '#cbd5e1';
+    return `<path d="${arcoSvgPath(cx, cy, r, a1, a2)}" fill="none" stroke="${cor}" stroke-width="12"/>`;
+  }).join('');
+  let agulha = '';
+  if (valor != null) {
+    const ponta = pontoDoAngulo(cx, cy, r - 16, anguloDoValor(valor, dominio));
+    agulha = `<line x1="${cx}" y1="${cy}" x2="${ponta.x.toFixed(2)}" y2="${ponta.y.toFixed(2)}" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="5" fill="#0f172a"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" class="qai-gauge-svg">${trilhas}${agulha}</svg>${rotuloHtml}`;
+}
+function trocarModoVisual(modo) {
+  MODO_VISUAL = modo;
+  if (SENSOR_ABERTO) renderDashboard(SENSOR_ABERTO);
+}
+function renderGrandezasKpi(s, codigos, valores, limites) {
+  return `<div class="qai-kpis">${codigos.map(c => {
+    const i = infoGrandeza(s, c);
+    const v = valores[c] ?? null;
+    const sit = situacaoGrandeza(v, limites[c]);
+    return `<div class="qai-kpi ${sit.classe}">
+      <div class="qai-kpi-label">${esc(i.rotulo)}</div>
+      <div class="qai-kpi-val">${v == null ? '—' : esc(fmtValor(v, ''))}<span class="qai-kpi-un">${esc(i.unidade)}</span></div>
+      <div class="qai-kpi-sub">${esc(sit.texto)} · ${esc(textoLimite(limites[c], i.unidade))}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+function renderGrandezasGauge(s, codigos, valores, limites) {
+  return `<div class="qai-gauges">${codigos.map(c => {
+    const i = infoGrandeza(s, c);
+    const v = valores[c] ?? null;
+    return `<div class="qai-gauge-item">${montarGaugeSvg({ valor: v, limite: limites[c] || null, rotulo: i.rotulo, unidade: i.unidade })}</div>`;
+  }).join('')}</div>`;
+}
 function renderDashboard(s) {
   const codigos = Object.keys(s.grandezasAtivas || {});
   const tel = DASH_LINHA?.telemetriaAoVivo;
@@ -812,18 +899,15 @@ function renderDashboard(s) {
     : ultima ? 'última leitura · ' + tempoRelativo(ultima.criadoEm) : 'nenhuma leitura ainda';
   const limites = s.limites || {};
 
+  const alternador = `<div class="qai-visual-toggle">
+    <button class="qai-visual-btn ${MODO_VISUAL === 'grafico' ? 'active' : ''}" onclick="trocarModoVisual('grafico')">📊 Cartões</button>
+    <button class="qai-visual-btn ${MODO_VISUAL === 'gauge' ? 'active' : ''}" onclick="trocarModoVisual('gauge')">🌡️ Gauge</button>
+  </div>`;
+
   document.getElementById('dash-grandezas').innerHTML = codigos.length
-    ? `<div class="qai-sub" style="margin:8px 0 6px">${esc(fonte)}</div>
-       <div class="qai-kpis">${codigos.map(c => {
-         const i = infoGrandeza(s, c);
-         const v = valores[c] ?? null;
-         const sit = situacaoGrandeza(v, limites[c]);
-         return `<div class="qai-kpi ${sit.classe}">
-           <div class="qai-kpi-label">${esc(i.rotulo)}</div>
-           <div class="qai-kpi-val">${v == null ? '—' : esc(fmtValor(v, ''))}<span class="qai-kpi-un">${esc(i.unidade)}</span></div>
-           <div class="qai-kpi-sub">${esc(sit.texto)} · ${esc(textoLimite(limites[c], i.unidade))}</div>
-         </div>`;
-       }).join('')}</div>`
+    ? `${alternador}
+       <div class="qai-sub" style="margin:8px 0 6px">${esc(fonte)}</div>
+       ${MODO_VISUAL === 'gauge' ? renderGrandezasGauge(s, codigos, valores, limites) : renderGrandezasKpi(s, codigos, valores, limites)}`
     : `<div class="card"><div class="qai-sub" style="margin:0">Nenhuma grandeza ativa. Escolha as grandezas em ⚙ Configurações.</div></div>`;
 
   document.getElementById('dash-historico').innerHTML = `
