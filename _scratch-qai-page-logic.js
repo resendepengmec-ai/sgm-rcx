@@ -16,10 +16,17 @@ function assert(desc, cond) {
   else { console.log('  ✗', desc); falhas++; }
 }
 
-const stubEl = { style: {}, innerHTML: '', classList: { add() {}, remove() {}, toggle() {} } };
+// Um elemento FALSO por id (não um único compartilhado) — senão escrever
+// em 'dash-grandezas' e depois ler 'dash-historico' devolveria o mesmo
+// conteúdo, e um teste que inspeciona innerHTML por id não vale nada.
+const ELEMENTOS = new Map();
+function elementoFalso(id) {
+  if (!ELEMENTOS.has(id)) ELEMENTOS.set(id, { style: {}, innerHTML: '', classList: { add() {}, remove() {}, toggle() {} } });
+  return ELEMENTOS.get(id);
+}
 const sandbox = {
   console,
-  document: { getElementById: () => stubEl, querySelector: () => null },
+  document: { getElementById: id => elementoFalso(id), querySelector: () => null },
   guardaDeModulo: async () => null,
   // Mesma implementação de api-client.js:esc — um stub que não escapasse
   // deixaria passar um teste de XSS que não testa nada de verdade.
@@ -225,6 +232,58 @@ console.log('── gauge: SVG montado (trilhas, agulha, rótulo) ──');
 
   const svgEscapa = sandbox.montarGaugeSvg({ valor: 1, limite: null, rotulo: '<img onerror=x>', unidade: '' });
   assert('rótulo malicioso é escapado', !svgEscapa.includes('<img'));
+}
+
+console.log('── exibição é configuração do SENSOR, não da sessão ──');
+assert('sensor sem exibicao cai no padrão (cartões, agrupado)', JSON.stringify(sandbox.exibicaoDoSensor({})) === JSON.stringify({ modoValor: 'cartoes', agrupar: true }));
+assert('sensor com exibicao explícita respeita o que foi salvo', JSON.stringify(sandbox.exibicaoDoSensor({ exibicao: { modoValor: 'gauge', agrupar: false } })) === JSON.stringify({ modoValor: 'gauge', agrupar: false }));
+
+console.log('── montarGrupos: agrupar=false separa cada grandeza no próprio gráfico ──');
+{
+  const s10 = {
+    grandezasAtivas: {
+      temp_current: { tipo: 'temperatura', rotulo: 'Temperatura', unidade: '°C' },
+      temp_current_external: { tipo: null, rotulo: 'Temperatura externa', unidade: '°C' },
+      humidity_value: { tipo: 'umidade', rotulo: 'Umidade relativa', unidade: '%' },
+    },
+  };
+  const codigos = Object.keys(s10.grandezasAtivas);
+  const individuais = sandbox.montarGrupos(s10, codigos, false);
+  assert('agrupar=false: 3 grandezas -> 3 grupos (um gráfico cada)', individuais.length === 3);
+  assert('cada grupo individual tem só 1 bucket com 1 código', individuais.every(g => g.length === 1 && g[0].codigos.length === 1));
+  const agrupados = sandbox.montarGrupos(s10, codigos, true);
+  assert('agrupar=true: as 2 de °C compartilham bucket (comportamento anterior preservado)', agrupados[0][0].codigos.length === 2);
+
+  console.log('── renderGraficosDashboard respeita exibicao.agrupar=false ──');
+  vm.runInContext(`
+    SENSOR_ABERTO = ${JSON.stringify({ ...s10, exibicao: { modoValor: 'cartoes', agrupar: false } })};
+    LEITURAS_DIA = [
+      { criadoEm: ${new Date(2026, 9, 5, 8, 0).getTime()}, valores: { temp_current: 22, temp_current_external: 19, humidity_value: 60 } },
+    ];
+    renderGraficosDashboard(SENSOR_ABERTO);
+  `, sandbox);
+  const ultimosGraficos = sandbox.__charts.slice(-3);
+  assert('3 grandezas (2 de °C + 1 de %) viram 3 gráficos quando individual', ultimosGraficos.length === 3);
+  assert('nenhum gráfico individual tem eixo direito (y1)', ultimosGraficos.every(g => !g.cfg.options.scales.y1));
+}
+
+console.log('── renderDashboard usa exibicao.modoValor do sensor (não mais um botão de sessão) ──');
+{
+  vm.runInContext(`
+    DASH_LINHA = { telemetriaAoVivo: { valores: { temp_current: 24 }, recebidoEm: Date.now() } };
+    LEITURAS_ABERTO = [];
+    SENSOR_ABERTO = {
+      grandezasAtivas: { temp_current: { tipo: 'temperatura', rotulo: 'Temperatura', unidade: '°C' } },
+      limites: {}, exibicao: { modoValor: 'gauge', agrupar: true },
+    };
+    renderDashboard(SENSOR_ABERTO);
+  `, sandbox);
+  const dashGrandezas = elementoFalso('dash-grandezas').innerHTML;
+  assert('exibicao.modoValor=gauge: dash-grandezas renderiza o gauge (classe qai-gauge-item)', dashGrandezas.includes('qai-gauge-item'));
+  assert('não renderiza mais o botão de alternância (virou configuração do sensor)', !dashGrandezas.includes('qai-visual-toggle'));
+
+  vm.runInContext(`SENSOR_ABERTO.exibicao = { modoValor: 'cartoes', agrupar: true }; renderDashboard(SENSOR_ABERTO);`, sandbox);
+  assert('exibicao.modoValor=cartoes: dash-grandezas volta a renderizar o cartão (classe qai-kpi)', elementoFalso('dash-grandezas').innerHTML.includes('qai-kpi'));
 }
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);

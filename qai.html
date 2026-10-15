@@ -91,9 +91,6 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-kpi.fora .qai-kpi-sub{color:var(--danger);}
 .qai-kpi.ok .qai-kpi-sub{color:var(--success);}
 
-.qai-visual-toggle{display:flex;gap:6px;margin-bottom:4px;}
-.qai-visual-btn{flex:1;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;}
-.qai-visual-btn.active{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
 .qai-gauges{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
 .qai-gauge-item{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 10px 10px;text-align:center;}
 .qai-gauge-svg{width:100%;height:auto;display:block;}
@@ -186,7 +183,10 @@ let LEITURAS_ABERTO = [];
 let CHARTS_DASH = [];       // gráficos do histórico do dia
 let LEITURAS_DIA = [];      // leituras do dia selecionado
 let DIA_SELECIONADO = null; // dia local AAAA-MM-DD
-let MODO_VISUAL = 'grafico'; // 'grafico' (tiles) ou 'gauge' (medidor) — só afeta o valor atual
+// Preferência de exibição: agora é configuração do SENSOR (persistida no
+// servidor, aba Configurações), não mais um botão de sessão no dashboard.
+const PADRAO_EXIBICAO = { modoValor: 'cartoes', agrupar: true };
+function exibicaoDoSensor(s) { return s?.exibicao || PADRAO_EXIBICAO; }
 let DIA_REQ = 0;            // controla respostas de dias antigos
 let LOCAIS = [];             // estabelecimentos/recintos do contrato (autocomplete)
 let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
@@ -468,6 +468,7 @@ function renderModalSensor() {
       <div id="sec-grandezas"></div>
       <div id="sec-limites"></div>
       <div id="sec-horarios"></div>
+      <div id="sec-exibicao"></div>
       <div id="sec-aparelhos"></div>`;
     renderAcoes(s);
     renderBasico(s);
@@ -475,6 +476,7 @@ function renderModalSensor() {
     renderGrandezas(s);
     renderLimites(s);
     renderHorarios(s);
+    renderExibicao(s);
     renderAparelhos(APARELHOS_ABERTO);
   } else {
     el.innerHTML = `${titulo}
@@ -867,10 +869,6 @@ function montarGaugeSvg({ valor, limite, rotulo, unidade }) {
   }
   return `<svg viewBox="0 0 ${W} ${H}" class="qai-gauge-svg">${trilhas}${agulha}</svg>${rotuloHtml}`;
 }
-function trocarModoVisual(modo) {
-  MODO_VISUAL = modo;
-  if (SENSOR_ABERTO) renderDashboard(SENSOR_ABERTO);
-}
 function renderGrandezasKpi(s, codigos, valores, limites) {
   return `<div class="qai-kpis">${codigos.map(c => {
     const i = infoGrandeza(s, c);
@@ -898,16 +896,11 @@ function renderDashboard(s) {
   const fonte = tel ? 'agora · ' + tempoRelativo(tel.recebidoEm)
     : ultima ? 'última leitura · ' + tempoRelativo(ultima.criadoEm) : 'nenhuma leitura ainda';
   const limites = s.limites || {};
-
-  const alternador = `<div class="qai-visual-toggle">
-    <button class="qai-visual-btn ${MODO_VISUAL === 'grafico' ? 'active' : ''}" onclick="trocarModoVisual('grafico')">📊 Cartões</button>
-    <button class="qai-visual-btn ${MODO_VISUAL === 'gauge' ? 'active' : ''}" onclick="trocarModoVisual('gauge')">🌡️ Gauge</button>
-  </div>`;
+  const exibicao = exibicaoDoSensor(s);
 
   document.getElementById('dash-grandezas').innerHTML = codigos.length
-    ? `${alternador}
-       <div class="qai-sub" style="margin:8px 0 6px">${esc(fonte)}</div>
-       ${MODO_VISUAL === 'gauge' ? renderGrandezasGauge(s, codigos, valores, limites) : renderGrandezasKpi(s, codigos, valores, limites)}`
+    ? `<div class="qai-sub" style="margin:0 0 6px">${esc(fonte)}</div>
+       ${exibicao.modoValor === 'gauge' ? renderGrandezasGauge(s, codigos, valores, limites) : renderGrandezasKpi(s, codigos, valores, limites)}`
     : `<div class="card"><div class="qai-sub" style="margin:0">Nenhuma grandeza ativa. Escolha as grandezas em ⚙ Configurações.</div></div>`;
 
   document.getElementById('dash-historico').innerHTML = `
@@ -1025,6 +1018,13 @@ function agruparPorUnidade(s, codigos) {
     mapa.get(u).push(c);
   }
   return [...mapa.entries()].map(([unidade, lista]) => ({ unidade, codigos: lista }));
+}
+// Monta os grupos de gráfico conforme a preferência de exibição do sensor:
+// agrupado (por unidade, até 2 por gráfico) ou individual (1 grandeza por
+// gráfico, sempre num eixo só — nunca compartilha eixo com outra).
+function montarGrupos(s, codigos, agrupar) {
+  if (!agrupar) return codigos.map(c => [{ unidade: infoGrandeza(s, c).unidade, codigos: [c] }]);
+  return paresDeGrandezas(agruparPorUnidade(s, codigos));
 }
 // Limite usado para sombrear o eixo: só faz sentido um único limite por
 // eixo. Se o bucket tiver mais de uma grandeza (mesma unidade) com limites
@@ -1179,8 +1179,7 @@ function renderGraficosDashboard(s) {
 
   const passo = passoHoras(s);
   const cores = coresParaChaves(codigos);
-  const buckets = agruparPorUnidade(s, codigos);
-  const grupos = paresDeGrandezas(buckets);
+  const grupos = montarGrupos(s, codigos, exibicaoDoSensor(s).agrupar);
   cont.innerHTML = grupos.map((grupo, k) => `
     <div class="qai-grafico-bloco">
       <div class="qai-grafico-titulo">${grupo.flatMap(b => b.codigos).map(c => esc(abreviacaoGrandeza(s, c))).join(' × ')}</div>
@@ -1208,6 +1207,35 @@ function renderGraficosDashboard(s) {
   });
   const info = document.getElementById('dash-dia-info');
   if (info) info.textContent = `${LEITURAS_DIA.length} leitura(s) · passo ${passo}h`;
+}
+
+// ── Exibição: como o dashboard mostra este sensor ───────────────────
+// Preferência SALVA NO SENSOR (não é mais um botão de sessão) — todo
+// gestor que abrir este sensor vê o mesmo modo, e ele sobrevive a
+// recarregar a página.
+function renderExibicao(s) {
+  const exibicao = exibicaoDoSensor(s);
+  document.getElementById('sec-exibicao').innerHTML = `
+    <div class="card">
+      <div class="card-title">Exibição do dashboard</div>
+      <div class="qai-sub">Vale para quem abrir este sensor — não é uma preferência só sua.</div>
+      <div class="field">
+        <label>Valor atual</label>
+        <label class="qai-check"><input type="radio" name="exib-modo" value="cartoes" ${exibicao.modoValor !== 'gauge' ? 'checked' : ''}> Cartões</label>
+        <label class="qai-check"><input type="radio" name="exib-modo" value="gauge" ${exibicao.modoValor === 'gauge' ? 'checked' : ''}> Gauge (medidor)</label>
+      </div>
+      <div class="field">
+        <label>Gráficos do histórico</label>
+        <label class="qai-check"><input type="radio" name="exib-agrupar" value="1" ${exibicao.agrupar ? 'checked' : ''}> Agrupados (até 2 grandezas por gráfico, por unidade)</label>
+        <label class="qai-check"><input type="radio" name="exib-agrupar" value="0" ${!exibicao.agrupar ? 'checked' : ''}> Individuais (1 gráfico por grandeza)</label>
+      </div>
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarExibicao(this)">Salvar exibição</button></div>
+    </div>`;
+}
+async function salvarExibicao(btn) {
+  const modoValor = document.querySelector('input[name="exib-modo"]:checked')?.value || 'cartoes';
+  const agrupar = (document.querySelector('input[name="exib-agrupar"]:checked')?.value || '1') === '1';
+  await withActionBusy(btn, 'Salvando…', () => patchSensorAtual({ exibicao: { modoValor, agrupar } }, 'Exibição atualizada.'));
 }
 
 // ── Aparelhos do recinto (calculado por estabelecimento+recinto) ───
@@ -1484,9 +1512,8 @@ async function gerarPdfSensor(btn, opcoes) {
         y += 3;
       }
 
-      // Gráficos: mesmo agrupamento por unidade do dashboard, X ajustado ao período
-      const buckets = agruparPorUnidade(s, codigos);
-      const grupos = paresDeGrandezas(buckets);
+      // Gráficos: mesma preferência de agrupamento do dashboard, X ajustado ao período
+      const grupos = montarGrupos(s, codigos, exibicaoDoSensor(s).agrupar);
       const spanDias = Math.max(1, Math.round((limitesDoDia(ate).ate - limitesDoDia(de).desde) / 86400000));
       y = pdfCabe(doc, y, 20);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(20, 20, 20);
