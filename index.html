@@ -621,12 +621,12 @@ function showAdminPanel() {
     <div style="font-size:12px;color:var(--text-2);margin:-4px 0 10px">${escopo}</div>
     <div class="card" style="padding:0;overflow:hidden">
       <div class="admin-tabs" role="tablist">
-        <button class="admin-tab ${adminTab==='usuarios'?'active':''}" role="tab" aria-selected="${adminTab==='usuarios'}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
-        <button class="admin-tab ${adminTab==='whitelist'?'active':''}" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
-        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">🏢 Responsáveis</button>
+        <button class="admin-tab ${adminTab==='usuarios'?'active':''}" data-tab="usuarios" role="tab" aria-selected="${adminTab==='usuarios'}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
+        <button class="admin-tab ${adminTab==='whitelist'?'active':''}" data-tab="whitelist" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
+        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" data-tab="responsaveis" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">✍️ Tomadores de Serviço</button>
         ${ehMaster
-          ? `<button class="admin-tab ${adminTab==='config'?'active':''}" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>`
-          : `<button class="admin-tab ${adminTab==='minhaempresa'?'active':''}" role="tab" aria-selected="${adminTab==='minhaempresa'}" onclick="setAdminTab('minhaempresa')">🏢 Minha Empresa</button>`}
+          ? `<button class="admin-tab ${adminTab==='config'?'active':''}" data-tab="config" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>`
+          : `<button class="admin-tab ${adminTab==='minhaempresa'?'active':''}" data-tab="minhaempresa" role="tab" aria-selected="${adminTab==='minhaempresa'}" onclick="setAdminTab('minhaempresa')">🏢 Minha Empresa</button>`}
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
     </div>`;
@@ -639,15 +639,12 @@ function showAdminPanel() {
 
 function setAdminTab(tab) {
   adminTab = tab;
+  // Casa pelo atributo data-tab, não pelo texto do botão — texto é rótulo
+  // de exibição e muda (ex.: "Responsáveis" → "Tomadores de Serviço");
+  // casar por substring do texto quebra silenciosamente a cada rótulo
+  // novo, como aconteceu aqui.
   document.querySelectorAll('.admin-tab').forEach(b => {
-    const t = b.textContent.toLowerCase();
-    setTabSelected(b,
-      (tab==='usuarios' && t.includes('usu')) ||
-      (tab==='whitelist' && t.includes('pr')) ||
-      (tab==='responsaveis' && t.includes('respons')) ||
-      (tab==='config' && t.includes('config')) ||
-      (tab==='minhaempresa' && t.includes('minha'))
-    );
+    setTabSelected(b, b.dataset.tab === tab);
   });
   renderAdminTab();
 }
@@ -676,14 +673,14 @@ async function renderResponsaveisTab(el) {
   const opts = habilitados.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
   el.innerHTML = `
     <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.5">
-      Cadastre quem recebe/assina por estabelecimento (nome, CPF, cargo, celular). Não dá acesso ao sistema — serve só para a coleta de assinatura do cliente. Aparece apenas para contratos com a opção "tomar assinatura do cliente" ligada.
+      Cadastre o tomador de serviço de cada estabelecimento — quem recebe/assina (nome, CPF, cargo, celular). Não dá acesso ao sistema — serve só para a coleta de assinatura do cliente. Aparece apenas para contratos com a opção "tomar assinatura do cliente" ligada.
     </p>
     ${habilitados.length ? `
       <div class="field"><label>Contrato</label>
         <select id="resp-contract" onchange="renderRespEstabs()"><option value="">Selecione um contrato…</option>${opts}</select>
       </div>
       <div id="resp-estabs" style="margin-top:12px"></div>
-    ` : `<div style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">Nenhum contrato com a opção "tomar assinatura do cliente por estabelecimento" ligada. Ative no cadastro do contrato para gerenciar responsáveis aqui.</div>`}
+    ` : `<div style="padding:14px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;font-size:13px;color:#92400e">Nenhum contrato com a opção "tomar assinatura do cliente por estabelecimento" ligada. Ative no cadastro do contrato para gerenciar tomadores de serviço aqui.</div>`}
   `;
 }
 
@@ -707,8 +704,8 @@ function renderRespEstabs() {
           </div>
           <button onclick="editResponsavel('${r.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Editar">✏️</button>
           <button onclick="removeResponsavel('${r.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>
-        </div>`).join('') : '<div style="font-size:12px;color:var(--text-3);margin-bottom:6px">Nenhum responsável cadastrado.</div>'}
-      <button onclick="addResponsavel(${ei})" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:8px;background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">+ Adicionar responsável</button>
+        </div>`).join('') : '<div style="font-size:12px;color:var(--text-3);margin-bottom:6px">Nenhum tomador de serviço cadastrado.</div>'}
+      <button onclick="addResponsavel(${ei})" style="width:100%;padding:9px;border:1px dashed var(--border);border-radius:8px;background:var(--surface);color:var(--text-2);font-size:13px;font-weight:600;cursor:pointer;margin-top:4px">+ Adicionar tomador de serviço</button>
     </div>`;
   }).join('');
 }
@@ -735,7 +732,7 @@ function openRespModal(){
   if(!m){ m=document.createElement('div'); m.id='resp-modal'; document.body.appendChild(m); }
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
   m.innerHTML=`<div style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
-    <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} responsável</div>
+    <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} tomador de serviço</div>
     <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
     <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
     <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" value="${esc(r.cpf||'')}" placeholder="Só números" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
@@ -763,20 +760,20 @@ async function saveRespForm(btn){
   if(!payload.nome || !payload.cargo){ showToast('Preencha nome e cargo'); return; }
   if(payload.cpf.length!==11){ showToast('CPF deve ter 11 dígitos'); return; }
   if(payload.celular.length<10 || payload.celular.length>11){ showToast('Celular inválido (DDD + número)'); return; }
-  const restore = setActionBusy(btn, true, 'Salvando responsável…');
+  const restore = setActionBusy(btn, true, 'Salvando tomador de serviço…');
   try{
     const saved = await DB.saveResponsavel(payload);
     const i = _responsaveis.findIndex(x=>x.id===saved.id);
     if(i>=0) _responsaveis[i]=saved; else _responsaveis.push(saved);
-    closeRespModal(); renderRespEstabs(); showToast('Responsável salvo');
+    closeRespModal(); renderRespEstabs(); showToast('Tomador de serviço salvo');
   }catch(e){ showToast('Erro ao salvar: '+(e.message||e)); }
   finally{ restore(); }
 }
 
 async function removeResponsavel(id){
   const r = _responsaveis.find(x=>x.id===id);
-  if(!confirm('Excluir o responsável '+(r?r.nome:'')+'?')) return;
-  try{ await DB.deleteResponsavel(id); _responsaveis = _responsaveis.filter(x=>x.id!==id); renderRespEstabs(); showToast('Responsável excluído'); }
+  if(!confirm('Excluir o tomador de serviço '+(r?r.nome:'')+'?')) return;
+  try{ await DB.deleteResponsavel(id); _responsaveis = _responsaveis.filter(x=>x.id!==id); renderRespEstabs(); showToast('Tomador de serviço excluído'); }
   catch(e){ showToast('Erro ao excluir: '+(e.message||e)); }
 }
 

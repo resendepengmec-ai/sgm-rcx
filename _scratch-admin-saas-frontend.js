@@ -149,5 +149,38 @@ console.log('── indicador de consumo da franquia (Minha Empresa) ──');
   assert('contrato malicioso no indicador é escapado', !html3.includes('<img') && html3.includes('&lt;img'));
 }
 
+console.log('── setAdminTab: casa pelo data-tab, não pelo texto do rótulo ──');
+{
+  // Achado do usuário: "Responsáveis" virou "Tomadores de Serviço", mas
+  // setAdminTab casava por substring do texto ("respons") — a aba parava
+  // de marcar como ativa. Corrigido pra casar por data-tab (estável,
+  // nunca muda quando o rótulo visível muda). Este teste simula os 5
+  // botões reais do painel, com o TEXTO atual (pode mudar de novo no
+  // futuro sem quebrar isto, que é exatamente o ponto).
+  function botaoFalso(dataTab) { return { dataset: { tab: dataTab }, _selecionado: null }; }
+  const botoes = ['usuarios', 'whitelist', 'responsaveis', 'minhaempresa'].map(botaoFalso);
+  const tabSandbox = {
+    adminTab: null,
+    document: { querySelectorAll: sel => (sel === '.admin-tab' ? botoes : []) },
+    setTabSelected: (b, sel) => { b._selecionado = sel; },
+    renderAdminTab: () => {},
+  };
+  tabSandbox.window = tabSandbox;
+  vm.createContext(tabSandbox);
+  vm.runInContext(
+    extraeFuncao(html, 'setAdminTab') + '\nthis.setAdminTab = setAdminTab;',
+    tabSandbox, { filename: 'index.html-setAdminTab.js' }
+  );
+
+  tabSandbox.setAdminTab('responsaveis');
+  const selecionados = botoes.filter(b => b._selecionado).map(b => b.dataset.tab);
+  assert('exatamente o botão "responsaveis" fica selecionado (por data-tab, não por texto)', selecionados.length === 1 && selecionados[0] === 'responsaveis');
+  assert('adminTab global foi atualizado', tabSandbox.adminTab === 'responsaveis');
+
+  tabSandbox.setAdminTab('minhaempresa');
+  const selecionados2 = botoes.filter(b => b._selecionado).map(b => b.dataset.tab);
+  assert('trocar de aba desmarca a anterior e marca só a nova', selecionados2.length === 1 && selecionados2[0] === 'minhaempresa');
+}
+
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
 process.exit(falhas === 0 ? 0 : 1);

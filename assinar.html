@@ -66,7 +66,7 @@
 <body>
   <div class="topbar">
     <div class="t">Recebimento de serviço</div>
-    <div class="s">Assinatura do responsável do estabelecimento</div>
+    <div class="s">Assinatura do tomador de serviço do estabelecimento</div>
   </div>
   <div class="wrap" id="root">
     <div class="spin">Carregando…</div>
@@ -116,7 +116,7 @@
       + '</div>'
       + '<div class="card"><div class="lbl" style="margin-bottom:6px">Serviços a receber ('+ordens.length+')</div>'+ordensHtml+'</div>'
       + '<label class="consent"><input type="checkbox" id="aceite" onchange="__setAceite(this.checked)">'
-      +   '<span style="font-size:13px;line-height:1.5">Eu, <strong>'+esc(data.responsavelNome||'responsável')+'</strong>, declaro que <strong>recebi</strong> e <strong>atesto a execução</strong> dos serviços descritos neste resumo.</span></label>'
+      +   '<span style="font-size:13px;line-height:1.5">Eu, <strong>'+esc(data.responsavelNome||'tomador de serviço')+'</strong>, declaro que <strong>recebi</strong> e <strong>atesto a execução</strong> dos serviços descritos neste resumo.</span></label>'
       + '<button class="btn btn-primary" id="btn" disabled onclick="__assinar()">Confirmar recebimento e assinar</button>'
       + '<div class="priv">Ao marcar a confirmação acima, registramos data, hora e localização aproximada para comprovação. Os dados são usados apenas para o comprovante de recebimento do serviço. <a href="privacidade.html" target="_blank" style="color:inherit">Saiba mais</a>.</div>';
   }
