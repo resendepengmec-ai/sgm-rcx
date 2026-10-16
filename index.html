@@ -1014,7 +1014,10 @@ async function addWhitelistEntry() {
     if (!Number.isInteger(n) || n < 1) { showToast('Informe o limite de contratos (≥ 1)'); return; }
     if (!Number.isInteger(x) || x < 0) { showToast('Informe a franquia de fotos por mês (≥ 0)'); return; }
     try {
-      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x });
+      // criarNovo: este botão é só para um e-mail NOVO — se ele já estiver
+      // pré-autorizado, o servidor recusa (409) em vez de substituir o
+      // cadastro existente sem avisar.
+      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x, criarNovo: true });
       showToast(`✅ ${name||email} autorizado como Admin Cliente — limite ${n} contrato(s), ${x} foto(s)/mês`);
       document.getElementById('wl-email').value = '';
       document.getElementById('wl-name').value = '';
@@ -1031,7 +1034,7 @@ async function addWhitelistEntry() {
   if (!_wlSelectedContracts.length) { showToast('Selecione ao menos um contrato'); return; }
   const contracts = _wlSelectedContracts.join(',');
   try {
-    await DB.addWhitelist(email, role, name, contracts);
+    await DB.addWhitelist(email, role, name, contracts, { criarNovo: true });
     showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role} — contratos: ${contracts}`);
     // Limpa form
     document.getElementById('wl-email').value = '';
