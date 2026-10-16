@@ -591,22 +591,46 @@ function toggleUserMenu() {
 }
 
 // ── Admin panel ──
+// Admin master (irrestrito) e Admin Cliente (SaaS — escopado ao próprio
+// contrato) acessam o painel; cada rota do backend já filtra o que o
+// Admin Cliente vê/edita ao próprio escopo (ver authz.js/api.js).
+function podeAdministrar(role) { return role === 'admin' || role === 'admin_cliente'; }
+
+// Papéis que o ator logado pode CONCEDER a outra pessoa (preenche os
+// <select> de papel) — espelha authz.podeAtribuirPapel no backend, que é
+// quem de fato impede a concessão; isto só evita oferecer uma opção que
+// o servidor vai rejeitar. Só admin concede admin/admin_cliente.
+function papeisSelecionaveis(atorRole) {
+  return Object.entries(ROLES).filter(([k]) => atorRole === 'admin' || !['admin','admin_cliente'].includes(k));
+}
+
 function showAdminPanel() {
   const user = getCurrentUser();
-  if (user?.role !== 'admin') return;
+  if (!podeAdministrar(user?.role)) return;
   const panel = document.getElementById('admin-panel');
   if (!panel) return;
+  // Config (OAuth/dados da prestadora/backup) é global do sistema, não do
+  // contrato — fica exclusivo do admin master.
+  const ehMaster = user?.role === 'admin';
+  const escopo = !ehMaster && user?.contract
+    ? `Administrando: contrato${String(user.contract).includes(',')?'s':''} ${esc(user.contract)}`
+    : (!ehMaster ? 'Administrando: nenhum contrato ainda — cadastre o primeiro em Contratos' : 'Administrador geral');
   panel.innerHTML = `
     <div class="section-title" style="margin-top:8px">Administração</div>
+    <div style="font-size:12px;color:var(--text-2);margin:-4px 0 10px">${escopo}</div>
     <div class="card" style="padding:0;overflow:hidden">
       <div class="admin-tabs" role="tablist">
         <button class="admin-tab ${adminTab==='usuarios'?'active':''}" role="tab" aria-selected="${adminTab==='usuarios'}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
         <button class="admin-tab ${adminTab==='whitelist'?'active':''}" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
         <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">🏢 Responsáveis</button>
-        <button class="admin-tab ${adminTab==='config'?'active':''}" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>
+        ${ehMaster
+          ? `<button class="admin-tab ${adminTab==='config'?'active':''}" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>`
+          : `<button class="admin-tab ${adminTab==='minhaempresa'?'active':''}" role="tab" aria-selected="${adminTab==='minhaempresa'}" onclick="setAdminTab('minhaempresa')">🏢 Minha Empresa</button>`}
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
     </div>`;
+  if (!ehMaster && adminTab === 'config') adminTab = 'usuarios';
+  if (ehMaster && adminTab === 'minhaempresa') adminTab = 'usuarios';
   renderAdminTab();
   // scroll to panel
   setTimeout(() => panel.scrollIntoView({behavior:'smooth', block:'start'}), 100);
@@ -620,7 +644,8 @@ function setAdminTab(tab) {
       (tab==='usuarios' && t.includes('usu')) ||
       (tab==='whitelist' && t.includes('pr')) ||
       (tab==='responsaveis' && t.includes('respons')) ||
-      (tab==='config' && t.includes('config'))
+      (tab==='config' && t.includes('config')) ||
+      (tab==='minhaempresa' && t.includes('minha'))
     );
   });
   renderAdminTab();
@@ -632,6 +657,7 @@ function renderAdminTab() {
   if (adminTab === 'usuarios') renderUsersTab(content);
   else if (adminTab === 'whitelist') renderWhitelistTab(content);
   else if (adminTab === 'responsaveis') renderResponsaveisTab(content);
+  else if (adminTab === 'minhaempresa') renderMinhaEmpresaTab(content);
   else renderConfigTab(content);
 }
 
@@ -686,13 +712,19 @@ function renderRespEstabs() {
   }).join('');
 }
 
+// Havia uma 2ª declaração de addResponsavel(contract, est) logo abaixo
+// desta, que SOBRESCREVIA esta por hoisting — o único onclick existente
+// chama addResponsavel(ei) (índice do estabelecimento, ver renderRespEstabs
+// acima), então toda tentativa de cadastrar um responsável NOVO ia com
+// contract=<índice numérico> e establishment=undefined, sempre rejeitada
+// pelo servidor ("Estabelecimento obrigatório"). Bug pré-existente, não
+// introduzido nesta sessão — removida a declaração duplicada abaixo.
 function addResponsavel(ei){
   const ctx = window._respCtx; if(!ctx) return;
   _editingResp = { contract: ctx.contract, establishment: ctx.estabs[ei] };
   openRespModal();
 }
 
-function addResponsavel(contract, est){ _editingResp = {contract, establishment:est}; openRespModal(); }
 function editResponsavel(id){ _editingResp = _responsaveis.find(r=>r.id===id); if(_editingResp) openRespModal(); }
 function closeRespModal(){ const m=document.getElementById('resp-modal'); if(m) m.remove(); }
 
@@ -802,16 +834,18 @@ function _renderUsersList(el, users, currentUser) {
     return;
   }
 
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = podeAdministrar(currentUser?.role);
   el.innerHTML = filterBar + filtered.map(({u, conts}) => {
     const r = ROLES[u.role] || {};
     const ll = u.last_login || u.lastLogin;
     const lastLogin = ll
       ? `Último acesso: ${new Date(ll).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}`
       : 'Nunca acessou';
-    const contBadges = conts.length
-      ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
-      : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos</span>';
+    const contBadges = u.role === 'admin_cliente'
+      ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${conts.length} contrato(s)</span>`
+      : conts.length
+        ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
+        : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
     return `<div class="user-row" style="flex-wrap:wrap">
       ${u.picture
         ? `<img src="${u.picture}" alt="">`
@@ -862,12 +896,24 @@ function _renderWLContent(el, wl) {
   // Lista de contratos disponíveis para os selects
   const contractsList = safeLocalStorageGetJSON('smm_contracts', []);
 
-  const isAdmin = getCurrentUser()?.role === 'admin';
+  const atorRole = getCurrentUser()?.role;
+  const isAdmin = podeAdministrar(atorRole);
+  // 'admin' nunca é concedido por "Pré-autorizar" (pessoa que ainda não
+  // logou) — só via gestão de usuário já existente (aba Usuários). O
+  // servidor já rejeita; aqui é só pra não oferecer uma opção inválida.
+  const papeisSel = papeisSelecionaveis(atorRole).filter(([k]) => k !== 'admin');
+  // No <select> de troca RÁPIDA de papel de cada linha, admin_cliente fica
+  // fora: a transição exige coletar a franquia (n/x), que só o formulário
+  // de "+ Adicionar" (acima) tem campo para isso.
+  const papeisSelLinha = papeisSel.filter(([k]) => k !== 'admin_cliente');
   const renderRow = (e) => {
     const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
-    const contBadges = conts.length
-      ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
-      : '<span style="background:#f1f5f9;color:#64748b;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">Todos</span>';
+    const contBadges = e.role === 'admin_cliente'
+      ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">
+          ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
+      : conts.length
+        ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
+        : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
     return `
     <div class="wl-row" style="flex-wrap:wrap;gap:8px">
       <div style="flex:1;min-width:0">
@@ -875,15 +921,20 @@ function _renderWLContent(el, wl) {
         <div style="font-size:11px;color:var(--text-3)">${esc(e.email)}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
-          ${isAdmin ? `<button onclick="editUserContracts('${jsAttr(e.email)}')"
+          ${isAdmin && e.role !== 'admin_cliente' ? `<button onclick="editUserContracts('${jsAttr(e.email)}')"
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar contratos
+          </button>` : ''}
+          ${isAdmin && e.role === 'admin_cliente' && atorRole === 'admin' ? `<button onclick="editFranquiaAdminCliente('${jsAttr(e.email)}')"
+            style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
+            ✏️ editar franquia
           </button>` : ''}
         </div>
       </div>
       ${isAdmin ? `
       <select class="role-select" onchange="changeWLRole('${jsAttr(e.email)}',this.value)" style="min-width:120px">
-        ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
+        ${papeisSelLinha.filter(([k]) => k !== 'admin_cliente' || k === e.role)
+          .map(([k,v])=>`<option value="${k}" ${e.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
       </select>` : `<span style="font-size:12px;color:var(--text-2)">${ROLES[e.role]?.icon||''} ${ROLES[e.role]?.label||e.role}</span>`}
       <span class="wl-status ${e.hasAccount||e.usedAt?'used':'pending'}">${e.hasAccount||e.usedAt?'✅ Ativo':'⏳ Aguardando'}</span>
       ${isAdmin ? `<button class="btn-icon-sm" onclick="removeWLEntry('${jsAttr(e.email)}')" title="Remover">✕</button>` : ''}
@@ -899,15 +950,32 @@ function _renderWLContent(el, wl) {
     <div class="add-wl-form" style="flex-wrap:wrap">
       <input type="email" id="wl-email" placeholder="email@dominio.com" style="flex:1;min-width:150px">
       <input type="text" id="wl-name" placeholder="Nome" style="flex:1;min-width:100px">
-      <select id="wl-role">
-        ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
+      <select id="wl-role" onchange="atualizarCampoWlPorPapel()">
+        ${papeisSel.map(([k,v])=>`<option value="${k}">${v.icon} ${v.label}</option>`).join('')}
       </select>
       <button onclick="addWhitelistEntry()">+ Adicionar</button>
     </div>
-    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
-      <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Contratos autorizados:</label>
+    <div id="wl-campo-contrato" style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+      <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Contratos autorizados <span style="color:var(--danger)">*</span></label>
       <div id="wl-contracts-picker" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:200px;padding:6px;border:1px solid var(--border);border-radius:8px;background:var(--surface-0);min-height:36px">
         <span style="font-size:11px;color:var(--text-3)">Carregando contratos…</span>
+      </div>
+    </div>
+    <div id="wl-campo-admin-cliente" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--surface-0)">
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:8px;line-height:1.4">
+        Caso único: o Admin Cliente ainda não tem contrato — ele mesmo
+        cadastra o 1º e ganha o escopo automaticamente. Defina aqui a
+        franquia dele:
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:140px;margin:0">
+          <label style="font-size:11px">Limite de contratos <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="wl-limite-contratos" min="1" step="1" placeholder="ex.: 3">
+        </div>
+        <div class="field" style="flex:1;min-width:140px;margin:0">
+          <label style="font-size:11px">Franquia de fotos/mês <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="wl-franquia-fotos" min="0" step="1" placeholder="ex.: 500">
+        </div>
       </div>
     </div>` : `<p style="font-size:12px;color:var(--text-3);font-style:italic">Modo visualização — só o admin pode pré-autorizar novos usuários.</p>`}
     ${wl.length === 0
@@ -923,25 +991,77 @@ function _renderWLContent(el, wl) {
           </p>`
     }
 `;
+  if (isAdmin) atualizarCampoWlPorPapel();
 }
 
-
-
+// Alterna entre o picker de contratos e os campos de franquia (admin_cliente
+// é o caso único sem vínculo de contrato nesta tela — ver correção do SaaS).
+function atualizarCampoWlPorPapel() {
+  const role = document.getElementById('wl-role')?.value;
+  const ehAdminCliente = role === 'admin_cliente';
+  const campoContrato = document.getElementById('wl-campo-contrato');
+  const campoAC = document.getElementById('wl-campo-admin-cliente');
+  if (campoContrato) campoContrato.style.display = ehAdminCliente ? 'none' : 'flex';
+  if (campoAC) campoAC.style.display = ehAdminCliente ? 'block' : 'none';
+}
 
 async function addWhitelistEntry() {
   const email = document.getElementById('wl-email').value.trim().toLowerCase();
   const name  = document.getElementById('wl-name').value.trim();
   const role  = document.getElementById('wl-role').value;
-  const contracts = _wlSelectedContracts.length ? _wlSelectedContracts.join(',') : null;
   if (!email || !email.includes('@')) { showToast('E-mail inválido'); return; }
+
+  if (role === 'admin_cliente') {
+    const n = parseInt(document.getElementById('wl-limite-contratos').value, 10);
+    const x = parseInt(document.getElementById('wl-franquia-fotos').value, 10);
+    if (!Number.isInteger(n) || n < 1) { showToast('Informe o limite de contratos (≥ 1)'); return; }
+    if (!Number.isInteger(x) || x < 0) { showToast('Informe a franquia de fotos por mês (≥ 0)'); return; }
+    try {
+      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x });
+      showToast(`✅ ${name||email} autorizado como Admin Cliente — limite ${n} contrato(s), ${x} foto(s)/mês`);
+      document.getElementById('wl-email').value = '';
+      document.getElementById('wl-name').value = '';
+      document.getElementById('wl-limite-contratos').value = '';
+      document.getElementById('wl-franquia-fotos').value = '';
+      await syncUsersFromBackend();
+      renderAdminTab();
+    } catch(e) { showToast('Erro: ' + e.message); }
+    return;
+  }
+
+  // Correção: nunca "nenhum marcado = acesso a todos" por omissão — exige
+  // ao menos 1 contrato (o servidor também rejeita, isto é só UX).
+  if (!_wlSelectedContracts.length) { showToast('Selecione ao menos um contrato'); return; }
+  const contracts = _wlSelectedContracts.join(',');
   try {
     await DB.addWhitelist(email, role, name, contracts);
-    const badge = contracts ? ` — contratos: ${contracts}` : '';
-    showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role}${badge}`);
+    showToast(`✅ ${name||email} autorizado como ${ROLES[role]?.label||role} — contratos: ${contracts}`);
     // Limpa form
     document.getElementById('wl-email').value = '';
     document.getElementById('wl-name').value = '';
     _wlSelectedContracts = [];
+    await syncUsersFromBackend();
+    renderAdminTab();
+  } catch(e) { showToast('Erro: ' + e.message); }
+}
+
+// Admin master edita a franquia (n/x) de um Admin Cliente já existente —
+// o contrato dele NUNCA é tocado aqui (cresce sozinho conforme ele cadastra).
+async function editFranquiaAdminCliente(email) {
+  let wl = [];
+  try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
+  const entry = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+  if (!entry) { showToast('Cadastro não encontrado'); return; }
+  const n = prompt(`Limite de contratos de ${entry.name || entry.email} (atual: ${entry.limite_contratos ?? '—'})`, entry.limite_contratos ?? '');
+  if (n === null) return;
+  const x = prompt(`Franquia de fotos/mês (atual: ${entry.franquia_fotos_mes ?? '—'})`, entry.franquia_fotos_mes ?? '');
+  if (x === null) return;
+  const nInt = parseInt(n, 10), xInt = parseInt(x, 10);
+  if (!Number.isInteger(nInt) || nInt < 1) { showToast('Limite de contratos inválido (≥ 1)'); return; }
+  if (!Number.isInteger(xInt) || xInt < 0) { showToast('Franquia de fotos inválida (≥ 0)'); return; }
+  try {
+    await DB.addWhitelist(entry.email, 'admin_cliente', entry.name || '', null, { limiteContratos: nInt, franquiaFotosMes: xInt });
+    showToast('✅ Franquia atualizada');
     await syncUsersFromBackend();
     renderAdminTab();
   } catch(e) { showToast('Erro: ' + e.message); }
@@ -980,7 +1100,7 @@ function _wlRenderPicker() {
     </button>`;
   }).join('') +
   (_wlSelectedContracts.length === 0
-    ? '<span style="font-size:11px;color:var(--text-3);align-self:center;padding-left:6px">Nenhum = acesso a todos</span>'
+    ? '<span style="font-size:11px;color:var(--danger);align-self:center;padding-left:6px">Selecione ao menos um</span>'
     : `<span style="font-size:11px;color:var(--success);align-self:center;padding-left:6px">${_wlSelectedContracts.length} contrato(s)</span>`);
 }
 
@@ -1037,9 +1157,12 @@ async function editUserContracts(email) {
   document.body.appendChild(modal);
   modal.querySelector('#save-contracts-btn').onclick = async () => {
     const selected = [...modal.querySelectorAll('button[data-num][data-sel="1"]')].map(b => b.dataset.num);
+    // Correção: nunca salva sem contrato (isso era interpretado como acesso
+    // irrestrito) — o servidor também rejeita, isto é só UX antecipada.
+    if (!selected.length) { showToast('Selecione ao menos um contrato'); return; }
     try {
-      await DB.addWhitelist(user.email, user.role, user.name||'', selected.length ? selected.join(',') : null);
-      showToast(selected.length ? `✅ ${selected.length} contrato(s) vinculado(s)` : '✅ Vínculo removido');
+      await DB.addWhitelist(user.email, user.role, user.name||'', selected.join(','));
+      showToast(`✅ ${selected.length} contrato(s) vinculado(s)`);
       modal.remove();
       await syncUsersFromBackend();
       renderAdminTab();
@@ -1077,9 +1200,12 @@ async function editUser(userId, email) {
       <div class="field" style="margin-bottom:14px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Papel</label>
         <select id="edit-user-role" ${isSelf?'disabled':''} style="width:100%">
-          ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${acct.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
+          ${papeisSelecionaveis(getCurrentUser()?.role)
+            .filter(([k]) => k !== 'admin_cliente' || k === acct.role)
+            .map(([k,v])=>`<option value="${k}" ${acct.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
         </select>
         ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível alterar o próprio papel</div>' : ''}
+        ${!isSelf && acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Para conceder Admin Cliente a OUTRA pessoa, use "Pré-autorizar"</div>' : ''}
       </div>
 
       <div class="field" style="margin-bottom:16px">
@@ -1092,8 +1218,17 @@ async function editUser(userId, email) {
         ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível desativar a própria conta</div>' : ''}
       </div>
 
+      ${acct.role === 'admin_cliente' ? `
       <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos autorizados</label>
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos</label>
+        <div style="font-size:12px;color:#64748b;padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">
+          Escopo de Admin Cliente — cresce sozinho conforme ele mesmo cadastra
+          (${current.length} contrato(s) hoje). Pra mudar a franquia de
+          contratos/fotos, use "editar franquia" na aba Pré-autorizar.
+        </div>
+      </div>` : `
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos autorizados <span style="color:#dc2626">*</span></label>
         <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
           ${_wlAllContracts.length === 0
             ? '<span style="font-size:12px;color:#94a3b8">Nenhum contrato cadastrado</span>'
@@ -1107,8 +1242,8 @@ async function editUser(userId, email) {
               }).join('')
           }
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Nenhum contrato marcado = acesso a todos</div>
-      </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Pelo menos 1 contrato é obrigatório</div>
+      </div>`}
 
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button onclick="this.closest('div[style*=fixed]').remove()"
@@ -1125,15 +1260,31 @@ async function editUser(userId, email) {
   document.body.appendChild(modal);
   modal.querySelector('#save-user-btn').onclick = async () => {
     const btn = modal.querySelector('#save-user-btn');
-    btn.disabled = true; btn.textContent = 'Salvando…';
     const newRole   = modal.querySelector('#edit-user-role').value;
     const newActive = modal.querySelector('#edit-user-active-btn').dataset.active === '1';
     const selected  = [...modal.querySelectorAll('button[data-num][data-sel="1"]')].map(b => b.dataset.num);
+    // Correção aplicada só à AÇÃO de zerar: uma conta JÁ existente e já
+    // irrestrita (current vazio) continua podendo ser editada (ex.: só
+    // trocar o status) sem forçar a escolha de um contrato agora — isso
+    // quebraria contas de produção que já funcionam assim hoje. O que a
+    // correção impede é a ação ATIVA de desmarcar tudo que já estava
+    // marcado (current.length>0 → selected.length===0), que é quando
+    // "nenhum marcado" virava acesso irrestrito por omissão.
+    const zerandoContratoExistente = newRole !== 'admin_cliente' && !selected.length && current.length > 0;
+    if (zerandoContratoExistente) {
+      showToast('Remover todos os contratos concederia acesso irrestrito — selecione ao menos um, ou mantenha os atuais.');
+      return;
+    }
+    btn.disabled = true; btn.textContent = 'Salvando…';
     try {
       const tasks = [];
       if (!isSelf && newRole !== acct.role) tasks.push(DB.updateUserRole(acct.id, newRole));
       if (!isSelf && newActive !== !!acct.active) tasks.push(DB.setUserActive(acct.id, newActive));
-      tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
+      // Admin Cliente: contrato é autogerido (POST /contratos), nunca
+      // reescrito por aqui — só os demais papéis passam pela whitelist.
+      // selected vazio preserva o que já era (null = irrestrito legado,
+      // nunca reescrito como "" por omissão).
+      if (newRole !== 'admin_cliente') tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
       await Promise.all(tasks);
       showToast('✅ Usuário atualizado');
       modal.remove();
@@ -1485,6 +1636,168 @@ function savePrestadoraConfig(btn) {
   const restore = setActionBusy(btn, true, 'Salvando dados…');
   DB.saveConfig({ company, address, cnpj, logo:_prestadoraLogo.dataUrl, logoRatio:_prestadoraLogo.ratio })
     .then(() => showToast('✅ Dados da prestadora salvos!'))
+    .catch(e => showToast('Erro ao salvar: ' + e.message))
+    .finally(() => restore());
+}
+
+// ── Tab: Minha Empresa (SaaS — admin_cliente) ───────────────────────
+// Mesmo padrão de "Dados da empresa prestadora" acima, mas por tenant:
+// cada Admin Cliente cadastra a PRÓPRIA empresa (nome/CNPJ/endereço/logo),
+// que passa a aparecer no cabeçalho dos PDFs dos contratos dele — nunca a
+// do admin master. Duplicado (não compartilhado) de propósito: estados e
+// ids de elemento próprios evitam qualquer colisão com a aba Config do
+// admin master, que continua intocada.
+let _minhaEmpresaLogo = { dataUrl:'', ratio:'' };
+
+function renderMinhaEmpresaTab(el) {
+  el.innerHTML = `
+    <p style="font-size:13px;color:var(--text-2);margin-bottom:12px;line-height:1.5">
+      Usados no cabeçalho dos PDFs dos seus contratos (logo, nome, endereço e CNPJ da sua empresa).
+    </p>
+    <div id="mye-box">Carregando…</div>
+  `;
+  loadMinhaEmpresaConfig();
+}
+
+function loadMinhaEmpresaConfig() {
+  const box = document.getElementById('mye-box');
+  if (!box) return;
+  DB.getMinhaEmpresa().then(async cfg => {
+    _minhaEmpresaLogo = { dataUrl: await resolverLogoDataUrl(cfg), ratio: cfg.logoRatio||'' };
+    renderMinhaEmpresaForm(box, cfg);
+  }).catch(e => {
+    box.innerHTML = `<p style="font-size:12px;color:var(--danger)">Erro ao carregar: ${e.message}</p>`;
+  });
+}
+
+// Barra de progresso simples pro indicador de franquia (contratos/fotos).
+// cor: verde até 80% do limite, amarelo até 100%, vermelho no limite ou acima.
+function _barraFranquia(usado, limite) {
+  if (!Number.isFinite(limite) || limite <= 0) return '';
+  const pct = Math.min(100, Math.round((usado / limite) * 100));
+  const cor = usado >= limite ? '#dc2626' : pct >= 80 ? '#d97706' : '#16a34a';
+  return `<div style="background:#f1f5f9;border-radius:99px;height:6px;margin-top:4px;overflow:hidden">
+    <div style="width:${pct}%;height:100%;background:${cor};border-radius:99px"></div>
+  </div>`;
+}
+
+const _MESES_PT = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function _fmtAnoMes(anoMes) {
+  const [ano, mes] = String(anoMes||'').split('-');
+  const i = parseInt(mes,10) - 1;
+  return (_MESES_PT[i] ? _MESES_PT[i] : mes) + '/' + ano;
+}
+
+// Indicador de consumo da franquia (contratos + fotos/mês, por contrato) —
+// só leitura; quem muda o limite é o admin master, em "Pré-autorizar".
+function _indicadorFranquiaHtml(cfg) {
+  const fc = cfg.franquiaContratos || {};
+  const ff = cfg.franquiaFotos || {};
+  const porContrato = Array.isArray(ff.porContrato) ? ff.porContrato : [];
+  return `
+    <div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:16px;background:var(--surface-0)">
+      <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
+        📊 Consumo da franquia
+      </div>
+
+      <div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span>📑 Contratos cadastrados</span>
+          <strong>${fc.usado ?? 0}${Number.isFinite(fc.limite) ? ` de ${fc.limite}` : ' (sem limite definido)'}</strong>
+        </div>
+        ${_barraFranquia(fc.usado ?? 0, fc.limite)}
+      </div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:13px">
+          <span>📷 Fotos em ${esc(_fmtAnoMes(ff.anoMes))}</span>
+          <strong>${ff.usado ?? 0}${Number.isFinite(ff.limite) ? ` de ${ff.limite}` : ' (sem limite definido)'}</strong>
+        </div>
+        ${_barraFranquia(ff.usado ?? 0, ff.limite)}
+        ${porContrato.length ? `
+          <div style="margin-top:10px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em">Por contrato</div>
+          <div style="margin-top:4px">
+            ${porContrato.map(l => `
+              <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0">
+                <span>Contrato ${esc(l.contrato)}</span>
+                <span style="color:var(--text-2)">${l.usado} foto${l.usado===1?'':'s'}</span>
+              </div>`).join('')}
+          </div>` : `<div style="font-size:12px;color:var(--text-3);margin-top:6px">Nenhuma foto enviada este mês ainda.</div>`}
+      </div>
+    </div>`;
+}
+
+function renderMinhaEmpresaForm(box, cfg) {
+  box.innerHTML = `
+    ${_indicadorFranquiaHtml(cfg)}
+    <div class="field">
+      <label>Logo</label>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div id="mye-logo-preview" style="width:64px;height:64px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fafafa">
+          ${_minhaEmpresaLogo.dataUrl ? `<img src="${imgSrc(_minhaEmpresaLogo.dataUrl)}" style="max-width:100%;max-height:100%">` : '<span style="font-size:11px;color:var(--text-3)">sem logo</span>'}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('mye-logo-input').click()">📤 Enviar logo</button>
+          ${_minhaEmpresaLogo.dataUrl ? `<button type="button" class="btn btn-secondary btn-sm" onclick="removeMinhaEmpresaLogo()">🗑️ Remover</button>` : ''}
+        </div>
+        <input type="file" id="mye-logo-input" accept="image/*" style="display:none" onchange="handleMinhaEmpresaLogo(event)">
+      </div>
+    </div>
+    <div class="field">
+      <label>Nome da empresa</label>
+      <input id="mye-company" type="text" value="${esc(cfg.company||'')}" placeholder="Ex: Manutenções ACME Ltda">
+    </div>
+    <div class="field">
+      <label>Endereço</label>
+      <input id="mye-address" type="text" value="${esc(cfg.address||'')}" placeholder="Rua, número, bairro, cidade — UF">
+    </div>
+    <div class="field">
+      <label>CNPJ</label>
+      <input id="mye-cnpj" type="text" value="${esc(cfg.cnpj||'')}" placeholder="00.000.000/0000-00">
+    </div>
+    <button class="btn btn-primary" onclick="saveMinhaEmpresaConfig(this)">💾 Salvar dados da empresa</button>
+  `;
+}
+
+function handleMinhaEmpresaLogo(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const MAX_PX = 300;
+  const r = new FileReader();
+  r.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > MAX_PX || h > MAX_PX) {
+        if (w > h) { h = Math.round(h*MAX_PX/w); w = MAX_PX; }
+        else       { w = Math.round(w*MAX_PX/h); h = MAX_PX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      _minhaEmpresaLogo = { dataUrl: canvas.toDataURL('image/png'), ratio: String(h/w) };
+      const box = document.getElementById('mye-box');
+      if (box) DB.getMinhaEmpresa().then(cfg => renderMinhaEmpresaForm(box, cfg)).catch(()=>renderMinhaEmpresaForm(box, {}));
+    };
+    img.src = ev.target.result;
+  };
+  r.readAsDataURL(file);
+  e.target.value = '';
+}
+
+function removeMinhaEmpresaLogo() {
+  _minhaEmpresaLogo = { dataUrl:'', ratio:'' };
+  const box = document.getElementById('mye-box');
+  if (box) DB.getMinhaEmpresa().then(cfg => renderMinhaEmpresaForm(box, cfg)).catch(()=>renderMinhaEmpresaForm(box, {}));
+}
+
+function saveMinhaEmpresaConfig(btn) {
+  const company = document.getElementById('mye-company').value.trim();
+  const address = document.getElementById('mye-address').value.trim();
+  const cnpj    = document.getElementById('mye-cnpj').value.trim();
+  if (!company) { showToast('Informe o nome da empresa'); return; }
+  const restore = setActionBusy(btn, true, 'Salvando dados…');
+  DB.saveMinhaEmpresa({ company, address, cnpj, logo:_minhaEmpresaLogo.dataUrl, logoRatio:_minhaEmpresaLogo.ratio })
+    .then(() => showToast('✅ Dados da empresa salvos!'))
     .catch(e => showToast('Erro ao salvar: ' + e.message))
     .finally(() => restore());
 }

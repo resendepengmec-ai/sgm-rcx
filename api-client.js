@@ -388,6 +388,14 @@ const ROLES = {
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
+  // SaaS: administra, dentro do(s) próprio(s) contrato(s), o que hoje só
+  // o admin master faz — cadastra contrato e concede acesso aos papéis
+  // abaixo (nunca a outro admin/admin_cliente; isso é exclusivo do master).
+  admin_cliente: { label:'Admin Cliente', icon:'🗂️', color:'#9333ea',
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai'],
+                 canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
+                 canApprove:true, canManageUsers:true },
+
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
                  modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
@@ -898,7 +906,11 @@ const DB = {
   setUserActive:      (id, active) => API.patch(`/users/${id}/active`, { active }),
   deactivateUser:     id          => API.delete(`/users/${id}`),
   getWhitelist:       ()          => API.get('/whitelist'),
-  addWhitelist:       (e,r,n,c)   => API.post('/whitelist', { email:e, role:r, name:n, contract:c||null }),
+  // `extra` carrega limiteContratos/franquiaFotosMes — só usado quando r
+  // é 'admin_cliente' (franquia de contratos/fotos, ver foto-cota.js no
+  // backend); para os demais papéis o servidor exige `c` com ao menos 1
+  // contrato, nunca aceitando "nenhum = todos" por omissão.
+  addWhitelist:       (e,r,n,c,extra)   => API.post('/whitelist', { email:e, role:r, name:n, contract:c||null, ...(extra||{}) }),
   removeWhitelist:    email       => API.delete(`/whitelist/${encodeURIComponent(email)}`),
 
   // Contratos
@@ -951,6 +963,10 @@ const DB = {
   getAdminContact:    ()    => API.get('/auth/admin-contact'),
   saveAdminContact:   c     => API.post('/auth/admin-contact', c),
   getPrestadoraConfig:()    => API.get('/config/prestadora'),
+  // "Minha Empresa" (SaaS): dados da própria prestadora, só para admin_cliente
+  // — o admin master continua usando getConfig/saveConfig (global, de sempre).
+  getMinhaEmpresa:    ()    => API.get('/config/minha-empresa'),
+  saveMinhaEmpresa:   cfg   => API.post('/config/minha-empresa', { config:cfg }),
   getStats:           ()    => API.get('/stats'),
   ping:               ()    => API.get('/../ping').then(()=>true).catch(()=>false),
 

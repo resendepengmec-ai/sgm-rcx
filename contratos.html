@@ -285,7 +285,7 @@ else { document.getElementById('auth-overlay').style.display = 'none';
 // o script inteiro — a tela trava em "Verificando acesso…" para sempre.
 setTimeout(() => { try { guardaDeModulo('contratos'); } catch (e) {} }, 0);
 
-  const canCreateContractInit = ['admin','diretor','supervisor'].includes(user.role);
+  const canCreateContractInit = ['admin','admin_cliente','diretor','supervisor'].includes(user.role);
   document.getElementById('fab')?.classList.toggle('hidden', !canCreateContractInit);
   DB.getContratos('?resumo=1').then(data => {
     if (Array.isArray(data)) {
@@ -353,7 +353,7 @@ function renderList() {
     const equip  = c.equipamentos || [];
     const equipCount = c.equipamentosCount ?? equip.length;
     const docs   = c.documentos   || [];
-    const canEdit= ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+    const canEdit= ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
     return `
     <div class="contract-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
@@ -467,7 +467,7 @@ async function generateContractPDF(id) {
 
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
-  const canPriceDoc = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+  const canPriceDoc = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
 
   let y = drawPdfHeader(doc, { title:`Contrato ${c.numero}`, metaLines:[`Emitido em ${new Date().toLocaleDateString('pt-BR')}`] });
 
@@ -566,7 +566,7 @@ function renderServicosList() {
     list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;font-size:13px">Nenhum serviço cadastrado ainda</div>';
     return;
   }
-  const canPrice = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+  const canPrice = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
   list.innerHTML = pendingServicos.map((s,i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
       <div style="flex:1">
@@ -658,7 +658,7 @@ function handleServicoFile(e) {
 
 function openNewContract() {
   const u = getCurrentUser();
-  if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode criar contratos'); return; }
+  if (!u || !['admin','admin_cliente','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode criar contratos'); return; }
   editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs','resp-tec','crea']
@@ -674,7 +674,7 @@ function openNewContract() {
 
 async function openEdit(id) {
   const u = getCurrentUser();
-  if (!u || !['admin','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode editar contratos'); return; }
+  if (!u || !['admin','admin_cliente','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode editar contratos'); return; }
   let c;
   try { c = await ensureContratoDetalhe(id); }
   catch (e) { showToast('Não foi possível carregar o contrato: ' + e.message); return; }
@@ -985,7 +985,7 @@ function showScreen(s) {
     target.classList.add('active');
     target.style.display = '';  // remove inline display:none dos elementos iniciais
   }
-  const canCreateContract = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
+  const canCreateContract = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
   document.getElementById('fab')?.classList.toggle('hidden', s !== 'list' || !canCreateContract);
 }
 
