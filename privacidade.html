@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+  <!-- ══ V17: Content Security Policy ══════════════════════════════
+       O GitHub Pages é estático e não define cabeçalhos HTTP, então o CSP
+       precisa vir por <meta>. Limitações honestas desta política:
+
+       • 'unsafe-inline' em script-src é INEVITÁVEL hoje: todo o JavaScript
+         do sistema está em blocos de script inline. Com ele, o CSP NAO
+         bloqueia o XSS de V03/V11 — a correção daquilo é a sanitização no
+         servidor + o escape no cliente, já aplicados.
+       • O que este CSP DE FATO entrega: connect-src restringe para onde os
+         dados podem ser enviados, o que impede a exfiltração do token para
+         um domínio do atacante mesmo que um XSS ocorra; frame-ancestors
+         bloqueia clickjacking; base-uri e form-action fecham desvios.
+
+       Remover 'unsafe-inline' exige extrair ~10.000 linhas de script
+       inline para arquivos externos — projeto de médio prazo. -->
+  <meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' 'unsafe-inline';
+    style-src 'self' 'unsafe-inline';
+    img-src 'self' data:;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com;
+    font-src 'self' data:;
+    frame-ancestors 'none';
+    base-uri 'none';
+    form-action 'none';
+    object-src 'none';
+    upgrade-insecure-requests">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="theme-color" content="#1e1b4b">
+<title>Política de Privacidade — SGM</title>
+<style>
+:root{
+  --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
+  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
+  --radius:14px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 24px rgba(0,0,0,.10);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--text);}
+
+.hero{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;
+  background:linear-gradient(135deg,#1e1b4b 0%,#4c1d95 50%,#7c3aed 100%);padding:40px 24px 48px;}
+.hero-logo{font-size:40px;margin-bottom:10px;}
+.hero-title{font-size:1.5rem;font-weight:800;color:#fff;margin-bottom:6px;}
+.hero-subtitle{font-size:0.88rem;color:rgba(255,255,255,.75);max-width:480px;line-height:1.6;}
+
+.content{max-width:720px;margin:-26px auto 0;padding:0 16px 48px;position:relative;}
+.card{background:var(--surface);border-radius:var(--radius);padding:22px 20px;box-shadow:var(--shadow-md);margin-bottom:14px;}
+.card h2{font-size:1rem;font-weight:700;margin:0 0 10px;color:var(--text);display:flex;align-items:center;gap:8px;}
+.card p{font-size:0.88rem;color:var(--text-2);line-height:1.65;margin:0 0 10px;}
+.card p:last-child{margin-bottom:0;}
+.card ul{margin:0 0 10px;padding-left:20px;font-size:0.88rem;color:var(--text-2);line-height:1.6;}
+.card ul:last-child{margin-bottom:0;}
+.card li{margin-bottom:4px;}
+.card table{width:100%;border-collapse:collapse;font-size:0.84rem;margin-top:4px;}
+.card th,.card td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text-2);}
+.card th{color:var(--text);font-size:0.78rem;text-transform:uppercase;letter-spacing:.02em;}
+
+.contact-box{background:var(--primary-light);border-radius:10px;padding:14px;margin-top:4px;font-size:0.88rem;}
+.contact-box .row{display:flex;gap:8px;margin-bottom:4px;}
+.contact-box .row:last-child{margin-bottom:0;}
+.contact-box b{color:var(--primary-dark);min-width:70px;flex-shrink:0;}
+.contact-box.empty{color:var(--text-3);font-style:italic;}
+
+.back-wrap{max-width:720px;margin:0 auto;padding:0 16px 40px;text-align:center;}
+.back-btn{display:inline-block;padding:12px 28px;border-radius:10px;background:var(--primary);color:#fff;
+  font-weight:700;font-size:0.9rem;text-decoration:none;border:none;cursor:pointer;}
+.back-btn:active{transform:scale(.97);}
+
+.footnote{text-align:center;font-size:0.72rem;color:var(--text-3);padding:0 24px 24px;}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-logo">🔒</div>
+  <div class="hero-title">Política de Privacidade</div>
+  <div class="hero-subtitle">Como o SGM trata os dados pessoais de quem usa o sistema e de quem assina o recebimento de um serviço.</div>
+</div>
+
+<div class="content">
+
+  <div class="card">
+    <h2>📋 Quem trata os seus dados</h2>
+    <p>O SGM é usado por empresas de manutenção predial para organizar chamados, registros de serviço e o recebimento assinado por quem contratou o serviço. A empresa que prestou o serviço indicado no documento ou na tela que trouxe você até aqui é quem decide o que fazer com os seus dados (é a <strong>controladora</strong> deles, no sentido da Lei Geral de Proteção de Dados). A operadora da plataforma SGM trata esses dados em nome dela, como prestadora de tecnologia.</p>
+    <p>Se você está assinando o recebimento de um serviço, o nome da empresa contratante aparece na própria tela de assinatura, acima do resumo do que foi executado — é a ela que esta política se refere na prática.</p>
+  </div>
+
+  <div class="card">
+    <h2>🗂️ Quais dados coletamos</h2>
+    <div style="overflow-x:auto">
+    <table>
+      <tr><th>Dado</th><th>De quem</th><th>Para quê</th></tr>
+      <tr><td>Nome, e-mail, foto do perfil Google</td><td>Quem usa o sistema (técnicos, gestores, administradores)</td><td>Login e identificação de quem registrou cada ação</td></tr>
+      <tr><td>Nome, CPF, celular, cargo</td><td>Quem recebe e assina o serviço (sem conta no sistema)</td><td>Comprovar quem recebeu o serviço, em nome de qual estabelecimento</td></tr>
+      <tr><td>Localização aproximada (GPS do dispositivo)</td><td>Técnico em campo e, ao assinar, quem recebeu o serviço</td><td>Confirmar onde o serviço foi executado/recebido</td></tr>
+      <tr><td>Fotos do serviço</td><td>Técnico em campo</td><td>Evidência do que foi feito</td></tr>
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🌍 Com quem compartilhamos</h2>
+    <ul>
+      <li><strong>Google</strong> — login de quem usa o sistema (não se aplica a quem só assina um recebimento).</li>
+      <li><strong>OpenStreetMap (Nominatim)</strong> — transforma coordenadas de GPS em um endereço legível, quando aplicável.</li>
+      <li><strong>Provedor de hospedagem</strong> — armazena o banco de dados e os arquivos do sistema.</li>
+    </ul>
+    <p>Nenhum desses dados é vendido ou usado para publicidade.</p>
+  </div>
+
+  <div class="card">
+    <h2>🗄️ Por quanto tempo guardamos</h2>
+    <p>Registros de acesso ao sistema (quem fez o quê, quando) são mantidos por até 365 dias e descartados automaticamente depois disso. Comprovantes de serviço executado e de recebimento assinado são mantidos pelo prazo necessário para eventual comprovação, conforme definido pela empresa contratante.</p>
+  </div>
+
+  <div class="card">
+    <h2>✅ Seus direitos</h2>
+    <p>Você pode pedir, a qualquer momento, confirmação de que temos dados seus, acesso a eles, correção de informação incorreta, ou eliminação, nos casos em que a lei permite. Para isso, entre em contato pelos canais abaixo.</p>
+    <div id="contato-box" class="contact-box empty">Carregando contato…</div>
+  </div>
+
+  <div class="card">
+    <h2>🔐 Segurança</h2>
+    <p>O acesso ao sistema é protegido por autenticação e por permissões que variam por perfil — uma pessoa só vê os dados dos contratos aos quais tem acesso. As conexões com o servidor são criptografadas (HTTPS). CPF é ocultado parcialmente para quem não precisa vê-lo por completo no trabalho do dia a dia.</p>
+  </div>
+
+</div>
+
+<div class="back-wrap">
+  <button class="back-btn" onclick="history.length>1?history.back():window.location.href='index.html'">← Voltar</button>
+</div>
+
+<div class="footnote">Última atualização desta política: outubro de 2026.</div>
+
+<script>
+(function(){
+  'use strict';
+  var API = (window.SMM_API || 'https://smm-backend-a8a4.onrender.com');
+  fetch(API + '/api/auth/config/public').then(function(r){ return r.json(); }).then(function(j){
+    var box = document.getElementById('contato-box');
+    var c = j && j.data && j.data.contact;
+    if (!c || (!c.email && !c.whatsapp)) { box.textContent = 'Fale com a empresa que prestou o serviço, pelos canais que ela já usa com você.'; return; }
+    box.className = 'contact-box';
+    var linhas = [];
+    if (c.nome) linhas.push('<div class="row"><b>Responsável</b><span>' + esc(c.nome) + '</span></div>');
+    if (c.email) linhas.push('<div class="row"><b>E-mail</b><span>' + esc(c.email) + '</span></div>');
+    if (c.whatsapp) linhas.push('<div class="row"><b>WhatsApp</b><span>' + esc(c.whatsapp) + '</span></div>');
+    box.innerHTML = linhas.join('');
+  }).catch(function(){
+    document.getElementById('contato-box').textContent = 'Fale com a empresa que prestou o serviço, pelos canais que ela já usa com você.';
+  });
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+})();
+</script>
+
+</body>
+</html>

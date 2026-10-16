@@ -145,9 +145,12 @@
 // depende de você abrir a tela; o sistema se encarrega de lembrar.
 
 // ── Guarda ────────────────────────────────────────────────────────
-// Só o administrador. O backup reúne dados que nenhum outro papel enxerga
-// junto — preços de contrato, e-mails, trilha de auditoria.
-const PODE_BACKUP = ['superadmin', 'admin'];
+// Só o administrador MASTER. O backup reúne dados de TODOS os tenants
+// (preços de contrato, e-mails, CPF, trilha de auditoria) — admin_cliente
+// nunca entra aqui, mesmo tendo acesso ao painel de Administração do
+// próprio escopo (ver auditoria LGPD: achado B-01 removeu 'superadmin',
+// papel que nunca existiu na hierarquia real — authz.js HIERARQUIA).
+const PODE_BACKUP = ['admin'];
 const user = getCurrentUser();
 let _autorizado = false;
 

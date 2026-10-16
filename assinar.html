@@ -118,11 +118,17 @@
       + '<label class="consent"><input type="checkbox" id="aceite" onchange="__setAceite(this.checked)">'
       +   '<span style="font-size:13px;line-height:1.5">Eu, <strong>'+esc(data.responsavelNome||'responsável')+'</strong>, declaro que <strong>recebi</strong> e <strong>atesto a execução</strong> dos serviços descritos neste resumo.</span></label>'
       + '<button class="btn btn-primary" id="btn" disabled onclick="__assinar()">Confirmar recebimento e assinar</button>'
-      + '<div class="priv">Ao assinar, registramos data, hora e localização aproximada para comprovação. Os dados são usados apenas para o comprovante de recebimento do serviço.</div>';
-    pedirGeo();
+      + '<div class="priv">Ao marcar a confirmação acima, registramos data, hora e localização aproximada para comprovação. Os dados são usados apenas para o comprovante de recebimento do serviço. <a href="privacidade.html" target="_blank" style="color:inherit">Saiba mais</a>.</div>';
   }
 
-  window.__setAceite = function(v){ var b=document.getElementById('btn'); if(b) b.disabled=!v; };
+  // Correção LGPD (M-02): a localização só é pedida DEPOIS do aceite — antes,
+  // o navegador.geolocation era chamado assim que a página desenhava o
+  // resumo, antes de qualquer interação, enquanto o aviso acima dizia
+  // "ao assinar". Agora o código corresponde ao texto.
+  window.__setAceite = function(v){
+    var b=document.getElementById('btn'); if(b) b.disabled=!v;
+    if(v && !geo) pedirGeo();
+  };
 
   window.__assinar = function(){
     var btn = document.getElementById('btn');
