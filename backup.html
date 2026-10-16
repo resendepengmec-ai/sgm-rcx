@@ -59,6 +59,7 @@
 <div class="container" id="app" style="padding-bottom:80px">
 
   <div id="bk-lembrete"></div>
+  <div id="bk-escopo"></div>
 
   <div class="bk-card">
     <div class="bk-tit">O que este backup é — e o que não é</div>
@@ -145,12 +146,15 @@
 // depende de você abrir a tela; o sistema se encarrega de lembrar.
 
 // ── Guarda ────────────────────────────────────────────────────────
-// Só o administrador MASTER. O backup reúne dados de TODOS os tenants
-// (preços de contrato, e-mails, CPF, trilha de auditoria) — admin_cliente
-// nunca entra aqui, mesmo tendo acesso ao painel de Administração do
-// próprio escopo (ver auditoria LGPD: achado B-01 removeu 'superadmin',
-// papel que nunca existiu na hierarquia real — authz.js HIERARQUIA).
-const PODE_BACKUP = ['admin'];
+// Admin master E admin_cliente (SaaS) — "admin cliente não pode perder
+// dados" (pedido do usuário): cada Admin Cliente precisa conseguir baixar
+// a PRÓPRIA cópia, pra auditoria de serviços feitos ou restauração, sem
+// depender do master. Nenhuma rota nova: toda coleção abaixo já passa
+// pelo mesmo filtro de contrato usado no resto do sistema
+// (contratosPermitidos/filtrarPorContrato) — um admin_cliente aqui só
+// recebe o que já é seu; o conteúdo vem automaticamente escopado pelo
+// backend, não por filtro desta tela.
+const PODE_BACKUP = ['admin', 'admin_cliente'];
 const user = getCurrentUser();
 let _autorizado = false;
 
@@ -188,7 +192,7 @@ const COLECOES = [
   { chave: 'ordensServico',  rotulo: 'Ordens de serviço',        carregar: () => DB.getOrdens() },
   { chave: 'movimentacoes',  rotulo: 'Movimentações',            carregar: () => DB.getMovimentacoes() },
   { chave: 'equipamentos',   rotulo: 'Banco de equipamentos',    carregar: () => DB.getMachineDB ? DB.getMachineDB() : null, obrigatoria: false },
-  { chave: 'responsaveis',   rotulo: 'Responsáveis por assinatura', carregar: () => DB.getResponsaveis(), obrigatoria: false },
+  { chave: 'responsaveis',   rotulo: 'Tomadores de serviço (assinatura)', carregar: () => DB.getResponsaveis(), obrigatoria: false },
   { chave: 'usuarios',       rotulo: 'Usuários',                 carregar: () => DB.getUsers ? DB.getUsers() : null, obrigatoria: false },
   { chave: 'preAutorizados', rotulo: 'Pré-autorizados',          carregar: () => DB.getWhitelist ? DB.getWhitelist() : null, obrigatoria: false },
   { chave: 'configuracao',   rotulo: 'Configuração da empresa',  carregar: () => DB.getPrestadoraConfig(), obrigatoria: false },
@@ -221,6 +225,25 @@ function mostrarLembrete() {
     · modo ${ultimo.modo === 'leve' ? 'leve' : 'completo'} · ${ultimo.tamanho || '—'}
     ${dias >= DIAS_ALERTA ? '<br>Já passou de uma semana — vale gerar um novo.' : ''}
   </div>`;
+}
+
+// ── Escopo ────────────────────────────────────────────────────────
+// Admin Cliente precisa entender, antes de clicar em qualquer botão,
+// que esta cópia é SÓ da própria empresa (o backend já filtra pelos
+// contratos dele em cada rota — ver PODE_BACKUP acima) — não o banco
+// inteiro do SaaS. Admin master vê o aviso equivalente (tudo, de todos
+// os clientes).
+function mostrarEscopo() {
+  const el = document.getElementById('bk-escopo');
+  if (!el) return;
+  el.innerHTML = user.role === 'admin_cliente'
+    ? `<div class="bk-aviso bk-info">
+        🏢 Esta cópia inclui <strong>apenas os contratos sob a sua gestão</strong> —
+        os mesmos que você já vê no resto do sistema. Guarde-a para auditoria
+        de serviços feitos ou para restauração futura, se um dia precisar.</div>`
+    : `<div class="bk-aviso bk-info">
+        🌐 Como administrador geral, esta cópia inclui <strong>todos os contratos
+        de todos os clientes</strong> do sistema.</div>`;
 }
 
 function renderLista(estados) {
@@ -484,7 +507,7 @@ async function baixarBackupCompleto(pacote, status, prog, restore, cancelarBtn, 
     : `✅ Backup gerado: ${tamanho}`, 7000);
 }
 
-if (_autorizado) { renderLista({}); mostrarLembrete(); }
+if (_autorizado) { renderLista({}); mostrarLembrete(); mostrarEscopo(); }
 </script>
 </body>
 </html>
