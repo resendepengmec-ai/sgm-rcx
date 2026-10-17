@@ -1295,9 +1295,10 @@ function impGerar(btn) {
 
   const restore = setActionBusy(btn || document.querySelector('#screen-importar .btn-primary'), true, 'Processando pedido…');
   quotes.unshift(q);
-  signRecord(q.id, 'criado', 'orcamentos')
-    .then(sig => { q._signatures = [sig]; return persist(q); })
-    .catch(() => persist(q))
+  // Assinatura HMAC vem do SERVIDOR (autoSign), devolvida por persist() —
+  // assinar aqui, antes do registro existir no servidor, sempre recusava
+  // (403) pra qualquer ator escopado e caía num hash:null local.
+  persist(q)
     .then(() => {
       safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
       renderQuoteList();
@@ -1640,8 +1641,9 @@ function saveQuote(btn) {
     const idx = quotes.findIndex(x => x.id === editingId);
     if (idx >= 0) quotes[idx] = q; else quotes.unshift(q);
   } else quotes.unshift(q);
-  signRecord(q.id, isNew ? 'criado' : 'editado', 'orcamentos')
-    .then(sig => { q._signatures = [...(previous?._signatures||[]), sig]; return persist(q); })
+  // Assinatura HMAC vem do SERVIDOR (autoSign), devolvida por persist() —
+  // mesmo motivo do fluxo de importação acima.
+  persist(q)
     .then(() => {
       editingId = null; newItems = [];
       switchTab('quotes');
@@ -1692,7 +1694,19 @@ function persist(record) {
   renderQuoteList();
   const last = record || quotes[0];
   if (!last) return Promise.resolve();
-  return DB.save('orcamentos', last).catch(e => {
+  return DB.save('orcamentos', last).then(resp => {
+    // O servidor assina (autoSign) e devolve o resultado em resp.record —
+    // atualiza o cache local com a assinatura REAL (antes o front assinava
+    // sozinho ANTES de o registro existir no servidor; a verificação
+    // recusava, e sobrava um hash:null local, mostrado como se fosse real).
+    if (Array.isArray(resp?.record?._signatures)) {
+      last._signatures = resp.record._signatures;
+      const idx = quotes.findIndex(x => x.id === last.id);
+      if (idx >= 0) quotes[idx] = last;
+      safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
+    }
+    return resp;
+  }).catch(e => {
     console.warn('Sync orçamento:', e.message);
     showToast('⚠️ Não foi possível gravar no servidor: ' + e.message, 8000);
     throw e;

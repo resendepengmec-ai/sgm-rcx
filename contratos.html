@@ -751,41 +751,43 @@ async function saveContract(btn) {
   if (idx>=0) contracts[idx]=c; else contracts.push(c);
   save();
 
-  // Assinatura digital — precisa terminar ANTES de enviar ao servidor,
-  // senão a assinatura só existe localmente e nunca é persistida de fato.
-  const _sedit_c = !!editId;
-  try { const sig = await signRecord(c.id, _sedit_c ? 'editado' : 'criado', 'contratos');
-    c._signatures = c._signatures||[]; c._signatures.push(sig);
-    const _idx = contracts.findIndex(x=>x.id===c.id);
-    if (_idx>=0) contracts[_idx] = c;
-    save();
-
-    // Sync backend
-    try {
-      const resp = await DB.saveContrato(c);
-      if (resp?.renamed) {
-        showToast(`✅ Contrato salvo! Número atualizado de ${resp.renamed.from} para ${resp.renamed.to} em ${resp.renamed.updated} registro(s) vinculados.`, 4500);
-      } else {
-        showToast(`✅ Contrato ${c.numero} salvo no servidor!`);
-      }
-    } catch(e) {
-      showToast(`Erro ao salvar no servidor: ${e.message}`, 4000);
-      return;
+  // Assinatura digital: o SERVIDOR assina (autoSign, igual aos demais
+  // módulos) e devolve o resultado na resposta — antes, o navegador
+  // assinava sozinho (POST /sign separado) antes de enviar, e essa chamada
+  // sempre falhava (403) pra qualquer ator ESCOPADO (diretor, admin_cliente
+  // etc.), porque a rota de verificação não reconhecia contratos. A
+  // assinatura "funcionava" só pra admin master; pra todo o resto, caía no
+  // fallback local (hash:null) sem avisar.
+  try {
+    const resp = await DB.saveContrato(c);
+    if (Array.isArray(resp?._signatures)) {
+      c._signatures = resp._signatures;
+      const _idx = contracts.findIndex(x=>x.id===c.id);
+      if (_idx>=0) contracts[_idx] = c;
+      save();
     }
-
-    // Sync machine DB com os equipamentos do contrato
-    if (c.equipamentos.length) {
-      const mdb = getEffDB() || {};
-      mdb[c.numero] = c.equipamentos;
-      safeLocalStorageSetJSON('smm_custom_db', mdb, { stripBinaries: true });
-      await DB.saveMachineDB(mdb).catch(()=>{});
+    if (resp?.renamed) {
+      showToast(`✅ Contrato salvo! Número atualizado de ${resp.renamed.from} para ${resp.renamed.to} em ${resp.renamed.updated} registro(s) vinculados.`, 4500);
+    } else {
+      showToast(`✅ Contrato ${c.numero} salvo no servidor!`);
     }
-
-    showScreen('list');
-    renderList();
+  } catch(e) {
+    showToast(`Erro ao salvar no servidor: ${e.message}`, 4000);
+    return;
   } finally {
     restore();
   }
+
+  // Sync machine DB com os equipamentos do contrato
+  if (c.equipamentos.length) {
+    const mdb = getEffDB() || {};
+    mdb[c.numero] = c.equipamentos;
+    safeLocalStorageSetJSON('smm_custom_db', mdb, { stripBinaries: true });
+    await DB.saveMachineDB(mdb).catch(()=>{});
+  }
+
+  showScreen('list');
+  renderList();
 }
 
 // ── File handlers ─────────────────────────────────────────────────
