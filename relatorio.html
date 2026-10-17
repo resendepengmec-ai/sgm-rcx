@@ -1160,6 +1160,13 @@ async function renderPreventivaPlanDetail(doc, plan, sessao) {
   if(plan.obs) doc.text(`Obs: ${esc ? esc(plan.obs) : plan.obs}`, M+CW/2, y+22);
   y += 36;
 
+  const ultSigPlano = _ultimaAssinaturaPdf(plan._signatures);
+  if (ultSigPlano) {
+    doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
+    doc.text(ultSigPlano, M, y); y += 5;
+    doc.setTextColor(0,0,0);
+  }
+
   doc.setFillColor(r,g,b);
   doc.rect(M,y,CW,8,'F');
   doc.setTextColor(255,255,255); doc.setFontSize(10); doc.setFont('helvetica','bold');
@@ -1233,6 +1240,15 @@ async function renderPreventivaPlanDetail(doc, plan, sessao) {
             header: (yy) => { header(`TAG ${eq.tag||'—'} (cont.)`); return yy; } });
     }
   }
+}
+
+// Relatório gerencial reúne vários registros de vários módulos num PDF só
+// — o trail completo de cada um (sigTrailPdfLines) poluiria o documento.
+// Aqui entra só a assinatura mais recente (ex.: quem aprovou/executou por
+// último), como um resumo condensado por registro.
+function _ultimaAssinaturaPdf(sigs) {
+  const linhas = sigTrailPdfLines(sigs);
+  return linhas.length ? linhas[linhas.length - 1] : '';
 }
 
 async function generatePDF() {
@@ -1454,6 +1470,8 @@ async function generatePDF() {
       doc.setFontSize(12);
       doc.text(`  ${(c.desc||c.descricao||c.description||'').slice(0,90)}`,PDF_M+2,y);y+=5;
       doc.setFontSize(10);
+      const ultSigCham = _ultimaAssinaturaPdf(c._signatures);
+      if (ultSigCham) { doc.setFontSize(7); doc.setTextColor(148,163,184); doc.text(`  ${ultSigCham}`,PDF_M+2,y); y+=4; doc.setTextColor(0,0,0); doc.setFontSize(10); }
       if (c.photos && c.photos.length) {
         // TODAS as fotos, em grade. Antes entrava só a primeira e as
         // demais viravam o texto "+N foto(s)".
@@ -1481,6 +1499,8 @@ async function generatePDF() {
       ensurePage(255);
       const svcs=(r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ');
       doc.text(`${r.date||'—'} | TAG: ${r.equip||r.tag||'—'} | ${svcs.slice(0,70)}`,PDF_M+2,y);y+=5;
+      const ultSigReg = _ultimaAssinaturaPdf(r._signatures);
+      if (ultSigReg) { doc.setFontSize(7); doc.setTextColor(148,163,184); doc.text(`  ${ultSigReg}`,PDF_M+2,y); y+=4; doc.setTextColor(0,0,0); doc.setFontSize(10); }
       if (r.photos && r.photos.length) {
         y = await gradeDeFotos(doc, r.photos, { y, M: PDF_M, CW: PDF_W - PDF_M*2,
               cols: 3, maxH: 60, limiteY: 272, sessao,
@@ -1556,6 +1576,8 @@ async function generatePDF() {
       ensurePage(255);
       const dataStr = m.criadoEm ? new Date(m.criadoEm).toLocaleDateString('pt-BR') : '—';
       doc.text(`${dataStr} | ${tipoLabel[m.tipo]||m.tipo||'—'} | TAG: ${m.tag||m.novaTag||'—'} | ${statusLabel[m.status]||m.status||'—'}`,PDF_M+2,y);y+=5;
+      const ultSigMov = _ultimaAssinaturaPdf(m._signatures);
+      if (ultSigMov) { doc.setFontSize(7); doc.setTextColor(148,163,184); doc.text(`  ${ultSigMov}`,PDF_M+2,y); y+=4; doc.setTextColor(0,0,0); doc.setFontSize(10); }
     });
   }
 

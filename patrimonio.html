@@ -1004,6 +1004,20 @@ async function gerarRelMovPDF() {
       doc.text(q, REL_M + 4, y); y += q.length * 4;
     });
 
+    // Trilha de assinaturas HMAC — mesma informação do card na tela
+    // (Histórico), em texto puro (sem ícone: nenhuma lib de PDF aqui tem
+    // fonte com emoji).
+    const sigLinhas = sigTrailPdfLines(m._signatures);
+    if (sigLinhas.length) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+      sigLinhas.forEach(t => {
+        const q = doc.splitTextToSize(t, CW - 4);
+        cabe(q.length * 3.2);
+        doc.text(q, REL_M + 4, y); y += q.length * 3.2;
+      });
+      doc.setTextColor(0, 0, 0); doc.setFontSize(8.5);
+    }
+
     if (comFotos && Array.isArray(m.fotos) && m.fotos.length) await desenharFotosPDF(sessao, m.fotos);
     if (sessao.cancelada) { cancelado = true; break; }
 
@@ -1191,7 +1205,7 @@ function renderList() {
           </div>` : ''}
         ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}', this)">⚙️ Executar no banco</button>` : ''}
         ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}', this)">🗑️ Excluir</button>` : ''}
-        ${_sigTrail(m._signatures)}
+        ${sigTrailHtml(m._signatures)}
       </div>`;
     }).join('');
   }
@@ -2010,17 +2024,9 @@ function showScreen(s) {
   document.getElementById('fab')?.classList.toggle('hidden', s !== 'list');
 }
 
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
+// Render da trilha de assinaturas (tela) — sigTrailHtml vem de api-client.js
+// (fonte única compartilhada por todas as telas e PDFs; antes era uma cópia
+// local com mapa de papéis incompleto).
 
 // ── Histórico do equipamento ─────────────────────────────────────
 function preencherContratosHistorico() {

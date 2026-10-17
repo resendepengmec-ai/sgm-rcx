@@ -1729,6 +1729,20 @@ async function generatePlanPDF(plan, sharedDoc, sharedSessao, stats) {
   if(plan.obs) doc.text(`Obs: ${plan.obs}`, M+CW/2, y+22);
   y += 36;
 
+  // Trilha de ações do plano (criado/editado)
+  {
+    const sigLinhasPlano = sigTrailPdfLines(plan._signatures);
+    if (sigLinhasPlano.length) {
+      doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
+      sigLinhasPlano.forEach(t => {
+        const q = doc.splitTextToSize(t, CW-4);
+        if (y+q.length*3.4>275) { doc.addPage(); y=M; header('(continuação)'); }
+        doc.text(q, M+4, y); y += q.length*3.4;
+      });
+      doc.setTextColor(0,0,0); y+=3;
+    }
+  }
+
   // Summary table of equipment
   doc.setFillColor(r,g,b);
   doc.rect(M,y,CW,8,'F');
@@ -1804,6 +1818,23 @@ async function generatePlanPDF(plan, sharedDoc, sharedSessao, stats) {
       });
       y+=4;
     });
+
+    // Trilha de quem marcou cada nível concluído/reaberto (eq._signatures)
+    // — a assinatura mais relevante deste documento: prova quem executou
+    // o checklist, não só quem tirou a foto.
+    {
+      const sigLinhasEq = sigTrailPdfLines(eq._signatures);
+      if (sigLinhasEq.length) {
+        if (y>265) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
+        doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
+        sigLinhasEq.forEach(t => {
+          const q = doc.splitTextToSize(t, CW-4);
+          if (y+q.length*3.4>275) { doc.addPage(); y=M; header(`TAG ${eq.tag} (cont.)`); }
+          doc.text(q, M+4, y); y += q.length*3.4;
+        });
+        doc.setTextColor(0,0,0); y+=2;
+      }
+    }
 
     // Fotos anexadas do equipamento
     if (eq.photos && eq.photos.length) {
@@ -2032,17 +2063,6 @@ loadTechnicians();
 loadPrestadoraConfig();
 populateContractDropdowns();
 
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
 </script>
 </body>
 </html>

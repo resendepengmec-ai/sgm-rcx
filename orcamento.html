@@ -1376,7 +1376,7 @@ function renderQuoteList() {
           ${q.equip ? ` · 🏷️ ${esc(q.equip)}` : ''}
         </div>
       </div>
-      <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${_sigTrail(q._signatures)}
+      <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${sigTrailHtml(q._signatures)}
 </div>
     </div>`;
   }).join('');
@@ -2745,6 +2745,20 @@ function printPDF(id) {
   doc.text('Impostos (~20%):', M+CW*0.55, y);
   y += 7;
 
+  // Trilha de assinaturas HMAC (criado, e aprovação/rejeição/execução via
+  // status) — mesma informação já exibida na tela, em texto puro.
+  const sigLinhasOrc = sigTrailPdfLines(q._signatures);
+  if (sigLinhasOrc.length) {
+    y += 4;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(148,163,184);
+    sigLinhasOrc.forEach(t => {
+      const lin = doc.splitTextToSize(t, CW-4);
+      if (y + lin.length*3.2 > 270) { doc.addPage(); y = drawPdfHeader(doc, {title:'ORÇAMENTO DE SERVIÇOS', metaLines:[]}); }
+      doc.text(lin, M+4, y); y += lin.length*3.2;
+    });
+    doc.setTextColor(0,0,0);
+  }
+
   drawPdfFooters(doc, cont);
 
   try { doc.save(`orcamento-${q.client.replace(/\s+/g,'-')}-${q.id.slice(-6)}.pdf`); }
@@ -2823,17 +2837,8 @@ openDetail = function(id) {
   }
 };
 
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
+// Render da trilha de assinaturas (tela) — sigTrailHtml vem de api-client.js
+// (fonte única; antes era uma cópia local com mapa de papéis incompleto).
 </script>
 </body>
 </html>

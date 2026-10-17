@@ -670,6 +670,18 @@ async function gerarPDF(d){
     doc.text(`Documento assinado digitalmente · HMAC ${String(d.assinatura.hash).slice(0,8)} [${d.assinatura.keyId||'legacy'}]${at?' · '+at:''}`, PDF_M, yO.y);
     doc.setTextColor(0,0,0); doc.setFontSize(10);
   }
+  // Trilha de ações (criado/editado) — complementa a linha acima, que é um
+  // selo de integridade do CONTEÚDO; isto aqui é o histórico de QUEM fez
+  // QUAL ação, quando.
+  const sigLinhasLaudo = sigTrailPdfLines(d._signatures);
+  if (sigLinhasLaudo.length) {
+    yO.y += 3.5; doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
+    sigLinhasLaudo.forEach(t => {
+      ensure(doc, yO, 4);
+      doc.text(t, PDF_M, yO.y); yO.y += 3.6;
+    });
+    doc.setTextColor(0,0,0); doc.setFontSize(10);
+  }
 
   pdfFooters(doc);
   const nome = `laudo-${(d.unidade||'vistoria').replace(/[^a-zA-Z0-9]+/g,'_').slice(0,30)}-${new Date().toISOString().slice(0,10)}.pdf`;

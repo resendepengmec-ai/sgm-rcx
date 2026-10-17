@@ -320,6 +320,85 @@ function esc(str) {
     .replace(/'/g, '&#39;');
 }
 
+// ── Trilha de assinaturas (_signatures) — modelo padrão pra tela e PDF ──
+// Fonte única: antes, a mesma função (_sigTrail) existia copiada e colada
+// em 6 arquivos (patrimonio/chamados/orcamento/contratos ativos; registro/
+// preventiva mortos, nunca chamados), cada um com seu próprio mapa de
+// papéis — incompleto (faltava Diretor/Supervisor/Admin Cliente, caía no
+// nome bruto do papel). Daqui pra frente, qualquer tela ou PDF que precise
+// mostrar "quem fez o quê, quando, com qual HMAC" usa isto.
+//
+// Ações conhecidas (ver auditoria do trail): a maioria é um literal fixo,
+// mas duas famílias são geradas dinamicamente — "status:<valor>" (chamados/
+// orçamentos) e "nivel_<N>_concluido|reaberto" (checklist da preventiva) —
+// tratadas por padrão de texto em vez de enumeradas uma a uma.
+const _ACAO_FIXA = {
+  criado:            { icone: '✅', rotulo: 'Criado' },
+  editado:           { icone: '✏️', rotulo: 'Editado' },
+  excluido:          { icone: '🗑️', rotulo: 'Excluído' },
+  aprovado:          { icone: '✔️', rotulo: 'Aprovado' },
+  rejeitado:         { icone: '✕', rotulo: 'Rejeitado' },
+  executado:         { icone: '⚙️', rotulo: 'Executado' },
+  concluido:         { icone: '🏁', rotulo: 'Concluído' },
+  iniciado:          { icone: '▶️', rotulo: 'Iniciado' },
+  cancelada:         { icone: '✕', rotulo: 'Cancelada' },
+  resolvido:         { icone: '🏁', rotulo: 'Resolvido' },
+  recusado:          { icone: '✕', rotulo: 'Recusado' },
+  foto:              { icone: '📷', rotulo: 'Foto assinada' },
+  cadastro_campo:    { icone: '✅', rotulo: 'Cadastrado em campo' },
+  equivalencias_salvas:  { icone: '✏️', rotulo: 'Equivalências salvas' },
+  solicitou_assinatura:  { icone: '✍️', rotulo: 'Assinatura solicitada' },
+  aprovou_assinatura:    { icone: '✔️', rotulo: 'Assinatura aprovada' },
+  rejeitou_assinatura:   { icone: '✕', rotulo: 'Assinatura recusada' },
+};
+const _ACAO_STATUS = {
+  aberto: 'Aberto', andamento: 'Em andamento', resolvido: 'Resolvido', cancelado: 'Cancelado',
+  sent: 'Enviado', approved: 'Aprovado', approved_partial: 'Aprovado parcial',
+  rejected: 'Rejeitado', executed: 'Executado', executed_partial: 'Executado parcial', pending: 'Pendente',
+};
+function _acaoInfo(action) {
+  if (_ACAO_FIXA[action]) return _ACAO_FIXA[action];
+  const st = /^status:(.+)$/.exec(action || '');
+  if (st) return { icone: '🔔', rotulo: _ACAO_STATUS[st[1]] || ('Status: ' + st[1]) };
+  const nv = /^nivel_(\d+)_(concluido|reaberto)$/.exec(action || '');
+  if (nv) return { icone: nv[2] === 'concluido' ? '🏁' : '↩️', rotulo: `Nível ${nv[1]} ${nv[2] === 'concluido' ? 'concluído' : 'reaberto'}` };
+  return { icone: '•', rotulo: action || '?' };
+}
+// Papel: usa o rótulo canônico de ROLES (Diretor/Supervisor/Admin Cliente
+// inclusos) em vez de um mapa próprio — é a mesma fonte usada no resto do
+// painel admin.
+function _sigPapel(role) { return ROLES[role]?.label || role || '?'; }
+
+// Pra tela — mesmo HTML/visual de sempre, só que escapado (nome/papel vêm
+// do usuário autenticado no momento de assinar, nunca de entrada livre de
+// terceiros, mas escapar custa nada e fecha a brecha por padrão).
+function sigTrailHtml(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const entries = sigs.map(s => {
+    const { icone } = _acaoInfo(s.action);
+    const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const hashCurto = (s.hash || '').slice(0, 6) || 'não verif.';
+    return `${icone} <strong>${esc(s.by_name || s.by || '?')}</strong> · ${esc(_sigPapel(s.role))} · ${dt} `
+      + `<code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${esc(hashCurto)}]</code>`;
+  });
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+}
+
+// Pra PDF — texto puro, sem ícone: nenhuma biblioteca de PDF deste projeto
+// embute fonte com emoji (só a Helvetica padrão), então o ícone vira um
+// rótulo entre colchetes. Mesmo conteúdo (nome, papel, data, HMAC) da
+// versão de tela — só o estilo de apresentação muda. Devolve uma linha de
+// texto por assinatura; quem chama decide como quebrar/paginar.
+function sigTrailPdfLines(sigs) {
+  if (!sigs || !sigs.length) return [];
+  return sigs.map(s => {
+    const { rotulo } = _acaoInfo(s.action);
+    const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const hash = (s.hash || '').slice(0, 8) || 'não verificado';
+    return `[${rotulo}] ${s.by_name || s.by || '?'} · ${_sigPapel(s.role)} · ${dt} · HMAC ${hash}`;
+  });
+}
+
 // ── Estado padrão de ações assíncronas ─────────────────────────────
 // Bloqueia cliques duplicados, sinaliza aria-busy e restaura o rótulo original.
 function setActionBusy(button, busy, label = 'Enviando…') {

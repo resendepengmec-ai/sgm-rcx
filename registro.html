@@ -874,6 +874,8 @@ async function printFilteredPDF() {
       y += nh + 4;
     }
 
+    y = _pdfRecordSigs(doc, r._signatures, M, y);
+
     // Photos — Fase 3: pdf-seguro.js em vez de fotoParaDataUrlPdf+photoFit.
     if (r.photos && r.photos.length) {
       if(y>220){doc.addPage();y=M;}
@@ -1664,6 +1666,19 @@ function _pdfPhotoSigs(doc, photos, M, y){
   return y + 2;
 }
 
+// Trilha de ações do PRÓPRIO registro (criado/editado) — complementa
+// _pdfPhotoSigs acima, que é por FOTO. sigTrailPdfLines vem de
+// api-client.js (fonte única). Devolve o novo y.
+function _pdfRecordSigs(doc, sigs, M, y){
+  const linhas = sigTrailPdfLines(sigs);
+  if (!linhas.length) return y;
+  if (y > 270) { doc.addPage(); y = M; }
+  doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(148,163,184);
+  linhas.forEach(t => { doc.text(t, M, y); y += 4; });
+  doc.setTextColor(0,0,0);
+  return y + 2;
+}
+
 async function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
   const r = records.find(x=>x.id===id);
@@ -1763,6 +1778,8 @@ async function printPDF(id){
     doc.text(nl,M+4,y+12);
     y+=nh+8;
   }
+
+  y = _pdfRecordSigs(doc, r._signatures, M, y);
 
   // Photos — up to 6 on PDF. Fase 3: usa pdf-seguro.js (baixa+reduz com
   // retry e progresso) em vez de fotoParaDataUrlPdf+photoFit locais.
@@ -2447,18 +2464,6 @@ function updateOSBadge() {
   if (badge) { badge.style.display=pending>0?'':'none'; badge.textContent=pending; }
 }
 
-
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
 
 // Confirmações da fila atualizam a lista sem substituir uma edição mais recente.
 window.addEventListener('sgm:confirmed', event => {

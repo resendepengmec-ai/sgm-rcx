@@ -824,7 +824,7 @@ function renderList() {
         <span class="badge ${s.cls}">${s.label}</span>
         <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span>
         ${(c.photoCount ?? c.photos?.length ?? 0) ? `<span style="font-size:12px;color:var(--text-3)">${c.photoCount ?? c.photos.length}📷</span>` : ''}
-        ${_sigTrail(c._signatures)}
+        ${sigTrailHtml(c._signatures)}
 </div>
     </div>`;
   }).join('');
@@ -1487,6 +1487,20 @@ async function printFilteredPDF(){
     doc.setFont('helvetica','normal');doc.setFontSize(12);doc.setTextColor(30,30,30);
     doc.text(dl,M+4,y+7);y+=dh+6;
 
+    // Trilha de assinaturas HMAC — mesma informação do card na tela, em
+    // texto puro (sem ícone: nenhuma lib de PDF aqui tem fonte com emoji).
+    const sigLinhasCham = sigTrailPdfLines(c._signatures);
+    if (sigLinhasCham.length) {
+      if(y>260){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
+      doc.setFont('helvetica','normal');doc.setFontSize(7);doc.setTextColor(148,163,184);
+      sigLinhasCham.forEach(t=>{
+        const q=doc.splitTextToSize(t,CW-4);
+        if(y+q.length*3.2>280){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
+        doc.text(q,M+4,y);y+=q.length*3.2;
+      });
+      doc.setTextColor(30,30,30);y+=2;
+    }
+
     if(c.photos&&c.photos.length){
       if(y>220){doc.addPage();y=drawPdfHeader(doc, {title:'CHAMADO DE MANUTENÇÃO', metaLines:[]});}
       doc.setFontSize(10);doc.setFont('helvetica','bold');doc.setTextColor(80,80,80);
@@ -1636,17 +1650,8 @@ openDetail = function(id) {
   _hidratarChamado(id);
 };
 
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
+// Render da trilha de assinaturas (tela) — sigTrailHtml vem de api-client.js
+// (fonte única; antes era uma cópia local com mapa de papéis incompleto).
 
 // Confirmações da fila atualizam a lista sem substituir uma edição mais recente.
 window.addEventListener('sgm:confirmed', event => {

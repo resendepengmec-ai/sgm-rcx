@@ -380,7 +380,7 @@ function renderList() {
           ? `<span class="doc-chip" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" title="Baixar documento">📄 ${esc(d.name)}</span>`
           : `<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
         ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
-      ${_sigTrail(c._signatures)}
+      ${sigTrailHtml(c._signatures)}
       </div>
     </div>`;
   }).join('');
@@ -534,6 +534,19 @@ async function generateContractPDF(id) {
         y += 6;
       }
     }
+  }
+
+  // Trilha de assinaturas HMAC (criado/editado) — mesma informação já
+  // exibida na tela, em texto puro.
+  const sigLinhasContrato = sigTrailPdfLines(c._signatures);
+  if (sigLinhasContrato.length) {
+    y += 2;
+    doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(148,163,184);
+    sigLinhasContrato.forEach(t => {
+      if (y > 280) { doc.addPage(); y = 28; }
+      doc.text(t, PDF_M, y); y += 3.6;
+    });
+    doc.setTextColor(0,0,0); doc.setFontSize(10);
   }
 
   drawPdfFooters(doc, c);
@@ -1001,18 +1014,6 @@ DB.getContratos('?resumo=1').then(data => {
 }).catch(() => {
   // fallback já carregado do localStorage
 });
-
-// ── Render assinaturas no card ────────────────────────────────────
-function _sigTrail(sigs) {
-  if (!sigs || !sigs.length) return '';
-  const icons = {criado:'✅',editado:'✏️',aprovado:'✔️',rejeitado:'✕',executado:'⚙️',concluido:'🏁',gerado:'📋'};
-  const roles = {admin:'Admin',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
-  const entries = sigs.map(s => {
-    const dt = new Date(s.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    return `${icons[s.action]||'•'} <strong>${s.by_name||s.by||'?'}</strong> · ${roles[s.role]||s.role} · ${dt} <code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(s.hash||'').slice(0,6)}]</code>`;
-  });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
-}
 
 // ── Banco de dados (integrado de contratos) ───────────────────────
 
