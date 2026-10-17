@@ -27,6 +27,8 @@ function extraeFuncao(src, nome) {
 
 const rolesMatch = /const ROLES = \{[\s\S]*?\n\};/.exec(apiClient);
 if (!rolesMatch) throw new Error('ROLES não encontrado em api-client.js');
+const planosMatch = /const ROTULO_MODULO_PLANO[\s\S]*?p\.modulosTexto = p\.modulos\.map\(m => ROTULO_MODULO_PLANO\[m\]\)\.join\(', '\);/.exec(apiClient);
+if (!planosMatch) throw new Error('PLANOS não encontrado em api-client.js');
 
 const sandbox = {};
 vm.createContext(sandbox);
@@ -34,9 +36,15 @@ vm.createContext(sandbox);
 // objeto de contexto (só `var` faz isso) — exporta explicitamente.
 vm.runInContext(
   rolesMatch[0] + '\n' +
+  planosMatch[0] + '\n' +
   extraeFuncao(html, 'podeAdministrar') + '\n' +
   extraeFuncao(html, 'papeisSelecionaveis') + '\n' +
-  'this.ROLES = ROLES; this.podeAdministrar = podeAdministrar; this.papeisSelecionaveis = papeisSelecionaveis;',
+  extraeFuncao(apiClient, 'modulosEfetivos') + '\n' +
+  extraeFuncao(html, '_avisarDowngradePlano') + '\n' +
+  'function esc(s){return String(s??"");}\n' +
+  'this.ROLES = ROLES; this.PLANOS = PLANOS; this.ROTULO_MODULO_PLANO = ROTULO_MODULO_PLANO; ' +
+  'this.podeAdministrar = podeAdministrar; this.papeisSelecionaveis = papeisSelecionaveis; ' +
+  'this.modulosEfetivos = modulosEfetivos; this.esc = esc; this._avisarDowngradePlano = _avisarDowngradePlano;',
   sandbox, { filename: 'index.html-admin-helpers.js' }
 );
 
@@ -180,6 +188,57 @@ console.log('── setAdminTab: casa pelo data-tab, não pelo texto do rótulo 
   tabSandbox.setAdminTab('minhaempresa');
   const selecionados2 = botoes.filter(b => b._selecionado).map(b => b.dataset.tab);
   assert('trocar de aba desmarca a anterior e marca só a nova', selecionados2.length === 1 && selecionados2[0] === 'minhaempresa');
+}
+
+console.log('── modulosEfetivos: papel ∩ plano do tenant (menu principal e guardaDeModulo) ──');
+{
+  assert('sem modulosDoPlano (irrestrito/admin master): só o papel decide',
+    JSON.stringify(sandbox.modulosEfetivos({ role: 'diretor', modulosDoPlano: null }).sort())
+    === JSON.stringify(sandbox.ROLES.diretor.modules.slice().sort()));
+  const basicaMais = ['contratos','chamados','registro','preventiva','patrimonio','relatorios','admin'];
+  const efetivo = sandbox.modulosEfetivos({ role: 'admin_cliente', modulosDoPlano: basicaMais });
+  assert('plano básica remove laudo/orçamento/dashboard/qai de quem o papel permitiria', !efetivo.includes('laudo') && !efetivo.includes('orcamento') && !efetivo.includes('dashboard') && !efetivo.includes('qai'));
+  assert('plano básica mantém os módulos da própria básica que o papel já tinha', efetivo.includes('contratos') && efetivo.includes('chamados') && efetivo.includes('admin'));
+  assert('plano nunca AMPLIA: técnico não ganha laudo só porque o plano é premium', !sandbox.modulosEfetivos({ role: 'tecnico', modulosDoPlano: ['contratos','chamados','registro','preventiva','patrimonio','relatorios','laudo','orcamento','dashboard','qai','admin'] }).includes('laudo'));
+  assert('sem user (deslogado) devolve lista vazia, nunca quebra', sandbox.modulosEfetivos(null).length === 0);
+}
+
+console.log('── _avisarDowngradePlano: alerta na tela de editar, antes de salvar um downgrade ──');
+{
+  function fakeSelect(planoAtual, novoValor) {
+    const alerta = { innerHTML: '' };
+    const field = { querySelector: sel => sel === '#edit-ac-plano-alerta' ? alerta : null };
+    return { dataset: { planoAtual }, value: novoValor, closest: sel => sel === '.field' ? field : null, _alerta: alerta };
+  }
+
+  const semMudanca = fakeSelect('avancada', 'avancada');
+  sandbox._avisarDowngradePlano(semMudanca);
+  assert('sem mudança de plano: nenhum alerta', semMudanca._alerta.innerHTML === '');
+
+  const upgrade = fakeSelect('basica', 'premium');
+  sandbox._avisarDowngradePlano(upgrade);
+  assert('upgrade (básica → premium): nenhum alerta — nunca perde módulo', upgrade._alerta.innerHTML === '');
+
+  const downgrade = fakeSelect('premium', 'basica');
+  sandbox._avisarDowngradePlano(downgrade);
+  assert('downgrade (premium → básica): mostra alerta', downgrade._alerta.innerHTML.includes('congelar'));
+  assert('alerta lista exatamente os módulos perdidos (Laudo, Orçamento, Dashboard, QAI)',
+    ['Laudo','Orçamento','Dashboard','QAI'].every(m => downgrade._alerta.innerHTML.includes(m)));
+  assert('alerta NÃO lista módulos que continuam (básica não some do próprio texto por engano)',
+    !/>\s*Contratos\s*,/.test(downgrade._alerta.innerHTML) || downgrade._alerta.innerHTML.indexOf('Contratos') === -1);
+  assert('alerta deixa claro que nenhum dado é apagado', downgrade._alerta.innerHTML.includes('não é apagado') || downgrade._alerta.innerHTML.toLowerCase().includes('apagad'));
+
+  const downgradeParcial = fakeSelect('avancada', 'basica');
+  sandbox._avisarDowngradePlano(downgradeParcial);
+  assert('downgrade parcial (avançada → básica): só Laudo e Orçamento, sem Dashboard/QAI (nunca chegaram a valer)',
+    downgradeParcial._alerta.innerHTML.includes('Laudo') && downgradeParcial._alerta.innerHTML.includes('Orçamento')
+    && !downgradeParcial._alerta.innerHTML.includes('Dashboard') && !downgradeParcial._alerta.innerHTML.includes('QAI'));
+
+  // Nome malicioso não existe aqui (módulos são sempre literais fixos do
+  // próprio sistema), mas confirma que esc() é chamado — defende qualquer
+  // mudança futura no rótulo sem reabrir a brecha de HTML cru.
+  const avisoUsaEsc = sandbox._avisarDowngradePlano.toString().includes('esc(nomes)');
+  assert('o alerta escapa o texto antes de inserir no innerHTML', avisoUsaEsc);
 }
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);

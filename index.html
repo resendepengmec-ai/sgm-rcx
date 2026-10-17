@@ -484,6 +484,10 @@ function configClientId() { openAdminLogin(); }
 // ── Dashboard ──
 function renderDashboard(user) {
   const role = ROLES[user.role] || {};
+  // Módulos visíveis: papel ∩ plano do tenant (ver modulosEfetivos em
+  // api-client.js) — o plano nunca AMPLIA o que o papel já permite, só
+  // pode restringir ainda mais.
+  const modulosVisiveis = modulosEfetivos(user);
   const users = getUsers();
   const wl = getWhitelist();
   const chamados  = safeLocalStorageGetJSON('chamados_list', []);
@@ -516,7 +520,7 @@ function renderDashboard(user) {
     {id:'dashboard', icon:'📈',name:'Dashboard',   desc:'Visão geral da operação em tempo real', count:'Tempo real',                                 file:'dashboard.html'},
     {id:'qai',      icon:'🌬️',name:'QAI',         desc:'Qualidade do ar interior monitorada por sensores', count:'Sensores',                        file:'qai.html'},
     {id:'admin',    icon:'👑',name:'Administração',desc:'Quem acessa o quê, por perfil e contrato', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
-  ].filter(m=>role.modules?.includes(m.id));
+  ].filter(m=>modulosVisiveis.includes(m.id));
 
   const customDb = localStorage.getItem('smm_custom_db');
   const dbStatus = customDb ? '📦 Banco personalizado ativo' : '📦 Banco original embutido';
@@ -548,7 +552,7 @@ function renderDashboard(user) {
     </div>
 
     <div class="dash-body">
-      ${role.modules?.includes('admin') || role.modules?.includes('relatorios') ? `
+      ${modulosVisiveis.includes('admin') || modulosVisiveis.includes('relatorios') ? `
       <div class="stats-row">
         <div class="stat-card"><div class="stat-val">${chamados.length}</div><div class="stat-label">Chamados</div></div>
         <div class="stat-card"><div class="stat-val">${registros.length}</div><div class="stat-label">Registros</div></div>
@@ -580,7 +584,7 @@ function renderDashboard(user) {
           </div>`).join('')}
       </div>` : ''}
 
-      ${role.modules?.includes('admin') ? `
+      ${modulosVisiveis.includes('admin') ? `
       <div style="font-size:12px;color:var(--text-3);text-align:center;padding:4px 0 8px">${dbStatus}</div>` : ''}
 
       <div id="admin-panel"></div>
@@ -1173,6 +1177,25 @@ async function editUserContracts(email) {
 // Editar um usuário já cadastrado: papel, ativo/inativo e contratos — tudo
 // num modal só, com um único botão Salvar (antes cada mudança aplicava na
 // hora e se perdia de vista fácil numa lista com muitos usuários).
+// Alerta no <select> de plano (editUser): avisa, ANTES de salvar, quais
+// módulos um downgrade vai congelar — texto só, nunca a trava real (essa
+// é sempre decidida no servidor a cada request, ver authz.MODULOS_DO_PLANO).
+// Nenhum módulo listado aqui é apagado; só fica inacessível até subir o
+// plano de novo (ou editar a vigência/status) — mesma garantia de sempre.
+function _avisarDowngradePlano(select) {
+  const el = select.closest('.field').querySelector('#edit-ac-plano-alerta');
+  if (!el) return;
+  const atual = select.dataset.planoAtual;
+  const novo = select.value;
+  const perdidos = (PLANOS[atual]?.modulos || []).filter(m => !(PLANOS[novo]?.modulos || []).includes(m));
+  if (!perdidos.length) { el.innerHTML = ''; return; }
+  const nomes = perdidos.map(m => ROTULO_MODULO_PLANO[m] || m).join(', ');
+  el.innerHTML = `<div style="font-size:12px;color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:8px">
+    ⚠️ Isso vai congelar o acesso a: <strong>${esc(nomes)}</strong>, pra este Admin Cliente e pra toda a equipe.
+    Nenhum dado já registrado nesses módulos é apagado — fica só inacessível até o plano subir de novo.
+  </div>`;
+}
+
 async function editUser(userId, email) {
   let users = [];
   try { users = await DB.getUsers(); saveUsers(users); } catch(e) { users = getUsers(); }
@@ -1217,9 +1240,34 @@ async function editUser(userId, email) {
           ${acct.active?'Ativo':'Inativo'}
         </button>
         ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível desativar a própria conta</div>' : ''}
+        ${acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Desativar congela o acesso de TODA a equipe sob este Admin Cliente — nenhum dado é apagado; reativar descongela na hora.</div>' : ''}
       </div>
 
       ${acct.role === 'admin_cliente' ? `
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Vigência</label>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Início</div>
+            <div style="font-size:13px;font-weight:600;padding:8px 0">${wlEntry?.added_at ? new Date(wlEntry.added_at).toLocaleDateString('pt-BR') : '—'}</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fim</div>
+            <input type="date" id="edit-ac-expires" value="${wlEntry?.expires_at ? new Date(wlEntry.expires_at).toISOString().slice(0,10) : ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Sem data de fim = acesso sem prazo definido. Vencer a vigência congela o tenant, igual ao status inativo.</div>
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Plano de módulos</label>
+        <select id="edit-ac-plano" data-plano-atual="${wlEntry?.plano||'premium'}" onchange="_avisarDowngradePlano(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          ${Object.entries(PLANOS).map(([k,v]) => `<option value="${k}" ${(wlEntry?.plano||'premium')===k?'selected':''}>${v.label} — ${v.modulosTexto}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Vale pra este Admin Cliente E pra toda a equipe cadastrada sob ele — nunca amplia o que o papel de cada um já permite, só pode restringir.</div>
+        <div id="edit-ac-plano-alerta"></div>
+      </div>
+
       <div class="field" style="margin-bottom:16px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos</label>
         <div style="font-size:12px;color:#64748b;padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">
@@ -1285,7 +1333,23 @@ async function editUser(userId, email) {
       // reescrito por aqui — só os demais papéis passam pela whitelist.
       // selected vazio preserva o que já era (null = irrestrito legado,
       // nunca reescrito como "" por omissão).
-      if (newRole !== 'admin_cliente') tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
+      if (newRole !== 'admin_cliente') {
+        tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
+      } else {
+        // Vigência/plano: manda sempre o limite/franquia ATUAIS (o
+        // servidor exige os dois como inteiros válidos nesta rota, mesmo
+        // quando só a vigência/plano mudou) — editar franquia continua
+        // sendo feito à parte, em "editar franquia" na aba Pré-autorizar.
+        const novoPlano = modal.querySelector('#edit-ac-plano').value;
+        const fimInput = modal.querySelector('#edit-ac-expires').value;
+        const novoExpiresAt = fimInput ? new Date(fimInput + 'T00:00:00').getTime() : undefined;
+        tasks.push(DB.addWhitelist(acct.email, 'admin_cliente', acct.name||'', null, {
+          limiteContratos: wlEntry?.limite_contratos,
+          franquiaFotosMes: wlEntry?.franquia_fotos_mes,
+          plano: novoPlano,
+          expiresAt: novoExpiresAt,
+        }));
+      }
       await Promise.all(tasks);
       showToast('✅ Usuário atualizado');
       modal.remove();
@@ -1899,7 +1963,8 @@ if (_user) {
   // Atualiza papel/contrato com o que está no servidor agora (o token só
   // carrega o valor do momento do login) e re-renderiza se algo mudou.
   refreshCurrentUser().then(fresh => {
-    if (fresh && (fresh.role !== _user.role || fresh.contract !== _user.contract)) {
+    if (fresh && (fresh.role !== _user.role || fresh.contract !== _user.contract
+        || JSON.stringify(fresh.modulosDoPlano) !== JSON.stringify(_user.modulosDoPlano))) {
       renderDashboard(fresh);
     }
   });

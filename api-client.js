@@ -501,6 +501,40 @@ const ROLES = {
                  canApprove:false, canManageUsers:false },
 };
 
+// Plano de módulos do tenant (SaaS — admin_cliente). A lista de módulos
+// por plano é decidida e devolvida pelo SERVIDOR (ver GET /auth/me →
+// modulosDoPlano, e MODULOS_DO_PLANO em authz.js no backend) — aqui é só
+// uma CÓPIA pra UI (seletor + alerta de downgrade), nunca a fonte da
+// restrição real. Se um módulo for adicionado a um plano no backend sem
+// espelhar aqui, o pior caso é o alerta de downgrade ficar incompleto —
+// a rota continua bloqueada do mesmo jeito, porque isso é decidido no
+// servidor a cada request.
+const ROTULO_MODULO_PLANO = {
+  contratos: 'Contratos', chamados: 'Chamados', registro: 'Registro', preventiva: 'Preventiva',
+  patrimonio: 'Patrimônio', relatorios: 'Relatórios', laudo: 'Laudo', orcamento: 'Orçamento',
+  dashboard: 'Dashboard', qai: 'QAI',
+};
+const MODULOS_BASICA_UI   = ['contratos', 'chamados', 'registro', 'preventiva', 'patrimonio', 'relatorios'];
+const MODULOS_AVANCADA_UI = [...MODULOS_BASICA_UI, 'laudo', 'orcamento'];
+const MODULOS_PREMIUM_UI  = [...MODULOS_AVANCADA_UI, 'dashboard', 'qai'];
+const PLANOS = {
+  basica:   { label: 'Básica',   modulos: MODULOS_BASICA_UI },
+  avancada: { label: 'Avançada', modulos: MODULOS_AVANCADA_UI },
+  premium:  { label: 'Premium',  modulos: MODULOS_PREMIUM_UI },
+};
+for (const p of Object.values(PLANOS)) p.modulosTexto = p.modulos.map(m => ROTULO_MODULO_PLANO[m]).join(', ');
+
+// Módulos que o papel permite, intersectados com o que o PLANO do tenant
+// libera (devolvido por GET /auth/me, já atualizado em user.modulosDoPlano
+// por refreshCurrentUser/guardaDeModulo) — `null` em modulosDoPlano
+// significa irrestrito (admin master, ou staff sob contrato sem dono
+// admin_cliente), e aí só o papel decide, como sempre foi.
+function modulosEfetivos(user) {
+  const doPapel = ROLES[user?.role]?.modules || [];
+  if (!user || user.modulosDoPlano == null) return doPapel;
+  return doPapel.filter(m => user.modulosDoPlano.includes(m));
+}
+
 // ── HTTP client ───────────────────────────────────────────────────
 async function _call(method, path, body, options = {}) {
   const token   = sessionStorage.getItem(SESSION_KEY);
@@ -715,7 +749,7 @@ async function guardaDeModulo(modulo, destino = 'index.html') {
   } catch (e) {
     if ([401,403].includes(e.status)) { window.location.href = destino; return null; }
   }
-  if (!u || !(ROLES[u.role]?.modules || []).includes(modulo)) {
+  if (!u || !modulosEfetivos(u).includes(modulo)) {
     window.location.href = destino; return null;
   }
   return u;
@@ -727,7 +761,8 @@ async function refreshCurrentUser() {
   try {
     const fresh = await API.get('/auth/me');
     if (fresh && _currentUser) {
-      _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active };
+      _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active,
+        modulosDoPlano: fresh.modulosDoPlano };
     }
     return _currentUser;
   } catch(e) {
