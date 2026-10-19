@@ -678,6 +678,28 @@ function _cpfValido(v){
 }
 function _fmtCel(c){ c=String(c||'').replace(/\D/g,''); if(c.length===11)return `(${c.slice(0,2)}) ${c.slice(2,7)}-${c.slice(7)}`; if(c.length===10)return `(${c.slice(0,2)}) ${c.slice(2,6)}-${c.slice(6)}`; return c; }
 
+// Máscara ao digitar: trava em 11 dígitos (CPF) — o excedente é descartado,
+// não só rejeitado depois no Salvar. Quem digita vê na hora os 3 grupos de
+// 3 + o dígito verificador se formando, então um dígito faltando ou sobrando
+// fica visível antes de tentar salvar, em vez de só um toast genérico depois.
+function _maskCpfInput(el){
+  const v = el.value.replace(/\D/g,'').slice(0,11);
+  el.value = v.length>9  ? v.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/,'$1.$2.$3-$4')
+           : v.length>6  ? v.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3')
+           : v.length>3  ? v.replace(/(\d{3})(\d{1,3})/,'$1.$2')
+           : v;
+}
+// Mesma lógica para celular: trava em 11 dígitos (DDD + 9 no celular; DDD + 8
+// na linha fixa, que cabe nos mesmos 11 porque o grupo final aceita 1-4).
+function _maskCelInput(el){
+  const v = el.value.replace(/\D/g,'').slice(0,11);
+  el.value = v.length>10 ? v.replace(/(\d{2})(\d{5})(\d{4})/,'($1) $2-$3')
+           : v.length>6  ? v.replace(/(\d{2})(\d{4})(\d{0,4})/,'($1) $2-$3')
+           : v.length>2  ? v.replace(/(\d{2})(\d{0,4})/,'($1) $2')
+           : v.length>0  ? v.replace(/(\d{0,2})/,'($1')
+           : v;
+}
+
 async function renderResponsaveisTab(el) {
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
   try { _responsaveis = await DB.getResponsaveis(); } catch(e){ _responsaveis = []; }
@@ -748,9 +770,9 @@ function openRespModal(){
     <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} tomador de serviço</div>
     <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
     <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
-    <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" value="${esc(r.cpf||'')}" placeholder="Só números" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" maxlength="14" value="${esc(_fmtCpf(r.cpf||''))}" placeholder="000.000.000-00" oninput="_maskCpfInput(this)"></div>
     <div class="field"><label>Cargo *</label><input id="rf-cargo" value="${esc(r.cargo||'')}"></div>
-    <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" value="${esc(r.celular||'')}" placeholder="DDD + número" oninput="this.value=this.value.replace(/[^0-9]/g,'')"></div>
+    <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" maxlength="16" value="${esc(_fmtCel(r.celular||''))}" placeholder="(00) 00000-0000" oninput="_maskCelInput(this)"></div>
     <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:13px;cursor:pointer"><input id="rf-ativo" type="checkbox" ${r.ativo===false?'':'checked'} style="width:18px;height:18px"> Ativo</label>
     <div style="display:flex;gap:8px">
       <button onclick="closeRespModal()" style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;cursor:pointer">Cancelar</button>
