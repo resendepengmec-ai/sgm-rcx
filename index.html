@@ -667,6 +667,15 @@ function renderAdminTab() {
 let _responsaveis = [];
 let _editingResp = null;
 function _fmtCpf(c){ c=String(c||'').replace(/\D/g,''); return c.length===11?`${c.slice(0,3)}.${c.slice(3,6)}.${c.slice(6,9)}-${c.slice(9)}`:c; }
+// Confere os 2 dígitos verificadores (módulo 11), não só o comprimento —
+// pega o erro de digitação mais comum em campo antes de virar prova de
+// assinatura vinculada a um CPF que não existe.
+function _cpfValido(v){
+  const cpf=String(v||'').replace(/\D/g,'');
+  if(cpf.length!==11 || /^(\d)\1{10}$/.test(cpf)) return false;
+  const digito=base=>{ let soma=0; for(let i=0;i<base.length;i++) soma+=parseInt(base[i],10)*(base.length+1-i); const resto=soma%11; return resto<2?0:11-resto; };
+  return digito(cpf.slice(0,9))===parseInt(cpf[9],10) && digito(cpf.slice(0,10))===parseInt(cpf[10],10);
+}
 function _fmtCel(c){ c=String(c||'').replace(/\D/g,''); if(c.length===11)return `(${c.slice(0,2)}) ${c.slice(2,7)}-${c.slice(7)}`; if(c.length===10)return `(${c.slice(0,2)}) ${c.slice(2,6)}-${c.slice(6)}`; return c; }
 
 async function renderResponsaveisTab(el) {
@@ -762,7 +771,7 @@ async function saveRespForm(btn){
     createdAt: base.createdAt,
   };
   if(!payload.nome || !payload.cargo){ showToast('Preencha nome e cargo'); return; }
-  if(payload.cpf.length!==11){ showToast('CPF deve ter 11 dígitos'); return; }
+  if(!_cpfValido(payload.cpf)){ showToast('CPF inválido'); return; }
   if(payload.celular.length<10 || payload.celular.length>11){ showToast('Celular inválido (DDD + número)'); return; }
   const restore = setActionBusy(btn, true, 'Salvando tomador de serviço…');
   try{
