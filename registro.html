@@ -2081,11 +2081,12 @@ function _renderValList(){
   const list=window._valList||[]; const card=document.getElementById('val-card'); if(!card) return;
   const body = list.length ? list.map(a=>{
     const s=a.snapshot||{}; const ordens=Array.isArray(s.ordens)?s.ordens:[];
+    const itemLabel=s.itemLabel||'O.S.';
     const quando=a.aceiteEm?new Date(a.aceiteEm).toLocaleString('pt-BR'):'—';
     return `<div style="border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px">
       <div style="font-weight:700;font-size:14px">🏢 ${esc(a.establishment)}</div>
       <div style="font-size:12px;color:var(--text-3);margin:2px 0 6px">Contrato ${esc(a.contract)} · assinado por <strong>${esc(a.responsavel&&a.responsavel.nome||'—')}</strong> em ${esc(quando)}${a.solicitadoPor?' · solicitado por '+esc(a.solicitadoPor.nome||''):''}</div>
-      <div style="font-size:12px;color:var(--text-2)">${ordens.length?ordens.map(o=>'• O.S. '+esc(o.numero)+(o.servicos&&o.servicos.length?' — '+esc(o.servicos.join(', ')):'')).join('<br>'):'—'}</div>
+      <div style="font-size:12px;color:var(--text-2)">${ordens.length?ordens.map(o=>'• '+esc(itemLabel)+' '+esc(o.numero)+(o.servicos&&o.servicos.length?' — '+esc(o.servicos.map(function(x){return typeof x==='string'?x:(x&&x.name||x);}).join(', ')):'')).join('<br>'):'—'}</div>
       <div style="display:flex;gap:8px;margin-top:10px">
         <button onclick="_valAprovar('${a.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer">✓ Aprovar (travar)</button>
         <button onclick="_valRejeitar('${a.id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;cursor:pointer">✗ Rejeitar (reabrir)</button>

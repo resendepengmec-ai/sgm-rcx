@@ -350,6 +350,7 @@ const _ACAO_FIXA = {
   solicitou_assinatura:  { icone: '✍️', rotulo: 'Assinatura solicitada' },
   aprovou_assinatura:    { icone: '✔️', rotulo: 'Assinatura aprovada' },
   rejeitou_assinatura:   { icone: '✕', rotulo: 'Assinatura recusada' },
+  aceite_cliente:        { icone: '✍️', rotulo: 'Aceite do cliente' },
 };
 const _ACAO_STATUS = {
   aberto: 'Aberto', andamento: 'Em andamento', resolvido: 'Resolvido', cancelado: 'Cancelado',

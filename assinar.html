@@ -98,14 +98,15 @@
   function render(){
     var s = data.snapshot || {};
     var ordens = Array.isArray(s.ordens) ? s.ordens : [];
+    var itemLabel = s.itemLabel || 'O.S.';
     var ordensHtml = ordens.length ? ordens.map(function(o){
       var svcs = Array.isArray(o.servicos) ? o.servicos : [];
-      return '<div class="os"><h4>O.S. '+esc(o.numero||'—')+(o.tag?' · TAG '+esc(o.tag):'')+'</h4>'
+      return '<div class="os"><h4>'+esc(itemLabel)+' '+esc(o.numero||'—')+(o.tag?' · TAG '+esc(o.tag):'')+'</h4>'
         + '<div class="meta">'+ (o.data?('Execução: '+esc(fmtData(o.data))) : '') +'</div>'
         + (svcs.length ? '<ul class="svc">'+svcs.map(function(x){return '<li>'+esc(typeof x==='string'?x:(x&&x.name||x))+'</li>';}).join('')+'</ul>' : '<div class="svc" style="color:var(--text-3)">Sem serviços listados</div>')
         + (o.observacoes ? '<div class="meta" style="margin-top:6px"><em>Obs.: '+esc(o.observacoes)+'</em></div>' : '')
         + '</div>';
-    }).join('') : '<div style="color:var(--text-3);font-size:13px">Nenhuma O.S. no resumo.</div>';
+    }).join('') : '<div style="color:var(--text-3);font-size:13px">Nenhum item no resumo.</div>';
 
     root.innerHTML =
       '<div class="card">'
