@@ -47,6 +47,7 @@ const sandbox = {
 sandbox.window = sandbox; // _itensAssinaveis lê window._ordensCache/window._plansCache
 vm.createContext(sandbox);
 vm.runInContext(
+  'let _fContract = "";\n' +
   extraeConst(html, 'LEVEL_LABEL') + '\n' +
   extraeFuncao(html, '_contratoAssinaturaOn') + '\n' +
   extraeFuncao(html, '_resolveEstab') + '\n' +

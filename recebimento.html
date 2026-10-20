@@ -40,6 +40,22 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;margin:14px;}
 .card-title{font-size:14px;font-weight:700;margin-bottom:6px;}
 .card-sub{font-size:13px;color:var(--text-2);line-height:1.5;}
+.rec-tabs{display:flex;border-bottom:1px solid var(--border);}
+.rec-tab{flex:1;padding:12px 8px;border:none;background:none;font-size:13px;font-weight:700;color:var(--text-3);cursor:pointer;border-bottom:2.5px solid transparent;margin-bottom:-1px;}
+.rec-tab.active{color:var(--primary);border-bottom-color:var(--primary);}
+.rec-grupo-tit{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:14px 0 6px;}
+.rec-grupo-tit:first-child{margin-top:0;}
+.rec-item{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border-radius:8px;background:var(--bg);border:1px solid var(--border);margin-bottom:6px;font-size:13px;}
+.rec-item-info{min-width:0;}
+.rec-item-tit{font-weight:600;}
+.rec-item-sub{font-size:12px;color:var(--text-3);margin-top:2px;}
+.rec-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap;flex-shrink:0;}
+.rec-badge.aguardando-envio{background:#ede9fe;color:#5b21b6;}
+.rec-badge.pendente{background:var(--warning-bg,#fffbeb);color:#92400e;}
+.rec-badge.assinado{background:#e0f2fe;color:#0369a1;}
+.rec-badge.aprovado{background:var(--success-bg);color:var(--success);}
+.rec-badge.rejeitado{background:var(--danger-bg);color:var(--danger);}
+.rec-empty{text-align:center;color:var(--text-3);font-size:13px;padding:24px 0;}
 </style>
 </head>
 <body>
@@ -64,6 +80,11 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   </div>
 </div>
 
+<div class="card" id="rec-filtro">
+  <div class="card-title">Filtro</div>
+  <select id="rec-contract" onchange="aplicarFiltroContrato()"><option value="">Todos os contratos</option></select>
+</div>
+
 <div class="card" id="rec-resumo">
   <div class="card-title">Itens prontos para assinatura</div>
   <div class="card-sub" id="rec-resumo-texto">Carregando…</div>
@@ -71,6 +92,14 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     style="width:100%;padding:13px;border-radius:10px;border:none;background:var(--primary);color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-top:12px;opacity:.5">
     📱 Pegar assinatura do cliente
   </button>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <div class="rec-tabs" role="tablist">
+    <button class="rec-tab active" data-tab="pendentes" role="tab" aria-selected="true" onclick="selecionarAbaRec('pendentes')">⏳ Pendentes</button>
+    <button class="rec-tab" data-tab="executados" role="tab" aria-selected="false" onclick="selecionarAbaRec('executados')">✅ Executados</button>
+  </div>
+  <div id="rec-lista" style="padding:14px">Carregando…</div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -108,14 +137,33 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   // Carrega só o necessário pra montar os grupos de assinatura — nenhum
   // dado pesado (fotos, itens de registro) entra aqui, o módulo não
   // precisa deles.
+  //
+  // Bug corrigido aqui: esta página nunca buscava contratos frescos do
+  // servidor — só lia o que já estivesse em smm_contracts no localStorage,
+  // deixado por OUTRA página (contratos.html/registro.html/preventiva.html)
+  // numa visita anterior, possivelmente desatualizado. Resultado real em
+  // produção: o botão "Pegar assinatura" aparecia disponível pra contrato
+  // que já tinha a opção "tomar assinatura do cliente" DESLIGADA, porque
+  // _contratoAssinaturaOn lia o cache velho (com a opção ainda ligada).
+  // Agora busca direto do servidor, como registro.html/preventiva.html
+  // já fazem.
+  try {
+    const contratos = await DB.getContratos();
+    safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
+  } catch (e) {}
   try {
     window._ordensCache = await DB.getOrdens();
   } catch (e) { window._ordensCache = []; }
   try {
     window._plansCache = await DB.getAll('preventiva', '?resumo=1');
   } catch (e) { window._plansCache = []; }
+  try {
+    window._assinaturasCache = await DB.assinaturasCliente();
+  } catch (e) { window._assinaturasCache = []; }
 
+  popularFiltroContrato();
   renderResumo();
+  renderListaRec();
 })();
 
 function showToast(msg) {
@@ -149,6 +197,24 @@ const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'
 function _getLevelsFor(level){ const l=[1]; if(level>=2)l.push(2); if(level>=3)l.push(3); return l; }
 function _isEquipDone(equip, level){ return _getLevelsFor(level).every(lv => equip.checks && equip.checks[lv]===true); }
 
+// ── Filtro por contrato ────────────────────────────────────────────
+// Só lista contratos com a opção "tomar assinatura do cliente por
+// estabelecimento" ligada — os únicos relevantes pra este módulo.
+let _fContract = '';
+function popularFiltroContrato(){
+  const cs = safeLocalStorageGetJSON('smm_contracts', []).filter(c => c.assinaturaClientePorEstab);
+  const sel = document.getElementById('rec-contract');
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Todos os contratos</option>' +
+    cs.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
+  sel.value = atual;
+}
+function aplicarFiltroContrato(){
+  _fContract = document.getElementById('rec-contract').value;
+  renderResumo();
+  renderListaRec();
+}
+
 // Monta a lista de itens assináveis: O.S. concluídas (tipo 'os') +
 // equipamentos de preventiva com o nível atual concluído (tipo 'prev').
 // Nunca mistura os dois tipos num mesmo grupo — o backend não aceita
@@ -159,11 +225,13 @@ function _itensAssinaveis(){
   (window._ordensCache||[]).forEach(o=>{
     if (o.status!=='concluida') return;
     const contract = o.contrato||o.client;
+    if (_fContract && String(contract)!==String(_fContract)) return;
     if (!_contratoAssinaturaOn(contract)) return;
     const estab = _resolveEstab(o) || '(sem estabelecimento)';
     itens.push({ tipo:'os', id:o.id, numero:o.numero, tag:o.tag||o.equip||'', contract, estab });
   });
   (window._plansCache||[]).forEach(p=>{
+    if (_fContract && String(p.client)!==String(_fContract)) return;
     if (!_contratoAssinaturaOn(p.client)) return;
     (p.equipments||[]).forEach(eq=>{
       if (!_isEquipDone(eq, p.level)) return;
@@ -174,12 +242,22 @@ function _itensAssinaveis(){
   return itens;
 }
 
+// Itens já cobertos por uma solicitação ativa (pendente ou assinado) não
+// contam como "aguardando envio" — já têm um link em andamento.
+function _temSolicitacaoAtiva(item){
+  return (window._assinaturasCache||[]).some(a => {
+    if (!['pendente','assinado'].includes(a.status)) return false;
+    if (item.tipo==='os') return (a.osIds||[]).map(String).includes(String(item.id));
+    return (a.preventivaRefs||[]).some(r => String(r.planId)===String(item.planId) && String(r.tag)===String(item.tag));
+  });
+}
+
 function renderResumo(){
-  const itens = _itensAssinaveis();
+  const itens = _itensAssinaveis().filter(i => !_temSolicitacaoAtiva(i));
   const texto = document.getElementById('rec-resumo-texto');
   const btn = document.getElementById('rec-btn-assin');
   if (!itens.length) {
-    texto.textContent = 'Nenhum item concluído aguardando assinatura do cliente agora.';
+    texto.textContent = 'Nenhum item concluído aguardando envio de assinatura agora.';
     btn.disabled = true; btn.style.opacity = .5; btn.textContent = '📱 Pegar assinatura do cliente';
     return;
   }
@@ -191,6 +269,85 @@ function renderResumo(){
   texto.textContent = partes.join(' · ') + ' prontos para coletar assinatura.';
   btn.disabled = false; btn.style.opacity = 1;
   btn.textContent = `📱 Pegar assinatura do cliente (${itens.length})`;
+}
+
+// ── Abas Pendentes / Executados ────────────────────────────────────
+let _abaRec = 'pendentes';
+function selecionarAbaRec(aba){
+  _abaRec = aba;
+  document.querySelectorAll('.rec-tab').forEach(b => {
+    const ativo = b.dataset.tab === aba;
+    b.classList.toggle('active', ativo);
+    b.setAttribute('aria-selected', String(ativo));
+  });
+  renderListaRec();
+}
+
+function _itemLabel(it){
+  return it.tipo==='os' ? `O.S. ${it.numero}${it.tag?' · TAG '+it.tag:''}` : `TAG ${it.tag} · ${it.nivel}`;
+}
+
+function renderListaRec(){
+  const alvo = document.getElementById('rec-lista');
+  const assinaturas = (window._assinaturasCache||[]).filter(a => !_fContract || String(a.contract)===String(_fContract));
+
+  if (_abaRec === 'executados') {
+    const aprovadas = assinaturas.filter(a => a.status==='aprovado');
+    alvo.innerHTML = aprovadas.length ? aprovadas.map(a => `
+      <div class="rec-item">
+        <div class="rec-item-info">
+          <div class="rec-item-tit">🏢 ${esc(a.establishment)} · Contrato ${esc(a.contract)}</div>
+          <div class="rec-item-sub">Assinado por ${esc(a.responsavel?.nome||'—')}${a.aceiteEm?' em '+esc(new Date(a.aceiteEm).toLocaleDateString('pt-BR')):''} · ${(a.osIds?.length||0)+(a.preventivaRefs?.length||0)} item(ns)</div>
+        </div>
+        <span class="rec-badge aprovado">✅ Aprovado</span>
+      </div>`).join('') : '<div class="rec-empty">Nenhuma assinatura aprovada ainda.</div>';
+    return;
+  }
+
+  // Pendentes: itens ainda sem solicitação + solicitações em andamento
+  // (pendente/assinado) + rejeitadas (voltaram a ficar elegíveis).
+  const semSolicitacao = _itensAssinaveis().filter(i => !_temSolicitacaoAtiva(i));
+  const emAndamentoCliente = assinaturas.filter(a => a.status==='pendente');
+  const aguardandoSupervisor = assinaturas.filter(a => a.status==='assinado');
+  const rejeitadas = assinaturas.filter(a => a.status==='rejeitado');
+
+  const secoes = [];
+  if (semSolicitacao.length) secoes.push(['Aguardando envio', semSolicitacao.map(it => `
+    <div class="rec-item">
+      <div class="rec-item-info">
+        <div class="rec-item-tit">🏢 ${esc(it.estab)} · Contrato ${esc(it.contract)}</div>
+        <div class="rec-item-sub">${esc(_itemLabel(it))}</div>
+      </div>
+      <span class="rec-badge aguardando-envio">Aguardando envio</span>
+    </div>`).join('')]);
+  if (emAndamentoCliente.length) secoes.push(['Aguardando o cliente assinar', emAndamentoCliente.map(a => `
+    <div class="rec-item">
+      <div class="rec-item-info">
+        <div class="rec-item-tit">🏢 ${esc(a.establishment)} · Contrato ${esc(a.contract)}</div>
+        <div class="rec-item-sub">Enviado para ${esc(a.responsavel?.nome||'—')} · ${(a.osIds?.length||0)+(a.preventivaRefs?.length||0)} item(ns)</div>
+      </div>
+      <span class="rec-badge pendente">⏳ Com o cliente</span>
+    </div>`).join('')]);
+  if (aguardandoSupervisor.length) secoes.push(['Aguardando validação do supervisor', aguardandoSupervisor.map(a => `
+    <div class="rec-item">
+      <div class="rec-item-info">
+        <div class="rec-item-tit">🏢 ${esc(a.establishment)} · Contrato ${esc(a.contract)}</div>
+        <div class="rec-item-sub">Assinado por ${esc(a.responsavel?.nome||'—')}${a.aceiteEm?' em '+esc(new Date(a.aceiteEm).toLocaleDateString('pt-BR')):''}</div>
+      </div>
+      <span class="rec-badge assinado">✍️ Assinado</span>
+    </div>`).join('')]);
+  if (rejeitadas.length) secoes.push(['Rejeitadas — podem ser solicitadas de novo', rejeitadas.map(a => `
+    <div class="rec-item">
+      <div class="rec-item-info">
+        <div class="rec-item-tit">🏢 ${esc(a.establishment)} · Contrato ${esc(a.contract)}</div>
+        <div class="rec-item-sub">${esc(a.validacao?.motivo||'Sem motivo registrado')}</div>
+      </div>
+      <span class="rec-badge rejeitado">✗ Rejeitado</span>
+    </div>`).join('')]);
+
+  alvo.innerHTML = secoes.length
+    ? secoes.map(([tit,html]) => `<div class="rec-grupo-tit">${esc(tit)}</div>${html}`).join('')
+    : '<div class="rec-empty">Nada pendente agora.</div>';
 }
 
 let _respCache = null;
@@ -341,6 +498,9 @@ async function _asnGerar(){
     const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'assinar.html?t='+res.token;
     window._asnLink=link;
     if(payload.novoResponsavel){ _respCache=null; }
+    // Atualiza as abas em segundo plano: o item que acabou de ganhar uma
+    // solicitação sai de "Aguardando envio" e entra em "Com o cliente".
+    DB.assinaturasCliente().then(lista => { window._assinaturasCache=lista; renderResumo(); renderListaRec(); }).catch(()=>{});
     const card=document.getElementById('asn-card');
     if(card) card.innerHTML=`
       <div style="text-align:center;padding:6px 0 4px"><div style="font-size:40px">✅</div>

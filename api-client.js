@@ -1041,6 +1041,7 @@ const DB = {
 
   // Assinatura do cliente por estabelecimento
   solicitarAssinaturaCliente: p  => API.post('/assinatura-cliente/solicitar', p),
+  assinaturasCliente:         () => API.get('/assinatura-cliente'),
   assinaturasPendentes:       () => API.get('/assinatura-cliente/pendentes'),
   aprovarAssinatura:          id => API.post(`/assinatura-cliente/${id}/aprovar`, {}),
   rejeitarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/rejeitar`, { motivo }),
