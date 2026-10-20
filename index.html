@@ -998,10 +998,17 @@ function _renderUsersList(el, users, currentUser) {
   const empresasDisponiveis = [...new Set(Object.values(empresaPorContrato))].sort();
 
   const usersWithContracts = users.map(u => {
-    const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
+    // Multi-empresa: um admin_cliente pode ter mais de 1 linha na
+    // whitelist (1 por CNPJ — ver Pré-autorizar). O antigo `wl.find(...)`
+    // pegava só a PRIMEIRA linha que batesse com o e-mail — o rótulo de
+    // empresas (🏢) mostrava só aquela, mesmo quando a pessoa era dona de
+    // mais de uma. Aqui pega TODAS as linhas do e-mail, pra listar todas
+    // as empresas vinculadas, não só a que calhou de ser encontrada primeiro.
+    const minhasLinhas = wl.filter(w => w.email.toLowerCase() === u.email.toLowerCase());
+    const wlEntry = minhasLinhas[0];
     const conts = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
     const empresas = u.role === 'admin_cliente'
-      ? (wlEntry?.company ? [wlEntry.company] : [])
+      ? [...new Set(minhasLinhas.map(w => w.company).filter(Boolean))]
       : [...new Set(conts.map(c => empresaPorContrato[c]).filter(Boolean))];
     return { u, conts, empresas };
   });
