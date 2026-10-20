@@ -726,7 +726,25 @@ function getCurrentUser() {
   return _currentUser;
 }
 
+// Bug corrigido aqui (vazamento entre empresas do SaaS): o dispositivo
+// guarda os caches de registro/preventiva/chamados/etc. em localStorage
+// (CACHES_DE_SESSAO), que SOBREVIVE ao fechar a aba — só era limpo no
+// logout explícito (clique em "Sair"). Quem fecha a aba sem clicar em
+// Sair (a maioria) e depois loga como OUTRA pessoa no MESMO navegador —
+// um admin_cliente diferente, ou o próprio master testando uma conta
+// nova — herdava, por um instante que podia parecer permanente, o que
+// a pessoa anterior tinha deixado em cache, até algum fetch fresco
+// sobrescrever. Agora compara com o e-mail da ÚLTIMA sessão: se for
+// outra pessoa, limpa ANTES de guardar a nova sessão — nunca mostra um
+// resquício de outra empresa na tela, mesmo por um instante.
+const _ULTIMO_EMAIL_KEY = 'smm_last_logged_email';
 function saveSession(token, user) {
+  try {
+    const ultimo = localStorage.getItem(_ULTIMO_EMAIL_KEY);
+    const atual  = String(user?.email || '').toLowerCase();
+    if (ultimo && atual && ultimo !== atual) limparCachesLocais();
+    if (atual) localStorage.setItem(_ULTIMO_EMAIL_KEY, atual);
+  } catch(e) {}
   sessionStorage.setItem(SESSION_KEY, token);
   _currentUser = user;
 }
