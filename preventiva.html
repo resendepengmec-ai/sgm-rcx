@@ -492,12 +492,17 @@ const fmtDate = ts => ts ? new Date(ts).toLocaleDateString('pt-BR') : '—';
 // reintroduzia o fallback pro banco embutido de teste (MACHINE_DB/smm_custom_db)
 // mesmo quando o contrato certo já tinha equipamentos cadastrados.
 
+let _contratosFrescos = [];
 async function populateContractDropdowns() {
   try {
     const contratos = await DB.getContratos();
     // Mantém o cache local completo (equipamentos inclusos) atualizado —
     // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
     safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
+    // Guardado também em variável (não em localStorage) pra decidir, na
+    // hora, se o botão "Pegar assinatura do cliente" aparece — ver
+    // renderPlansList. Vem sempre fresco do servidor nesta função.
+    _contratosFrescos = contratos;
     const user = getCurrentUser();
     const userContract = user?.contract;
     const visible = userContract
@@ -858,7 +863,17 @@ function renderPlansList() {
   // A coleta de assinatura do cliente (O.S. + equipamentos de preventiva)
   // mudou pro módulo próprio "Recebimento de Serviços" (recebimento.html) —
   // só um link aqui, sem duplicar a lógica de agrupamento/envio.
-  const _btnAssin = `<button onclick="location.href='recebimento.html'" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente →</button>`;
+  //
+  // Bug corrigido aqui: o botão aparecia incondicionalmente, mesmo sem
+  // filtro de contrato aplicado ou com um contrato que nunca ligou "tomar
+  // assinatura do cliente" — levando a um recebimento.html sempre vazio
+  // pra aquele caso. Agora só aparece quando o filtro desta tela está
+  // em UM contrato específico (não "todos") E esse contrato, no servidor
+  // (_contratosFrescos — nunca o cache), tem a opção ligada.
+  const _contratoFiltrado = fContract && _contratosFrescos.find(c => c.numero === fContract);
+  const _btnAssin = _contratoFiltrado?.assinaturaClientePorEstab
+    ? `<button onclick="location.href='recebimento.html'" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente →</button>`
+    : '';
   const _btnVal = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role)
     ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
     : '';
@@ -2120,7 +2135,10 @@ async function _valRejeitar(id){
 renderPlansList();
 loadTechnicians();
 loadPrestadoraConfig();
-populateContractDropdowns();
+// Re-renderiza depois que _contratosFrescos chega: se o filtro de
+// contrato já vier preenchido (ex.: alguma restauração futura de estado),
+// o botão de assinatura usa dado fresco, nunca a 1ª pintura sem contrato.
+populateContractDropdowns().then(renderPlansList);
 
 </script>
 </body>

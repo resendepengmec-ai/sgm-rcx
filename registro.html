@@ -599,6 +599,10 @@ function applyFilters() {
   filterEstab    = document.getElementById('f-filter-estab').value;
   buildFilterOptions(); updateOSBadge(); // rebuild estab list filtered by contract
   renderRecordList();
+  // Reflete na hora o botão "Pegar assinatura do cliente" da aba de O.S.,
+  // que depende do mesmo filterContract (ver renderOSList) — sem isto,
+  // só apareceria/desapareceria na próxima troca de aba.
+  if (document.getElementById('os-list')) renderOSList();
 }
 
 function clearFilters() {
@@ -608,6 +612,7 @@ function clearFilters() {
   document.getElementById('f-filter-estab').value = '';
   buildFilterOptions();
   renderRecordList();
+  if (document.getElementById('os-list')) renderOSList();
 }
 
 function getFilteredRecords() {
@@ -1885,12 +1890,17 @@ function doImport(e){
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
 
 // Popula dropdowns de contrato (registros) — respeita vínculo
+let _contratosFrescosReg = [];
 async function populateContractDropdownsReg() {
   try {
     const contratos = await DB.getContratos();
     // Mantém o cache local completo (equipamentos inclusos) atualizado —
     // é dele que getEffDB() lê os dados do contrato pra autocompletar a TAG.
     safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
+    // Guardado também em variável (não em localStorage) pra decidir, na
+    // hora, se o botão "Pegar assinatura do cliente" aparece — ver
+    // renderOSList. Vem sempre fresco do servidor nesta função.
+    _contratosFrescosReg = contratos;
     // O backend já retorna só os contratos permitidos pro usuário — não
     // precisa refiltrar aqui (o filtro antigo comparava como valor único e
     // quebrava quando o usuário tinha mais de um contrato vinculado).
@@ -1912,7 +1922,10 @@ async function populateContractDropdownsReg() {
 // ── Init ──
 renderRecordList();
 buildFilterOptions();
-populateContractDropdownsReg();
+// Re-renderiza a aba de O.S. depois que _contratosFrescosReg chega, pelo
+// mesmo motivo do botão de assinatura em preventiva.html: evita a 1ª
+// pintura decidir a visibilidade do botão sem dado fresco do servidor.
+populateContractDropdownsReg().then(() => { if (document.getElementById('os-list')) renderOSList(); });
 loadOrdens();
 loadPrestadoraConfig();
 updateOSBadge();
@@ -2024,7 +2037,18 @@ function renderOSList() {
   // A coleta de assinatura do cliente (O.S. + equipamentos de preventiva)
   // mudou pro módulo próprio "Recebimento de Serviços" (recebimento.html) —
   // só um link aqui, sem duplicar a lógica de agrupamento/envio.
-  const _btnAssin = `<button onclick="location.href='recebimento.html'" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente →</button>`;
+  //
+  // Bug corrigido aqui: o botão aparecia incondicionalmente, mesmo sem
+  // filtro de contrato aplicado (filterContract, o mesmo filtro da aba de
+  // registros) ou com um contrato que nunca ligou "tomar assinatura do
+  // cliente" — levando a um recebimento.html sempre vazio pra aquele
+  // caso. Agora só aparece quando o filtro desta tela está em UM
+  // contrato específico E esse contrato, no servidor
+  // (_contratosFrescosReg — nunca o cache), tem a opção ligada.
+  const _contratoFiltradoOS = filterContract && _contratosFrescosReg.find(c => c.numero === filterContract);
+  const _btnAssin = _contratoFiltradoOS?.assinaturaClientePorEstab
+    ? `<button onclick="location.href='recebimento.html'" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente →</button>`
+    : '';
   const _btnVal = ['admin','diretor','supervisor'].includes(userRole)
     ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
     : '';
