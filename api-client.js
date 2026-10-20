@@ -839,8 +839,13 @@ function hasModule(mod) { const u=getCurrentUser(); return u ? (ROLES[u.role]?.m
 // Client ID é configurado pelo admin e salvo no localStorage
 const CLIENT_ID_KEY = 'smm_client_id';
 
-async function loginWithGoogleToken(googleToken) {
-  const data = await API.post('/auth/google', { googleToken });
+// `empresaCnpj`: só usado quando o e-mail é Admin Cliente de mais de uma
+// empresa (CNPJ diferente) — o servidor responde escolherEmpresa:true
+// (sem token) na 1ª chamada sem isto; a tela de login reenvia com o CNPJ
+// escolhido. Pra quem só tem 1 empresa (a grande maioria), nunca aparece.
+async function loginWithGoogleToken(googleToken, empresaCnpj) {
+  const data = await API.post('/auth/google', { googleToken, ...(empresaCnpj ? { empresaCnpj } : {}) });
+  if (data.escolherEmpresa) return { escolherEmpresa: true, empresas: data.empresas || [] };
   saveSession(data.token, data.user);
   return data.user;
 }

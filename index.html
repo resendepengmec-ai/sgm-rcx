@@ -22,7 +22,7 @@
     script-src 'self' 'unsafe-inline';
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
-    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
+    connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com https://brasilapi.com.br;
     font-src 'self' data:;
     frame-ancestors 'none';
     base-uri 'none';
@@ -1094,7 +1094,7 @@ function _renderWLContent(el, wl) {
     const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
     const contBadges = e.role === 'admin_cliente'
       ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">
-          ${esc(e.company) || '(sem nome fantasia)'} · ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
+          ${esc(e.company) || '(sem nome fantasia)'}${e.cnpj ? ' · CNPJ '+esc(e.cnpj) : ''} · ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
       : conts.length
         ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
         : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
@@ -1109,7 +1109,7 @@ function _renderWLContent(el, wl) {
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar contratos
           </button>` : ''}
-          ${isAdmin && e.role === 'admin_cliente' && atorRole === 'admin' ? `<button onclick="editFranquiaAdminCliente('${jsAttr(e.email)}')"
+          ${isAdmin && e.role === 'admin_cliente' && atorRole === 'admin' ? `<button onclick="editFranquiaAdminCliente('${jsAttr(e.email)}','${jsAttr(e.cnpj||'')}')"
             style="padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--primary);font-size:10px;cursor:pointer;font-weight:600">
             ✏️ editar franquia
           </button>` : ''}
@@ -1148,7 +1148,19 @@ function _renderWLContent(el, wl) {
       <div style="font-size:12px;color:var(--text-2);margin-bottom:8px;line-height:1.4">
         Caso único: o Admin Cliente ainda não tem contrato — ele mesmo
         cadastra o 1º e ganha o escopo automaticamente. Defina aqui a
-        franquia dele:
+        franquia dele. O mesmo e-mail pode ser cadastrado em mais de uma
+        empresa (CNPJ diferente) — cada CNPJ só pode aparecer uma vez.
+      </div>
+      <div class="field" style="margin:0 0 10px">
+        <label style="font-size:11px">CNPJ da empresa <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="wl-cnpj" placeholder="00.000.000/0000-00" inputmode="numeric" maxlength="18" oninput="_maskCnpjInput(this); _consultarCnpjDebounced(this.value);">
+        <div style="font-size:10px;color:var(--text-3);margin-top:2px">Identifica a empresa — não pode ser repetido em outro cadastro, nem depois de criada.</div>
+        <div id="wl-cnpj-status" style="font-size:11px;margin-top:4px;min-height:14px"></div>
+      </div>
+      <div class="field" style="margin:0 0 10px">
+        <label style="font-size:11px">Razão social</label>
+        <input type="text" id="wl-razao-social" placeholder="preenchida automaticamente ao confirmar o CNPJ" maxlength="200">
+        <div style="font-size:10px;color:var(--text-3);margin-top:2px">Nome oficial na Receita Federal (consulta à BrasilAPI) — confirma que o CNPJ é real. Editável se a consulta falhar ou vier incompleta.</div>
       </div>
       <div class="field" style="margin:0 0 10px">
         <label style="font-size:11px">Nome fantasia da empresa <span style="color:var(--danger)">*</span></label>
@@ -1182,6 +1194,73 @@ function _renderWLContent(el, wl) {
   if (isAdmin) atualizarCampoWlPorPapel();
 }
 
+// CNPJ: mesmo algoritmo de dígitos verificadores (módulo 11, peso
+// cíclico 2-9) usado no servidor (src/validate.js cnpjValido) — valida
+// aqui só pra dar feedback imediato; o servidor sempre revalida.
+function _cnpjValido(v) {
+  const cnpj = String(v||'').replace(/\D/g,'');
+  if (cnpj.length !== 14 || /^(\d)\1{13}$/.test(cnpj)) return false;
+  const digito = base => {
+    let soma=0, peso=base.length-7;
+    for (let i=0;i<base.length;i++) { soma += parseInt(base[i],10)*peso; peso = peso===2?9:peso-1; }
+    const resto = soma%11;
+    return resto<2?0:11-resto;
+  };
+  return digito(cnpj.slice(0,12))===parseInt(cnpj[12],10) && digito(cnpj.slice(0,13))===parseInt(cnpj[13],10);
+}
+function _maskCnpjInput(el) {
+  const v = el.value.replace(/\D/g,'').slice(0,14);
+  el.value = v.length>12 ? v.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{1,2})/,'$1.$2.$3/$4-$5')
+            : v.length>8  ? v.replace(/(\d{2})(\d{3})(\d{3})(\d{1,4})/,'$1.$2.$3/$4')
+            : v.length>5  ? v.replace(/(\d{2})(\d{3})(\d{1,3})/,'$1.$2.$3')
+            : v.length>2  ? v.replace(/(\d{2})(\d{1,3})/,'$1.$2')
+            : v;
+}
+
+// Consulta à BrasilAPI (pública, CORS liberado — ver CSP connect-src):
+// confirma que o CNPJ é um registro real na Receita Federal e preenche a
+// razão social automaticamente. Nunca bloqueia o cadastro — se a consulta
+// falhar, der 404 ou a rede estiver fora, só avisa; quem decide se
+// cadastra assim mesmo é o admin master. Debounce de 500ms pra não
+// disparar uma consulta por tecla digitada.
+let _cnpjConsultaTimer = null;
+function _consultarCnpjDebounced(valor) {
+  clearTimeout(_cnpjConsultaTimer);
+  const digitos = String(valor||'').replace(/\D/g,'');
+  const statusEl = document.getElementById('wl-cnpj-status');
+  if (!statusEl) return;
+  if (!_cnpjValido(digitos)) { statusEl.innerHTML = ''; return; }
+  statusEl.innerHTML = '<span style="color:var(--text-3)">Consultando na Receita Federal…</span>';
+  _cnpjConsultaTimer = setTimeout(() => _consultarCnpj(digitos), 500);
+}
+async function _consultarCnpj(digitos) {
+  const statusEl = document.getElementById('wl-cnpj-status');
+  try {
+    const resp = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${digitos}`);
+    if (resp.status === 404) {
+      if (statusEl) statusEl.innerHTML = '<span style="color:#92400e">⚠️ CNPJ não encontrado na Receita Federal — confira antes de continuar</span>';
+      return;
+    }
+    if (!resp.ok) throw new Error('status ' + resp.status);
+    const data = await resp.json();
+    // Razão social sempre sincroniza com o CNPJ atual (é o que a consulta
+    // devolve pra ESTE número); nome fantasia só sugere se ainda estiver
+    // vazio — é o rótulo que o próprio admin master escolhe, não algo que
+    // a consulta deva sobrescrever se ele já digitou um.
+    const razaoEl = document.getElementById('wl-razao-social');
+    if (razaoEl) razaoEl.value = data.razao_social || '';
+    const companyEl = document.getElementById('wl-company');
+    if (companyEl && !companyEl.value.trim() && data.nome_fantasia) companyEl.value = data.nome_fantasia;
+    if (!statusEl) return;
+    const ativa = data.descricao_situacao_cadastral === 'ATIVA';
+    statusEl.innerHTML = ativa
+      ? `<span style="color:var(--success)">✓ ${esc(data.razao_social||'')}</span>`
+      : `<span style="color:#92400e">⚠️ ${esc(data.razao_social||'')} — situação: ${esc(data.descricao_situacao_cadastral||'desconhecida')}</span>`;
+  } catch(e) {
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--text-3)">Não foi possível consultar agora — confira o CNPJ manualmente</span>';
+  }
+}
+
 // Alterna entre o picker de contratos e os campos de franquia (admin_cliente
 // é o caso único sem vínculo de contrato nesta tela — ver correção do SaaS).
 function atualizarCampoWlPorPapel() {
@@ -1198,23 +1277,34 @@ async function addWhitelistEntry() {
   const name  = document.getElementById('wl-name').value.trim();
   const role  = document.getElementById('wl-role').value;
   if (!email || !email.includes('@')) { showToast('E-mail inválido'); return; }
+  // Todo cadastro em Pré-autorizar exige nome — o servidor também recusa
+  // sem isto; aqui é só feedback imediato.
+  if (!name) { showToast('Informe o nome'); return; }
 
   if (role === 'admin_cliente') {
     const n = parseInt(document.getElementById('wl-limite-contratos').value, 10);
     const x = parseInt(document.getElementById('wl-franquia-fotos').value, 10);
     const company = document.getElementById('wl-company').value.trim();
+    const cnpj = document.getElementById('wl-cnpj').value.replace(/\D/g,'');
+    const razaoSocial = document.getElementById('wl-razao-social').value.trim();
+    if (!cnpj || !_cnpjValido(cnpj)) { showToast('Informe um CNPJ válido (14 dígitos)'); return; }
     if (!company) { showToast('Informe o nome fantasia da empresa'); return; }
     if (!Number.isInteger(n) || n < 1) { showToast('Informe o limite de contratos (≥ 1)'); return; }
     if (!Number.isInteger(x) || x < 0) { showToast('Informe a franquia de fotos por mês (≥ 0)'); return; }
     try {
       // criarNovo: este botão é só para um e-mail NOVO — se ele já estiver
       // pré-autorizado, o servidor recusa (409) em vez de substituir o
-      // cadastro existente sem avisar.
-      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x, company, criarNovo: true });
+      // cadastro existente sem avisar. Mesmo e-mail + CNPJ diferente, porém,
+      // é uma empresa NOVA — o servidor cria uma linha própria em vez de
+      // recusar (ver POST /whitelist).
+      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x, company, cnpj, razaoSocial, criarNovo: true });
       showToast(`✅ ${name||email} autorizado como Admin Cliente (${company}) — limite ${n} contrato(s), ${x} foto(s)/mês`);
       document.getElementById('wl-email').value = '';
       document.getElementById('wl-name').value = '';
       document.getElementById('wl-company').value = '';
+      document.getElementById('wl-cnpj').value = '';
+      document.getElementById('wl-razao-social').value = '';
+      document.getElementById('wl-cnpj-status').innerHTML = '';
       document.getElementById('wl-limite-contratos').value = '';
       document.getElementById('wl-franquia-fotos').value = '';
       await syncUsersFromBackend();
@@ -1241,10 +1331,12 @@ async function addWhitelistEntry() {
 
 // Admin master edita a franquia (n/x) de um Admin Cliente já existente —
 // o contrato dele NUNCA é tocado aqui (cresce sozinho conforme ele cadastra).
-async function editFranquiaAdminCliente(email) {
+// `cnpj`: identifica QUAL empresa, quando o e-mail tiver mais de uma (ver
+// multi-empresa) — '' é a empresa legada/única, igual sempre foi.
+async function editFranquiaAdminCliente(email, cnpj) {
   let wl = [];
   try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
-  const entry = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+  const entry = wl.find(e => e.email.toLowerCase() === email.toLowerCase() && (e.cnpj||'') === (cnpj||''));
   if (!entry) { showToast('Cadastro não encontrado'); return; }
   const n = prompt(`Limite de contratos de ${entry.name || entry.email} (atual: ${entry.limite_contratos ?? '—'})`, entry.limite_contratos ?? '');
   if (n === null) return;
@@ -1254,7 +1346,7 @@ async function editFranquiaAdminCliente(email) {
   if (!Number.isInteger(nInt) || nInt < 1) { showToast('Limite de contratos inválido (≥ 1)'); return; }
   if (!Number.isInteger(xInt) || xInt < 0) { showToast('Franquia de fotos inválida (≥ 0)'); return; }
   try {
-    await DB.addWhitelist(entry.email, 'admin_cliente', entry.name || '', null, { limiteContratos: nInt, franquiaFotosMes: xInt });
+    await DB.addWhitelist(entry.email, 'admin_cliente', entry.name || '', null, { limiteContratos: nInt, franquiaFotosMes: xInt, cnpj: entry.cnpj || '' });
     showToast('✅ Franquia atualizada');
     await syncUsersFromBackend();
     renderAdminTab();
@@ -1422,7 +1514,14 @@ async function editUser(userId, email) {
 
   let wl = [];
   try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
-  const wlEntry = wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+  // Multi-empresa: o mesmo e-mail pode ter mais de uma linha admin_cliente
+  // (uma por CNPJ — ver Pré-autorizar). Esta aba é centrada na PESSOA (1
+  // linha por pessoa em DB.getUsers()), então não há como adivinhar aqui
+  // qual das empresas editar — ver aviso abaixo, que substitui o
+  // formulário de franquia por um atalho pra Pré-autorizar.
+  const empresasDoEmail = wl.filter(e => e.role === 'admin_cliente' && e.email.toLowerCase() === email.toLowerCase());
+  const multiEmpresa = empresasDoEmail.length > 1;
+  const wlEntry = multiEmpresa ? null : wl.find(e => e.email.toLowerCase() === email.toLowerCase());
 
   if (!_wlAllContracts.length) {
     try { _wlAllContracts = await DB.getContratos(); } catch(e) {}
@@ -1462,7 +1561,15 @@ async function editUser(userId, email) {
         ${acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Desativar congela o acesso de TODA a equipe sob este Admin Cliente — nenhum dado é apagado; reativar descongela na hora.</div>' : ''}
       </div>
 
-      ${acct.role === 'admin_cliente' ? `
+      ${acct.role === 'admin_cliente' && multiEmpresa ? `
+      <div class="field" style="margin-bottom:16px;padding:10px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px">
+        <div style="font-size:12px;color:#92400e;line-height:1.5">
+          ⚠️ Este e-mail é Admin Cliente de <strong>${empresasDoEmail.length} empresas</strong>
+          (${empresasDoEmail.map(e=>esc(e.company||e.cnpj||'(sem nome)')).join(', ')}).
+          Vigência, plano e franquia são por empresa — edite cada uma na
+          aba <strong>Pré-autorizar</strong>, não aqui.
+        </div>
+      </div>` : acct.role === 'admin_cliente' ? `
       <div class="field" style="margin-bottom:16px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Vigência</label>
         <div style="display:flex;gap:10px">
@@ -1575,7 +1682,7 @@ async function editUser(userId, email) {
     // filosofia de "downgrade congela o que seria NOVO, nunca apaga o que
     // já existe" já usada no plano de módulos.
     let novoLimite, novaFranquia;
-    if (newRole === 'admin_cliente') {
+    if (newRole === 'admin_cliente' && !multiEmpresa) {
       novoLimite = Number(modal.querySelector('#edit-ac-limite').value);
       novaFranquia = Number(modal.querySelector('#edit-ac-franquia').value);
       if (!Number.isInteger(novoLimite) || novoLimite < 1) {
@@ -1610,7 +1717,7 @@ async function editUser(userId, email) {
           ? { modulos: modulosSelecionados.length === modulosUniverso.length ? null : modulosSelecionados }
           : undefined;
         tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null, extra));
-      } else {
+      } else if (!multiEmpresa) {
         // Vigência/plano/franquia: a franquia agora vem dos campos
         // editáveis do próprio modal (antes: sempre os valores atuais,
         // sem poder editar — "editar franquia" só existia pra conta
@@ -1623,8 +1730,12 @@ async function editUser(userId, email) {
           franquiaFotosMes: novaFranquia,
           plano: novoPlano,
           expiresAt: novoExpiresAt,
+          cnpj: wlEntry?.cnpj || '',
         }));
       }
+      // multiEmpresa: nenhuma empresa específica é editável por aqui — só
+      // status/papel (já enfileirados acima, e papel nem muda pra
+      // admin_cliente). Vigência/plano/franquia ficam pra Pré-autorizar.
       await Promise.all(tasks);
       showToast('✅ Usuário atualizado');
       modal.remove();

@@ -50,6 +50,7 @@ p{font-size:13px;color:#94a3b8;}
   <p id="sub">Aguarde um momento</p>
   <button id="retry" hidden type="button">Tentar novamente</button>
   <p><a id="return-login" href="index.html" hidden>Voltar ao início</a></p>
+  <div id="empresas" hidden style="display:flex;flex-direction:column;gap:8px;margin-top:12px"></div>
 </div>
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
@@ -75,12 +76,39 @@ p{font-size:13px;color:#94a3b8;}
     return;
   }
 
-  async function tentar() {
+  // Função não usa nenhuma string na página além do que a própria conta
+  // Google/servidor manda — escapa só por hábito defensivo (sem valor
+  // digitado por terceiro aqui, mas custa nada).
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // Admin Cliente de mais de uma empresa (CNPJ diferente): o servidor
+  // devolve a lista em vez de um token — mostra um botão por empresa;
+  // escolher reenvia o MESMO token do Google, agora com o CNPJ.
+  function mostrarEscolhaEmpresa(empresas) {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('msg').textContent = 'Qual empresa?';
+    document.getElementById('sub').textContent = 'Este e-mail está vinculado a mais de uma empresa no SaaS.';
+    const box = document.getElementById('empresas');
+    box.hidden = false;
+    box.innerHTML = empresas.map(e => `
+      <button type="button" data-cnpj="${esc(e.cnpj)}"
+        style="padding:10px 16px;border-radius:8px;border:1px solid #e2e8f0;background:#fff;cursor:pointer;font-size:14px;font-weight:600;color:#0f172a">
+        🏢 ${esc(e.company)}
+      </button>`).join('');
+    box.querySelectorAll('button').forEach(b => {
+      b.onclick = () => { box.hidden = true; tentar(b.dataset.cnpj); };
+    });
+  }
+
+  async function tentar(empresaCnpj) {
   document.getElementById('retry').hidden = true;
+  document.getElementById('empresas').hidden = true;
   document.getElementById('spinner').style.display = '';
   try {
     document.getElementById('msg').textContent = 'Verificando perfil…';
-    const user = await loginWithGoogleToken(token);
+    const resultado = await loginWithGoogleToken(token, empresaCnpj);
+    if (resultado.escolherEmpresa) { mostrarEscolhaEmpresa(resultado.empresas); return; }
+    const user = resultado;
     document.getElementById('msg').textContent = 'Bem-vindo, ' + user.name.split(' ')[0] + '!';
     document.getElementById('sub').textContent = 'Redirecionando…';
     setTimeout(() => window.location.href = 'index.html', 800);
