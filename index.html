@@ -592,6 +592,35 @@ function renderDashboard(user) {
     </div>`;
 }
 
+// Bug corrigido aqui: os números dos cards do dashboard (chamados abertos,
+// registros do mês, orçamentos pendentes, contratos, pendências de
+// patrimônio, planos de preventiva, autorizados) vinham só do cache,
+// nunca atualizado por esta tela — ficavam parados no valor de uma
+// visita anterior a outra página até o usuário abrir o módulo
+// correspondente. Roda em background, depois do primeiro paint (que usa
+// o cache por velocidade), e só re-renderiza se a tela ainda for esta.
+async function _refreshDashboardTiles(user) {
+  try {
+    const [chamados, registros, orcamentos, contratos, movs, plans, wl] = await Promise.all([
+      DB.getAll('chamados', '?resumo=1').catch(() => null),
+      DB.getAll('registros', '?resumo=1').catch(() => null),
+      DB.getAll('orcamentos', '?resumo=1').catch(() => null),
+      DB.getContratos('?resumo=1').catch(() => null),
+      DB.getMovimentacoes('?semFotos=1').catch(() => null),
+      DB.getAll('preventiva', '?resumo=1').catch(() => null),
+      DB.getWhitelist().catch(() => null),
+    ]);
+    if (chamados)   safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
+    if (registros)  safeLocalStorageSetJSON('registro_records', registros, { stripBinaries: true });
+    if (orcamentos) safeLocalStorageSetJSON('orcamento_quotes', orcamentos, { stripBinaries: true });
+    if (contratos)  safeLocalStorageSetJSON('smm_contracts', contratos, { stripBinaries: true });
+    if (movs)       safeLocalStorageSetJSON('smm_movimentacoes', movs, { stripBinaries: true });
+    if (plans)      safeLocalStorageSetJSON('prev_plans', plans, { stripBinaries: true });
+    if (wl)         saveWhitelist(wl);
+    if (document.querySelector('.dash-body')) renderDashboard(user);
+  } catch (e) {}
+}
+
 function toggleUserMenu() {
   document.getElementById('user-menu')?.classList.toggle('hidden');
 }
@@ -724,7 +753,23 @@ function _maskCelInput(el){
 
 async function renderResponsaveisTab(el) {
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
-  try { _responsaveis = await DB.getResponsaveis(); } catch(e){ _responsaveis = []; }
+  // Bug corrigido aqui: esta aba nunca buscava contratos frescos do
+  // servidor, só lia smm_contracts no localStorage — deixado por OUTRA
+  // página (contratos.html/registro.html/...) numa visita anterior,
+  // possivelmente vazio ou desatualizado. Um master que abrisse esta aba
+  // sem ter passado por outra página antes via a lista vazia mesmo com
+  // contratos habilitados; e um contrato recém-desligado podia continuar
+  // aparecendo. Mesma correção já aplicada em recebimento.html — busca
+  // o contrato completo (não ?resumo=1, que descarta "equipamentos" e
+  // quebraria renderRespEstabs/getEffDB), igual às demais páginas fazem.
+  try {
+    const [resps, contratosFrescos] = await Promise.all([
+      DB.getResponsaveis().catch(() => []),
+      DB.getContratos().catch(() => null),
+    ]);
+    _responsaveis = resps;
+    if (contratosFrescos) safeLocalStorageSetJSON('smm_contracts', contratosFrescos, { stripBinaries: true });
+  } catch (e) { _responsaveis = []; }
   const contratos = safeLocalStorageGetJSON('smm_contracts', []);
   const habilitados = contratos.filter(c => c.assinaturaClientePorEstab);
   const opts = habilitados.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao||'')}</option>`).join('');
@@ -872,10 +917,20 @@ let _usersContractFilter = '';
 function renderUsersTab(el) {
   const currentUser = getCurrentUser();
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
-  DB.getUsers().then(freshUsers => {
+  // Bug corrigido aqui: esta aba nunca buscava contratos frescos do
+  // servidor, só lia smm_contracts no localStorage (mesma classe de bug já
+  // corrigida em renderResponsaveisTab/patrimonio.html) — um contrato
+  // recém-cadastrado ou desligado podia não aparecer/continuar aparecendo
+  // no filtro e nos badges desta lista. ?resumo=1 porque só usa
+  // numero/razao, não precisa dos equipamentos.
+  Promise.all([
+    DB.getUsers().catch(() => null),
+    DB.getContratos('?resumo=1').catch(() => null),
+  ]).then(([freshUsers, contratosFrescos]) => {
     if (freshUsers && freshUsers.length) {
       localStorage.setItem('smm_users_cache', JSON.stringify(freshUsers));
     }
+    if (contratosFrescos) safeLocalStorageSetJSON('smm_contracts', contratosFrescos, { stripBinaries: true });
     _usersCache = freshUsers || getUsers();
     _renderUsersList(el, _usersCache, currentUser);
   }).catch(() => { _usersCache = getUsers(); _renderUsersList(el, _usersCache, currentUser); });
@@ -960,8 +1015,17 @@ function _renderUsersList(el, users, currentUser) {
 // ── Tab: Pré-autorizar (whitelist) ──
 function renderWhitelistTab(el) {
   el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-3)">Carregando…</div>';
-  DB.getWhitelist().then(wl => {
-    _renderWLContent(el, wl || []);
+  // Bug corrigido aqui: os badges/rótulos de contrato desta aba liam
+  // smm_contracts do cache sem nunca refrescá-lo (mesma classe de bug já
+  // corrigida em renderUsersTab/renderResponsaveisTab) — contrato
+  // recém-cadastrado ou desligado podia não refletir aqui. ?resumo=1
+  // porque só usa numero/razao, não precisa dos equipamentos.
+  Promise.all([
+    DB.getWhitelist().catch(() => null),
+    DB.getContratos('?resumo=1').catch(() => null),
+  ]).then(([wl, contratosFrescos]) => {
+    if (contratosFrescos) safeLocalStorageSetJSON('smm_contracts', contratosFrescos, { stripBinaries: true });
+    _renderWLContent(el, wl || getWhitelist());
     loadWLContracts();
   }).catch(() => {
     _renderWLContent(el, getWhitelist());
@@ -1280,6 +1344,34 @@ function _avisarDowngradePlano(select) {
   </div>`;
 }
 
+// Grade de botões-toggle de módulos permitidos — mesmo padrão visual do
+// seletor de contrato (data-mod em vez de data-num, pra não colidir com
+// o seletor `button[data-num][data-sel="1"]` do save). Universo = só o
+// PAPEL (ROLES[papel].modules) — a interseção com o plano do tenant
+// continua acontecendo dinamicamente onde já acontece hoje
+// (modulosEfetivos/moduloBloqueadoPeloPlano); isso evita o editor
+// precisar saber o plano de um tenant que não é o dele. Nunca se aplica
+// a admin/admin_cliente (ver moduloBloqueadoPeloUsuario no backend).
+function _renderModulosPicker(papel, modulosCsv) {
+  if (papel === 'admin' || papel === 'admin_cliente') {
+    return '<div style="font-size:12px;color:#94a3b8;padding:8px 0">Este papel nunca é restringido por módulo.</div>';
+  }
+  const universo = ROLES[papel]?.modules || [];
+  // null = sem override hoje = tudo marcado (comportamento de sempre).
+  const selecionados = modulosCsv ? String(modulosCsv).split(',').map(s=>s.trim()).filter(Boolean) : null;
+  const botoes = universo.map(m => {
+    const sel = selecionados === null || selecionados.includes(m);
+    const rotulo = ROTULO_MODULO_PLANO[m] || m;
+    return `<button type="button" data-mod="${m}" data-sel="${sel?'1':'0'}"
+      onclick="var s=this.dataset.sel==='1'?'0':'1';this.dataset.sel=s;this.style.background=s==='1'?'#ede9fe':'#fff';this.style.borderColor=s==='1'?'#7c3aed':'#e2e8f0';this.style.color=s==='1'?'#5b21b6':'#334155';this.textContent=(s==='1'?'✓ ':'')+'${esc(rotulo)}'"
+      style="padding:6px 12px;border-radius:99px;border:1px solid ${sel?'#7c3aed':'#e2e8f0'};background:${sel?'#ede9fe':'#fff'};color:${sel?'#5b21b6':'#334155'};font-size:12px;font-weight:600;cursor:pointer">
+      ${sel?'✓ ':''}${esc(rotulo)}
+    </button>`;
+  }).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">${botoes}</div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:4px">Tudo marcado = sem restrição extra (continua valendo o que o papel e o plano do contrato já liberam). Pelo menos 1 precisa ficar marcado.</div>`;
+}
+
 async function editUser(userId, email) {
   let users = [];
   try { users = await DB.getUsers(); saveUsers(users); } catch(e) { users = getUsers(); }
@@ -1306,7 +1398,8 @@ async function editUser(userId, email) {
 
       <div class="field" style="margin-bottom:14px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Papel</label>
-        <select id="edit-user-role" ${isSelf || acct.role === 'admin_cliente' ? 'disabled' : ''} style="width:100%">
+        <select id="edit-user-role" ${isSelf || acct.role === 'admin_cliente' ? 'disabled' : ''} style="width:100%"
+          onchange="var p=document.getElementById('edit-modulos-picker'); if(p) p.innerHTML=_renderModulosPicker(this.value, null);">
           ${acct.role === 'admin_cliente'
             ? `<option value="admin_cliente" selected>${ROLES.admin_cliente.icon} ${ROLES.admin_cliente.label}</option>`
             : papeisSelecionaveis(getCurrentUser()?.role).filter(([k]) => k !== 'admin_cliente')
@@ -1353,11 +1446,21 @@ async function editUser(userId, email) {
       </div>
 
       <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos</label>
-        <div style="font-size:12px;color:#64748b;padding:10px;border:1px solid #e2e8f0;border-radius:8px;background:#f8fafc">
-          Escopo de Admin Cliente — cresce sozinho conforme ele mesmo cadastra
-          (${current.length} contrato(s) hoje). Pra mudar a franquia de
-          contratos/fotos, use "editar franquia" na aba Pré-autorizar.
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Franquia</label>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Nº de contratos</div>
+            <input type="number" id="edit-ac-limite" min="1" step="1" value="${wlEntry?.limite_contratos ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fotos/mês</div>
+            <input type="number" id="edit-ac-franquia" min="0" step="1" value="${wlEntry?.franquia_fotos_mes ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+          Contratos cadastrados hoje: ${current.length}. Reduzir o limite não
+          apaga nem trava os que já existem — só passa a impedir cadastrar um
+          novo até caber dentro do limite.
         </div>
       </div>` : `
       <div class="field" style="margin-bottom:16px">
@@ -1376,6 +1479,10 @@ async function editUser(userId, email) {
           }
         </div>
         <div style="font-size:11px;color:#94a3b8;margin-top:4px">Pelo menos 1 contrato é obrigatório</div>
+      </div>
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Módulos permitidos</label>
+        <div id="edit-modulos-picker">${_renderModulosPicker(acct.role, wlEntry?.modulos)}</div>
       </div>`}
 
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -1408,6 +1515,40 @@ async function editUser(userId, email) {
       showToast('Remover todos os contratos concederia acesso irrestrito — selecione ao menos um, ou mantenha os atuais.');
       return;
     }
+    // Módulos permitidos: só existe grade de botões pra papéis de staff
+    // de verdade (admin/admin_cliente nunca mostram a grade — ver
+    // _renderModulosPicker). Mesma trava "pelo menos 1" do seletor de
+    // contrato, pelo mesmo motivo (zero marcado não pode significar
+    // "bloqueia tudo" por omissão).
+    const papelTemPicker = newRole !== 'admin' && newRole !== 'admin_cliente';
+    const modulosSelecionados = [...modal.querySelectorAll('button[data-mod][data-sel="1"]')].map(b => b.dataset.mod);
+    const modulosUniverso = ROLES[newRole]?.modules || [];
+    if (papelTemPicker && !modulosSelecionados.length) {
+      showToast('Pelo menos 1 módulo precisa ficar marcado — ou deixe todos marcados pra não restringir.');
+      return;
+    }
+    // Franquia (Admin Cliente): valida ANTES de desabilitar o botão, igual
+    // às demais validações acima — e avisa (sem travar) quando o novo
+    // limite de contratos é menor que o que ele já tem hoje, mesma
+    // filosofia de "downgrade congela o que seria NOVO, nunca apaga o que
+    // já existe" já usada no plano de módulos.
+    let novoLimite, novaFranquia;
+    if (newRole === 'admin_cliente') {
+      novoLimite = Number(modal.querySelector('#edit-ac-limite').value);
+      novaFranquia = Number(modal.querySelector('#edit-ac-franquia').value);
+      if (!Number.isInteger(novoLimite) || novoLimite < 1) {
+        showToast('Informe um limite de contratos válido (número inteiro, no mínimo 1)');
+        return;
+      }
+      if (!Number.isInteger(novaFranquia) || novaFranquia < 0) {
+        showToast('Informe uma franquia de fotos/mês válida (número inteiro, no mínimo 0)');
+        return;
+      }
+      if (novoLimite < current.length && !confirm(
+        `O novo limite (${novoLimite}) é menor que os ${current.length} contrato(s) que ele já tem. ` +
+        'Os contratos existentes continuam intactos — só fica bloqueado cadastrar um novo até caber dentro do limite. Continuar?'
+      )) return;
+    }
     btn.disabled = true; btn.textContent = 'Salvando…';
     try {
       const tasks = [];
@@ -1418,18 +1559,26 @@ async function editUser(userId, email) {
       // selected vazio preserva o que já era (null = irrestrito legado,
       // nunca reescrito como "" por omissão).
       if (newRole !== 'admin_cliente') {
-        tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null));
+        // modulos: null quando marcou tudo (= sem restrição extra, e
+        // assim um módulo novo que o papel ganhar no futuro chega
+        // automaticamente); array quando é de fato um subconjunto;
+        // omitido (preserva o que já havia) quando o papel nem tem grade
+        // (ex.: virou 'admin' por aqui — caso raro, resolvido à parte).
+        const extra = papelTemPicker
+          ? { modulos: modulosSelecionados.length === modulosUniverso.length ? null : modulosSelecionados }
+          : undefined;
+        tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null, extra));
       } else {
-        // Vigência/plano: manda sempre o limite/franquia ATUAIS (o
-        // servidor exige os dois como inteiros válidos nesta rota, mesmo
-        // quando só a vigência/plano mudou) — editar franquia continua
-        // sendo feito à parte, em "editar franquia" na aba Pré-autorizar.
+        // Vigência/plano/franquia: a franquia agora vem dos campos
+        // editáveis do próprio modal (antes: sempre os valores atuais,
+        // sem poder editar — "editar franquia" só existia pra conta
+        // pendente, na aba Pré-autorizar).
         const novoPlano = modal.querySelector('#edit-ac-plano').value;
         const fimInput = modal.querySelector('#edit-ac-expires').value;
         const novoExpiresAt = fimInput ? new Date(fimInput + 'T00:00:00').getTime() : undefined;
         tasks.push(DB.addWhitelist(acct.email, 'admin_cliente', acct.name||'', null, {
-          limiteContratos: wlEntry?.limite_contratos,
-          franquiaFotosMes: wlEntry?.franquia_fotos_mes,
+          limiteContratos: novoLimite,
+          franquiaFotosMes: novaFranquia,
           plano: novoPlano,
           expiresAt: novoExpiresAt,
         }));
@@ -2048,9 +2197,11 @@ if (_user) {
   // carrega o valor do momento do login) e re-renderiza se algo mudou.
   refreshCurrentUser().then(fresh => {
     if (fresh && (fresh.role !== _user.role || fresh.contract !== _user.contract
-        || JSON.stringify(fresh.modulosDoPlano) !== JSON.stringify(_user.modulosDoPlano))) {
+        || JSON.stringify(fresh.modulosDoPlano) !== JSON.stringify(_user.modulosDoPlano)
+        || JSON.stringify(fresh.modulosPermitidos) !== JSON.stringify(_user.modulosPermitidos))) {
       renderDashboard(fresh);
     }
+    _refreshDashboardTiles(fresh || _user);
   });
 } else {
   renderLogin();

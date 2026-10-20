@@ -531,9 +531,15 @@ for (const p of Object.values(PLANOS)) p.modulosTexto = p.modulos.map(m => ROTUL
 // significa irrestrito (admin master, ou staff sob contrato sem dono
 // admin_cliente), e aí só o papel decide, como sempre foi.
 function modulosEfetivos(user) {
-  const doPapel = ROLES[user?.role]?.modules || [];
-  if (!user || user.modulosDoPlano == null) return doPapel;
-  return doPapel.filter(m => user.modulosDoPlano.includes(m));
+  let efetivo = ROLES[user?.role]?.modules || [];
+  if (!user) return efetivo;
+  if (user.modulosDoPlano != null) efetivo = efetivo.filter(m => user.modulosDoPlano.includes(m));
+  // 3ª camada: módulos permitidos por USUÁRIO (ver GET /auth/me →
+  // modulosPermitidos) — nunca amplia o que papel+plano já liberam, só
+  // pode restringir mais. null = sem restrição extra (admin/admin_cliente,
+  // ou staff sem override definido — igual sempre foi).
+  if (user.modulosPermitidos != null) efetivo = efetivo.filter(m => user.modulosPermitidos.includes(m));
+  return efetivo;
 }
 
 // ── HTTP client ───────────────────────────────────────────────────
@@ -763,7 +769,7 @@ async function refreshCurrentUser() {
     const fresh = await API.get('/auth/me');
     if (fresh && _currentUser) {
       _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active,
-        modulosDoPlano: fresh.modulosDoPlano };
+        modulosDoPlano: fresh.modulosDoPlano, modulosPermitidos: fresh.modulosPermitidos };
     }
     return _currentUser;
   } catch(e) {
