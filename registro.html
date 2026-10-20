@@ -1986,8 +1986,6 @@ function renderOSList() {
     return `
       <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">${titulo}</div>
       ${items.map(o => {
-        const chamados = safeLocalStorageGetJSON('chamados_list', []);
-        const c = chamados.find(x=>x.id===o.chamadoId)||{};
         const statusStyle = {
           aberta:     'background:#fef3c7;color:#92400e',
           em_execucao:'background:#dbeafe;color:#1e40af',
@@ -2163,7 +2161,22 @@ function iniciarRegistroOS(osId) {
         const d = new Date(os.criadoEm);
         solDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       }
-      solInput.value = solDate || today();
+      const valorInicial = solDate || today();
+      solInput.value = valorInicial;
+      // Bug corrigido aqui: a data de solicitação cruzava com o chamado
+      // lendo só chamados_list do cache — cache que pertence a OUTRA
+      // página (chamados.html), podendo estar vazio/desatualizado aqui.
+      // Corrige o campo em background com o valor fresco do servidor, sem
+      // travar a abertura do form; só sobrescreve se o usuário ainda não
+      // tiver editado o campo manualmente.
+      if (os.chamadoId) {
+        DB.getAll('chamados', `?resumo=1&contract=${encodeURIComponent(contractNum)}`).then(fresh => {
+          const ch = (fresh||[]).find(x=>x.id===os.chamadoId);
+          if (ch && ch.date && ch.date !== valorInicial && solInput.value === valorInicial) {
+            solInput.value = ch.date;
+          }
+        }).catch(()=>{});
+      }
     }
 
     // Técnico responsável pré-preenchido com nome do usuário logado
