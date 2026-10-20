@@ -197,7 +197,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       </select>
       <input type="text" id="hist-tag" list="hist-tag-list" placeholder="TAG do equipamento" inputmode="numeric" pattern="[0-9]*" maxlength="4" oninput="this.value=tagCanonicaPat(this.value)" style="flex:1;min-width:150px">
       <datalist id="hist-tag-list"></datalist>
-      <button onclick="openEquipHistory()" style="padding:8px 16px;background:#1e40af;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
+      <button onclick="openEquipHistory(this)" style="padding:8px 16px;background:#1e40af;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">
         Ver histórico
       </button>
     </div>
@@ -2048,7 +2048,7 @@ function loadHistTags() {
   }
 }
 
-async function openEquipHistory() {
+async function openEquipHistory(btn) {
   const contrato = document.getElementById('hist-contrato').value.trim();
   const tag = tagCanonicaPat(document.getElementById('hist-tag').value);
   if (!contrato) { showToast('Selecione o contrato'); return; }
@@ -2065,6 +2065,29 @@ async function openEquipHistory() {
     showToast(`TAG "${tag}" não encontrada no contrato ${contrato}`);
     return;
   }
+
+  const restore = btn ? setActionBusy(btn, true, 'Carregando…') : () => {};
+
+  // Bug corrigido aqui: as 3 buscas abaixo liam chamados_list/
+  // registro_records/prev_plans do localStorage, escritos só pelas
+  // páginas DONAS de cada um (chamados.html/registro.html/
+  // preventiva.html) — um técnico que fosse direto em Patrimônio, sem
+  // abrir os outros três módulos antes na mesma sessão, via o histórico
+  // do equipamento faltando eventos recentes que existem de verdade no
+  // servidor. Corrigido buscando fresco, mas de forma leve: ?resumo=1
+  // (mesmo formato já usado nos caches que está substituindo) e
+  // ?contract=<um só> (o servidor já filtra isso — ver db.getRecords em
+  // db.js) — por isso não precisa do particionamento em lote usado na
+  // geração de PDF (que processa várias fotos por vez): aqui é 1
+  // consulta leve por coleção, já escopada a um único contrato.
+  let chamadosFrescos = [], registrosFrescos = [], preventivaFrescos = [];
+  try {
+    [chamadosFrescos, registrosFrescos, preventivaFrescos] = await Promise.all([
+      DB.getAll('chamados', `?resumo=1&contract=${encodeURIComponent(contrato)}`).catch(() => []),
+      DB.getAll('registros', `?resumo=1&contract=${encodeURIComponent(contrato)}`).catch(() => []),
+      DB.getAll('preventiva', `?resumo=1&contract=${encodeURIComponent(contrato)}`).catch(() => []),
+    ]);
+  } catch (e) {}
 
   // Adiciona eventos de instalação/baixa a partir dos campos do equipamento
   if (equipRaw._instaladoEm) {
@@ -2089,8 +2112,7 @@ async function openEquipHistory() {
 
   // 2. Chamados
   try {
-    const chamados = safeLocalStorageGetJSON('chamados_list', []);
-    chamados.filter(c => c.client===contrato && tagCanonicaPat(c.equip)===tag).forEach(c => {
+    chamadosFrescos.filter(c => c.client===contrato && tagCanonicaPat(c.equip)===tag).forEach(c => {
       events.push({ ts: c.createdAt || new Date(c.date||Date.now()).getTime(), type:'chamado', icon:'🔔', color:'#d97706',
         title: `Chamado — ${c.priority||'normal'}`,
         desc: c.desc || c.description || 'Sem descrição',
@@ -2100,8 +2122,7 @@ async function openEquipHistory() {
 
   // 3. Registros de manutenção
   try {
-    const regs = safeLocalStorageGetJSON('registro_records', []);
-    regs.filter(r => (r.client||r.contract)===contrato && tagCanonicaPat(r.equip||r.tag)===tag).forEach(r => {
+    registrosFrescos.filter(r => (r.client||r.contract)===contrato && tagCanonicaPat(r.equip||r.tag)===tag).forEach(r => {
       const svcs = (r.items||[]).map(i => i.name||i.service||String(i)).join(', ');
       events.push({ ts: r.createdAt || new Date(r.date||Date.now()).getTime(), type:'registro', icon:'🔧', color:'#0284c7',
         title: 'Manutenção executada',
@@ -2112,8 +2133,7 @@ async function openEquipHistory() {
 
   // 4. Preventiva
   try {
-    const plans = safeLocalStorageGetJSON('prev_plans', []);
-    plans.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
+    preventivaFrescos.filter(p => (p.client||p.contrato)===contrato).forEach(p => {
       (p.equipments||[]).filter(eq => tagCanonicaPat(eq.tag)===tag).forEach(eq => {
         (p.execucoes||[]).forEach(ex => {
           events.push({ ts: new Date(ex.data||Date.now()).getTime(), type:'preventiva', icon:'📋', color:'#7c3aed',
@@ -2137,6 +2157,8 @@ async function openEquipHistory() {
 
   // Ordena por data desc
   events.sort((a,b) => b.ts - a.ts);
+
+  restore();
 
   // Renderiza modal
   renderEquipHistoryModal(equipRaw, contrato, events);
