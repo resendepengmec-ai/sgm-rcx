@@ -913,6 +913,7 @@ async function removeResponsavel(id){
 // ── Tab: Usuários cadastrados ──
 let _usersCache = [];
 let _usersContractFilter = '';
+let _usersCompanyFilter = '';
 
 function renderUsersTab(el) {
   const currentUser = getCurrentUser();
@@ -923,14 +924,19 @@ function renderUsersTab(el) {
   // recém-cadastrado ou desligado podia não aparecer/continuar aparecendo
   // no filtro e nos badges desta lista. ?resumo=1 porque só usa
   // numero/razao, não precisa dos equipamentos.
+  // whitelist também busca fresco aqui: é dela que vem o contrato e o nome
+  // fantasia (company, admin_cliente) exibidos nesta lista — mesma classe
+  // de bug das demais (contratos acima).
   Promise.all([
     DB.getUsers().catch(() => null),
     DB.getContratos('?resumo=1').catch(() => null),
-  ]).then(([freshUsers, contratosFrescos]) => {
+    DB.getWhitelist().catch(() => null),
+  ]).then(([freshUsers, contratosFrescos, wlFresca]) => {
     if (freshUsers && freshUsers.length) {
       localStorage.setItem('smm_users_cache', JSON.stringify(freshUsers));
     }
     if (contratosFrescos) safeLocalStorageSetJSON('smm_contracts', contratosFrescos, { stripBinaries: true });
+    if (wlFresca) saveWhitelist(wlFresca);
     _usersCache = freshUsers || getUsers();
     _renderUsersList(el, _usersCache, currentUser);
   }).catch(() => { _usersCache = getUsers(); _renderUsersList(el, _usersCache, currentUser); });
@@ -938,6 +944,11 @@ function renderUsersTab(el) {
 
 function filterUsersByContract(value) {
   _usersContractFilter = value;
+  const el = document.getElementById('admin-tab-content');
+  if (el) _renderUsersList(el, _usersCache, getCurrentUser());
+}
+function filterUsersByCompany(value) {
+  _usersCompanyFilter = value;
   const el = document.getElementById('admin-tab-content');
   if (el) _renderUsersList(el, _usersCache, getCurrentUser());
 }
@@ -951,32 +962,54 @@ function _renderUsersList(el, users, currentUser) {
   const wl = getWhitelist();
   const contractsList = safeLocalStorageGetJSON('smm_contracts', []);
 
+  // Nome fantasia de cada empresa (admin_cliente) por contrato — pra
+  // resolver a qual empresa um STAFF pertence (ele só tem contrato, não
+  // company próprio; company é só do admin_cliente dono daquele contrato).
+  const empresaPorContrato = {};
+  wl.filter(w => w.role === 'admin_cliente' && w.company).forEach(w => {
+    (w.contract ? String(w.contract).split(',').map(s=>s.trim()).filter(Boolean) : [])
+      .forEach(num => { empresaPorContrato[num] = w.company; });
+  });
+  const empresasDisponiveis = [...new Set(Object.values(empresaPorContrato))].sort();
+
   const usersWithContracts = users.map(u => {
     const wlEntry = wl.find(w => w.email.toLowerCase() === u.email.toLowerCase());
     const conts = wlEntry?.contract ? String(wlEntry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
-    return { u, conts };
+    const empresas = u.role === 'admin_cliente'
+      ? (wlEntry?.company ? [wlEntry.company] : [])
+      : [...new Set(conts.map(c => empresaPorContrato[c]).filter(Boolean))];
+    return { u, conts, empresas };
   });
 
-  const filtered = _usersContractFilter
-    ? usersWithContracts.filter(({conts}) => !conts.length || conts.includes(_usersContractFilter))
-    : usersWithContracts;
+  const filtered = usersWithContracts.filter(({conts, empresas}) => {
+    const passaContrato = !_usersContractFilter || !conts.length || conts.includes(_usersContractFilter);
+    const passaEmpresa  = !_usersCompanyFilter  || empresas.includes(_usersCompanyFilter);
+    return passaContrato && passaEmpresa;
+  });
 
   const filterBar = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
       <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Filtrar por contrato:</label>
-      <select onchange="filterUsersByContract(this.value)" style="flex:1;min-width:0">
+      <select onchange="filterUsersByContract(this.value)" style="flex:1;min-width:120px">
         <option value="">📋 Todos os contratos</option>
         ${contractsList.map(c=>`<option value="${c.numero}" ${_usersContractFilter===c.numero?'selected':''}>${c.numero}</option>`).join('')}
+      </select>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <label style="font-size:12px;color:var(--text-2);white-space:nowrap">Filtrar por empresa:</label>
+      <select onchange="filterUsersByCompany(this.value)" style="flex:1;min-width:120px">
+        <option value="">🏢 Todas as empresas</option>
+        ${empresasDisponiveis.map(nome=>`<option value="${esc(nome)}" ${_usersCompanyFilter===nome?'selected':''}>${esc(nome)}</option>`).join('')}
       </select>
     </div>`;
 
   if (!filtered.length) {
-    el.innerHTML = filterBar + `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:24px 0">Nenhum usuário vinculado a este contrato.</p>`;
+    el.innerHTML = filterBar + `<p style="font-size:13px;color:var(--text-3);text-align:center;padding:24px 0">Nenhum usuário encontrado com este filtro.</p>`;
     return;
   }
 
   const isAdmin = podeAdministrar(currentUser?.role);
-  el.innerHTML = filterBar + filtered.map(({u, conts}) => {
+  el.innerHTML = filterBar + filtered.map(({u, conts, empresas}) => {
     const r = ROLES[u.role] || {};
     const ll = u.last_login || u.lastLogin;
     const lastLogin = ll
@@ -995,6 +1028,7 @@ function _renderUsersList(el, users, currentUser) {
         <div class="uname">${esc(u.name)||'(sem nome)'}</div>
         <div class="uemail">${esc(u.email)}</div>
         <div class="ulast">${lastLogin}</div>
+        ${empresas.length ? `<div style="font-size:10px;color:#7e22ce;font-weight:600;margin-top:2px">🏢 ${empresas.map(esc).join(', ')}</div>` : ''}
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
           ${contBadges}
         </div>
@@ -1060,7 +1094,7 @@ function _renderWLContent(el, wl) {
     const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
     const contBadges = e.role === 'admin_cliente'
       ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">
-          ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
+          ${esc(e.company) || '(sem nome fantasia)'} · ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
       : conts.length
         ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
         : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
@@ -1116,6 +1150,11 @@ function _renderWLContent(el, wl) {
         cadastra o 1º e ganha o escopo automaticamente. Defina aqui a
         franquia dele:
       </div>
+      <div class="field" style="margin:0 0 10px">
+        <label style="font-size:11px">Nome fantasia da empresa <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="wl-company" placeholder="ex.: Climatiza Serviços Ltda" maxlength="160">
+        <div style="font-size:10px;color:var(--text-3);margin-top:2px">Rótulo usado pra identificar e filtrar as empresas que contratam o SaaS — aparece aqui e pode ser editado depois em "Minha Empresa" pelo próprio Admin Cliente.</div>
+      </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="field" style="flex:1;min-width:140px;margin:0">
           <label style="font-size:11px">Limite de contratos <span style="color:var(--danger)">*</span></label>
@@ -1163,16 +1202,19 @@ async function addWhitelistEntry() {
   if (role === 'admin_cliente') {
     const n = parseInt(document.getElementById('wl-limite-contratos').value, 10);
     const x = parseInt(document.getElementById('wl-franquia-fotos').value, 10);
+    const company = document.getElementById('wl-company').value.trim();
+    if (!company) { showToast('Informe o nome fantasia da empresa'); return; }
     if (!Number.isInteger(n) || n < 1) { showToast('Informe o limite de contratos (≥ 1)'); return; }
     if (!Number.isInteger(x) || x < 0) { showToast('Informe a franquia de fotos por mês (≥ 0)'); return; }
     try {
       // criarNovo: este botão é só para um e-mail NOVO — se ele já estiver
       // pré-autorizado, o servidor recusa (409) em vez de substituir o
       // cadastro existente sem avisar.
-      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x, criarNovo: true });
-      showToast(`✅ ${name||email} autorizado como Admin Cliente — limite ${n} contrato(s), ${x} foto(s)/mês`);
+      await DB.addWhitelist(email, role, name, null, { limiteContratos: n, franquiaFotosMes: x, company, criarNovo: true });
+      showToast(`✅ ${name||email} autorizado como Admin Cliente (${company}) — limite ${n} contrato(s), ${x} foto(s)/mês`);
       document.getElementById('wl-email').value = '';
       document.getElementById('wl-name').value = '';
+      document.getElementById('wl-company').value = '';
       document.getElementById('wl-limite-contratos').value = '';
       document.getElementById('wl-franquia-fotos').value = '';
       await syncUsersFromBackend();
