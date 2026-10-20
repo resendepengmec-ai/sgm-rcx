@@ -41,7 +41,7 @@ for (const arquivo of ['recebimento.html']) {
   const texto = decodeURIComponent(url.split('?text=')[1]);
   assert('o link de assinatura está no texto da mensagem', texto.includes(link));
   assert('menciona o estabelecimento', texto.includes('Unidade Central'));
-  assert('avisa que o código de verificação vem numa mensagem separada', /código de verifica/i.test(texto));
+  assert('não menciona mais o código de verificação (removido do template)', !/código de verifica/i.test(texto));
 
   // Celular com caracteres inesperados (ex: veio de um campo não mascarado) —
   // só os dígitos devem sobrar no número de destino.

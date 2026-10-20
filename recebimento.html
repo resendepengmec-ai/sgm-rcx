@@ -476,7 +476,7 @@ function _asnNovoCheck(){
 // própria conta pessoal, como ele já faria manualmente.
 function _waLinkAssinatura(celular, estab, link){
   const digitos = String(celular||'').replace(/\D/g,'');
-  const texto = `Olá! Segue o link para assinatura do serviço prestado em ${estab}:\n${link}\n\nEm breve você receberá uma mensagem com o código de verificação para confirmar o aceite.`;
+  const texto = `Olá! Segue o link para assinatura do serviço prestado em ${estab}:\n${link}`;
   return `https://wa.me/55${digitos}?text=${encodeURIComponent(texto)}`;
 }
 
