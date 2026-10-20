@@ -338,7 +338,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261005.1"></script>
+<script src="api-client.js?v=20261020.1"></script>
 <script src="db.js"></script>
 <script>
 
@@ -540,6 +540,14 @@ function renderDashboard(user) {
               <div class="uemail">${user.email}</div>
               <span class="role-badge" style="background:${role.color}22;color:${role.color}">${role.icon} ${role.label}</span>
             </div>
+            ${(user.empresasDisponiveis || []).length > 1 ? `
+            <hr class="user-menu-sep">
+            <div style="padding:8px 16px 2px;font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase">Empresa ativa</div>
+            ${user.empresasDisponiveis.map(e => `
+            <button class="user-menu-item" onclick="trocarEmpresaNoApp('${e.cnpj}')" style="${e.cnpj === (user.empresaAtivaCnpj || '') ? 'font-weight:700;color:var(--primary)' : ''}">
+              ${e.cnpj === (user.empresaAtivaCnpj || '') ? '✓ ' : ''}${esc(e.company || e.cnpj)}
+            </button>`).join('')}` : ''}
+            <hr class="user-menu-sep">
             <button class="user-menu-item" onclick="window.location.reload()">🔄 Atualizar</button>
             <button class="user-menu-item" onclick="window.location.href='privacidade.html'">🔒 Política de Privacidade</button>
             <hr class="user-menu-sep">
@@ -623,6 +631,23 @@ async function _refreshDashboardTiles(user) {
 
 function toggleUserMenu() {
   document.getElementById('user-menu')?.classList.toggle('hidden');
+}
+
+// Troca a empresa ativa sem logout (ver POST /auth/trocar-empresa) — item
+// (d)/(e): Admin Cliente com mais de 1 CNPJ, ou staff cadastrado sob
+// contratos de admin_clientes diferentes. Item (f): NUNCA reaproveita
+// cache/estado da empresa anterior — limparCachesLocais() + reload total
+// (mesma garantia já usada quando outra pessoa loga no mesmo navegador)
+// garantem que toda página busque fresco do servidor, já filtrado pelo
+// novo escopo que requireAuth relê a cada request.
+async function trocarEmpresaNoApp(cnpj) {
+  try {
+    await DB.trocarEmpresa(cnpj);
+    limparCachesLocais();
+    window.location.href = 'index.html';
+  } catch (e) {
+    showToast('Erro ao trocar de empresa: ' + e.message);
+  }
 }
 
 // ── Admin panel ──
@@ -1170,11 +1195,11 @@ function _renderWLContent(el, wl) {
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="field" style="flex:1;min-width:140px;margin:0">
           <label style="font-size:11px">Limite de contratos <span style="color:var(--danger)">*</span></label>
-          <input type="number" id="wl-limite-contratos" min="1" step="1" placeholder="ex.: 3">
+          <input type="text" inputmode="numeric" id="wl-limite-contratos" placeholder="ex.: 3" oninput="_onlyDigitsInput(this)">
         </div>
         <div class="field" style="flex:1;min-width:140px;margin:0">
           <label style="font-size:11px">Franquia de fotos/mês <span style="color:var(--danger)">*</span></label>
-          <input type="number" id="wl-franquia-fotos" min="0" step="1" placeholder="ex.: 500">
+          <input type="text" inputmode="numeric" id="wl-franquia-fotos" placeholder="ex.: 500" oninput="_onlyDigitsInput(this)">
         </div>
       </div>
     </div>` : `<p style="font-size:12px;color:var(--text-3);font-style:italic">Modo visualização — só o admin pode pré-autorizar novos usuários.</p>`}
@@ -1216,6 +1241,10 @@ function _maskCnpjInput(el) {
             : v.length>2  ? v.replace(/(\d{2})(\d{1,3})/,'$1.$2')
             : v;
 }
+// Campos de franquia (nº de contratos / fotos por mês) são números simples,
+// sem máscara de exibição — só precisa rejeitar tecla não-dígito na hora
+// (type="number" sozinho ainda deixa digitar "e"/"+"/"-"/"." até o blur).
+function _onlyDigitsInput(el) { el.value = el.value.replace(/\D/g,''); }
 
 // Consulta à BrasilAPI (pública, CORS liberado — ver CSP connect-src):
 // confirma que o CNPJ é um registro real na Receita Federal e preenche a
@@ -1506,6 +1535,65 @@ function _renderModulosPicker(papel, modulosCsv) {
     <div style="font-size:11px;color:#94a3b8;margin-top:4px">Tudo marcado = sem restrição extra (continua valendo o que o papel e o plano do contrato já liberam). Pelo menos 1 precisa ficar marcado.</div>`;
 }
 
+// Vigência/plano/franquia de UM Admin Cliente — extraída pra ser reaproveitada
+// tanto no caso de 1 empresa só quanto no seletor multi-empresa abaixo (antes,
+// o caso multi-empresa só mostrava um aviso em vez destes campos).
+function _renderCamposFranquiaAdminCliente(entry) {
+  const current = entry?.contract ? String(entry.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+  return `
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Vigência</label>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Início</div>
+            <div style="font-size:13px;font-weight:600;padding:8px 0">${entry?.added_at ? new Date(entry.added_at).toLocaleDateString('pt-BR') : '—'}</div>
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fim</div>
+            <input type="date" id="edit-ac-expires" value="${entry?.expires_at ? new Date(entry.expires_at).toISOString().slice(0,10) : ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Sem data de fim = acesso sem prazo definido. Vencer a vigência congela o tenant, igual ao status inativo.</div>
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Plano de módulos</label>
+        <select id="edit-ac-plano" data-plano-atual="${entry?.plano||'premium'}" onchange="_avisarDowngradePlano(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          ${Object.entries(PLANOS).map(([k,v]) => `<option value="${k}" ${(entry?.plano||'premium')===k?'selected':''}>${v.label} — ${v.modulosTexto}</option>`).join('')}
+        </select>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Vale pra este Admin Cliente E pra toda a equipe cadastrada sob ele — nunca amplia o que o papel de cada um já permite, só pode restringir.</div>
+        <div id="edit-ac-plano-alerta"></div>
+      </div>
+
+      <div class="field" style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Franquia</label>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Nº de contratos</div>
+            <input type="text" inputmode="numeric" id="edit-ac-limite" oninput="_onlyDigitsInput(this)" value="${entry?.limite_contratos ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+          <div style="flex:1">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fotos/mês</div>
+            <input type="text" inputmode="numeric" id="edit-ac-franquia" oninput="_onlyDigitsInput(this)" value="${entry?.franquia_fotos_mes ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          </div>
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+          Contratos cadastrados hoje: ${current.length}. Reduzir o limite não
+          apaga nem trava os que já existem — só passa a impedir cadastrar um
+          novo até caber dentro do limite.
+        </div>
+      </div>`;
+}
+// Guardada em variável de módulo (mesmo padrão de _wlAllContracts) pro
+// onchange inline do seletor de empresa (abaixo) conseguir achar a linha
+// certa sem precisar re-buscar a whitelist inteira.
+let _editAcEmpresasDoEmail = [];
+function _onChangeEditAcEmpresa(selectEl) {
+  const entry = _editAcEmpresasDoEmail.find(e => e.cnpj === selectEl.value);
+  const container = document.getElementById('edit-ac-empresa-fields');
+  if (container) container.innerHTML = _renderCamposFranquiaAdminCliente(entry);
+}
+
 async function editUser(userId, email) {
   let users = [];
   try { users = await DB.getUsers(); saveUsers(users); } catch(e) { users = getUsers(); }
@@ -1516,12 +1604,12 @@ async function editUser(userId, email) {
   try { wl = await DB.getWhitelist(); saveWhitelist(wl); } catch(e) { wl = getWhitelist(); }
   // Multi-empresa: o mesmo e-mail pode ter mais de uma linha admin_cliente
   // (uma por CNPJ — ver Pré-autorizar). Esta aba é centrada na PESSOA (1
-  // linha por pessoa em DB.getUsers()), então não há como adivinhar aqui
-  // qual das empresas editar — ver aviso abaixo, que substitui o
-  // formulário de franquia por um atalho pra Pré-autorizar.
+  // linha por pessoa em DB.getUsers()) — por isso o seletor de empresa
+  // abaixo, pra escolher qual CNPJ editar antes de mostrar os campos.
   const empresasDoEmail = wl.filter(e => e.role === 'admin_cliente' && e.email.toLowerCase() === email.toLowerCase());
   const multiEmpresa = empresasDoEmail.length > 1;
   const wlEntry = multiEmpresa ? null : wl.find(e => e.email.toLowerCase() === email.toLowerCase());
+  _editAcEmpresasDoEmail = empresasDoEmail;
 
   if (!_wlAllContracts.length) {
     try { _wlAllContracts = await DB.getContratos(); } catch(e) {}
@@ -1562,56 +1650,15 @@ async function editUser(userId, email) {
       </div>
 
       ${acct.role === 'admin_cliente' && multiEmpresa ? `
-      <div class="field" style="margin-bottom:16px;padding:10px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px">
-        <div style="font-size:12px;color:#92400e;line-height:1.5">
-          ⚠️ Este e-mail é Admin Cliente de <strong>${empresasDoEmail.length} empresas</strong>
-          (${empresasDoEmail.map(e=>esc(e.company||e.cnpj||'(sem nome)')).join(', ')}).
-          Vigência, plano e franquia são por empresa — edite cada uma na
-          aba <strong>Pré-autorizar</strong>, não aqui.
-        </div>
-      </div>` : acct.role === 'admin_cliente' ? `
       <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Vigência</label>
-        <div style="display:flex;gap:10px">
-          <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Início</div>
-            <div style="font-size:13px;font-weight:600;padding:8px 0">${wlEntry?.added_at ? new Date(wlEntry.added_at).toLocaleDateString('pt-BR') : '—'}</div>
-          </div>
-          <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fim</div>
-            <input type="date" id="edit-ac-expires" value="${wlEntry?.expires_at ? new Date(wlEntry.expires_at).toISOString().slice(0,10) : ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
-          </div>
-        </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Sem data de fim = acesso sem prazo definido. Vencer a vigência congela o tenant, igual ao status inativo.</div>
-      </div>
-
-      <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Plano de módulos</label>
-        <select id="edit-ac-plano" data-plano-atual="${wlEntry?.plano||'premium'}" onchange="_avisarDowngradePlano(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
-          ${Object.entries(PLANOS).map(([k,v]) => `<option value="${k}" ${(wlEntry?.plano||'premium')===k?'selected':''}>${v.label} — ${v.modulosTexto}</option>`).join('')}
+        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Empresa</label>
+        <select id="edit-ac-empresa-select" onchange="_onChangeEditAcEmpresa(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
+          ${empresasDoEmail.map(e => `<option value="${esc(e.cnpj)}">${esc(e.company || e.cnpj || '(sem nome)')}</option>`).join('')}
         </select>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Vale pra este Admin Cliente E pra toda a equipe cadastrada sob ele — nunca amplia o que o papel de cada um já permite, só pode restringir.</div>
-        <div id="edit-ac-plano-alerta"></div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Este e-mail é Admin Cliente de ${empresasDoEmail.length} empresas — escolha qual editar.</div>
       </div>
-
-      <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Franquia</label>
-        <div style="display:flex;gap:10px">
-          <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Nº de contratos</div>
-            <input type="number" id="edit-ac-limite" min="1" step="1" value="${wlEntry?.limite_contratos ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
-          </div>
-          <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fotos/mês</div>
-            <input type="number" id="edit-ac-franquia" min="0" step="1" value="${wlEntry?.franquia_fotos_mes ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
-          </div>
-        </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">
-          Contratos cadastrados hoje: ${current.length}. Reduzir o limite não
-          apaga nem trava os que já existem — só passa a impedir cadastrar um
-          novo até caber dentro do limite.
-        </div>
-      </div>` : `
+      <div id="edit-ac-empresa-fields">${_renderCamposFranquiaAdminCliente(empresasDoEmail[0])}</div>
+      ` : acct.role === 'admin_cliente' ? _renderCamposFranquiaAdminCliente(wlEntry) : `
       <div class="field" style="margin-bottom:16px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos autorizados <span style="color:#dc2626">*</span></label>
         <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
@@ -1681,8 +1728,11 @@ async function editUser(userId, email) {
     // limite de contratos é menor que o que ele já tem hoje, mesma
     // filosofia de "downgrade congela o que seria NOVO, nunca apaga o que
     // já existe" já usada no plano de módulos.
-    let novoLimite, novaFranquia;
-    if (newRole === 'admin_cliente' && !multiEmpresa) {
+    let novoLimite, novaFranquia, cnpjSelecionado;
+    if (newRole === 'admin_cliente') {
+      cnpjSelecionado = multiEmpresa ? modal.querySelector('#edit-ac-empresa-select').value : (wlEntry?.cnpj || '');
+      const entradaSelecionada = multiEmpresa ? empresasDoEmail.find(e => e.cnpj === cnpjSelecionado) : wlEntry;
+      const contratosDaEmpresa = entradaSelecionada?.contract ? String(entradaSelecionada.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
       novoLimite = Number(modal.querySelector('#edit-ac-limite').value);
       novaFranquia = Number(modal.querySelector('#edit-ac-franquia').value);
       if (!Number.isInteger(novoLimite) || novoLimite < 1) {
@@ -1693,8 +1743,8 @@ async function editUser(userId, email) {
         showToast('Informe uma franquia de fotos/mês válida (número inteiro, no mínimo 0)');
         return;
       }
-      if (novoLimite < current.length && !confirm(
-        `O novo limite (${novoLimite}) é menor que os ${current.length} contrato(s) que ele já tem. ` +
+      if (novoLimite < contratosDaEmpresa.length && !confirm(
+        `O novo limite (${novoLimite}) é menor que os ${contratosDaEmpresa.length} contrato(s) que ele já tem. ` +
         'Os contratos existentes continuam intactos — só fica bloqueado cadastrar um novo até caber dentro do limite. Continuar?'
       )) return;
     }
@@ -1717,11 +1767,12 @@ async function editUser(userId, email) {
           ? { modulos: modulosSelecionados.length === modulosUniverso.length ? null : modulosSelecionados }
           : undefined;
         tasks.push(DB.addWhitelist(acct.email, newRole, acct.name||'', selected.length ? selected.join(',') : null, extra));
-      } else if (!multiEmpresa) {
+      } else {
         // Vigência/plano/franquia: a franquia agora vem dos campos
         // editáveis do próprio modal (antes: sempre os valores atuais,
         // sem poder editar — "editar franquia" só existia pra conta
-        // pendente, na aba Pré-autorizar).
+        // pendente, na aba Pré-autorizar). Multi-empresa: cnpjSelecionado
+        // vem do seletor de empresa, apontando pra linha certa a atualizar.
         const novoPlano = modal.querySelector('#edit-ac-plano').value;
         const fimInput = modal.querySelector('#edit-ac-expires').value;
         const novoExpiresAt = fimInput ? new Date(fimInput + 'T00:00:00').getTime() : undefined;
@@ -1730,12 +1781,9 @@ async function editUser(userId, email) {
           franquiaFotosMes: novaFranquia,
           plano: novoPlano,
           expiresAt: novoExpiresAt,
-          cnpj: wlEntry?.cnpj || '',
+          cnpj: cnpjSelecionado,
         }));
       }
-      // multiEmpresa: nenhuma empresa específica é editável por aqui — só
-      // status/papel (já enfileirados acima, e papel nem muda pra
-      // admin_cliente). Vigência/plano/franquia ficam pra Pré-autorizar.
       await Promise.all(tasks);
       showToast('✅ Usuário atualizado');
       modal.remove();
@@ -2351,7 +2399,13 @@ if (_user) {
   refreshCurrentUser().then(fresh => {
     if (fresh && (fresh.role !== _user.role || fresh.contract !== _user.contract
         || JSON.stringify(fresh.modulosDoPlano) !== JSON.stringify(_user.modulosDoPlano)
-        || JSON.stringify(fresh.modulosPermitidos) !== JSON.stringify(_user.modulosPermitidos))) {
+        || JSON.stringify(fresh.modulosPermitidos) !== JSON.stringify(_user.modulosPermitidos)
+        // Seletor de empresa (menu do canto superior direito): a sessão
+        // salva no login/troca ainda não carrega empresasDisponiveis (só
+        // GET /auth/me devolve) — sem este check, o seletor só apareceria
+        // na 1ª renderização se ALGUM dos campos acima também tivesse
+        // mudado, o que no login normal nunca é o caso.
+        || (fresh.empresasDisponiveis || []).length !== (_user.empresasDisponiveis || []).length)) {
       renderDashboard(fresh);
     }
     _refreshDashboardTiles(fresh || _user);

@@ -787,13 +787,25 @@ async function refreshCurrentUser() {
     const fresh = await API.get('/auth/me');
     if (fresh && _currentUser) {
       _currentUser = { ..._currentUser, role: fresh.role, contract: fresh.contract, active: fresh.active,
-        modulosDoPlano: fresh.modulosDoPlano, modulosPermitidos: fresh.modulosPermitidos };
+        modulosDoPlano: fresh.modulosDoPlano, modulosPermitidos: fresh.modulosPermitidos,
+        empresaAtivaCnpj: fresh.empresaAtivaCnpj || '', empresasDisponiveis: fresh.empresasDisponiveis || [] };
     }
     return _currentUser;
   } catch(e) {
     if ([401,403].includes(e.status)) { _currentUser = null; sessionStorage.removeItem(SESSION_KEY); throw e; }
     return _currentUser;
   }
+}
+
+// Troca a empresa ativa da sessão SEM logout — reemite o token já com o
+// escopo (contract) da empresa escolhida (ver POST /auth/trocar-empresa).
+// Reaproveita saveSession, mesma função usada no login — garante o mesmo
+// tratamento de "e-mail diferente do último → limpa caches" (aqui nunca
+// dispara, é o mesmo e-mail, só a empresa ativa muda).
+async function trocarEmpresa(cnpj) {
+  const data = await API.post('/auth/trocar-empresa', { cnpj: cnpj || '' });
+  saveSession(data.token, data.user);
+  return data.user;
 }
 
 // V20: o logout removia APENAS o token. Ficavam no localStorage os
@@ -1121,6 +1133,7 @@ const DB = {
   getExpiredAccess:   (days=90)    => API.get(`/audit/expired-access?days=${days}`),
   revokeUserSession:  (userId)     => API.delete(`/users/${userId}/session`),
   logout:             ()           => API.post('/auth/logout', {}),
+  trocarEmpresa:      (cnpj)       => trocarEmpresa(cnpj),
 
   // Assinaturas digitais
   sign:         (recordId, action, module) => API.post('/sign', { recordId, action, module }),
