@@ -21,7 +21,12 @@ function extraeFuncao(src, nome) {
   return src.slice(m.index, i);
 }
 
-const sandbox = {};
+// _maskCpfInput/_maskCelInput também atualizam uma mensagem de status junto
+// ao campo (id rf-cpf-msg/rf-celular-msg) — stub mínimo só com getElementById,
+// devolvendo um objeto capturável para esses dois ids e null pros demais
+// (mesmo comportamento do DOM real quando o elemento não existe).
+const msgEls = { 'rf-cpf-msg': { innerHTML: '' }, 'rf-celular-msg': { innerHTML: '' } };
+const sandbox = { document: { getElementById: id => msgEls[id] || null } };
 vm.createContext(sandbox);
 vm.runInContext(
   extraeFuncao(html, '_fmtCpf') + '\n' +
@@ -58,6 +63,33 @@ console.log('── Máscara de CPF (trava em 11 dígitos, formata ao digitar) �
   const el = campo('ab5c2d9e9f8g2h2i4j7k2l5');
   sandbox._maskCpfInput(el);
   assert('letras coladas são descartadas, só dígitos contam', el.value === '529.982.247-25');
+}
+
+console.log('── Mensagem de status junto ao campo (não só toast no Salvar) ──');
+{
+  const el = campo('529982247'); // 9 dígitos, ainda digitando
+  sandbox._maskCpfInput(el);
+  assert('CPF incompleto: avisa quantos dígitos faltam', msgEls['rf-cpf-msg'].innerHTML.includes('Faltam 2 dígito'));
+}
+{
+  const el = campo('52998224725'); // válido
+  sandbox._maskCpfInput(el);
+  assert('CPF válido: mensagem de confirmação (verde)', /color:var\(--success\)/.test(msgEls['rf-cpf-msg'].innerHTML) && msgEls['rf-cpf-msg'].innerHTML.includes('válido'));
+}
+{
+  const el = campo('52998224724'); // dígito verificador errado
+  sandbox._maskCpfInput(el);
+  assert('CPF com 11 dígitos mas inválido: mensagem de erro (vermelha)', /color:var\(--danger\)/.test(msgEls['rf-cpf-msg'].innerHTML) && msgEls['rf-cpf-msg'].innerHTML.includes('inválido'));
+}
+{
+  const el = campo('6232221111'); // 10 dígitos, completo (fixo)
+  sandbox._maskCelInput(el);
+  assert('celular com 10 dígitos: mensagem de completo (verde)', /color:var\(--success\)/.test(msgEls['rf-celular-msg'].innerHTML));
+}
+{
+  const el = campo('629999'); // ainda digitando
+  sandbox._maskCelInput(el);
+  assert('celular incompleto: avisa quantos dígitos faltam', msgEls['rf-celular-msg'].innerHTML.includes('Faltam'));
 }
 
 console.log('── Validação de CPF (dígito verificador, não só comprimento) ──');

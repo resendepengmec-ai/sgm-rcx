@@ -855,10 +855,10 @@ function renderPlansList() {
     ? `<strong>${filtered.length}</strong> plano${filtered.length!==1?'s':''} encontrado${filtered.length!==1?'s':''}`
     : `<strong>${filtered.length}</strong> plano${filtered.length!==1?'s':''} no total`;
 
-  const _assinaveis = _prevAssinaveis();
-  const _btnAssin = _assinaveis.length
-    ? `<button onclick="abrirEnvioAssinatura()" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente (${_assinaveis.length})</button>`
-    : '';
+  // A coleta de assinatura do cliente (O.S. + equipamentos de preventiva)
+  // mudou pro módulo próprio "Recebimento de Serviços" (recebimento.html) —
+  // só um link aqui, sem duplicar a lógica de agrupamento/envio.
+  const _btnAssin = `<button onclick="location.href='recebimento.html'" style="width:100%;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">📱 Pegar assinatura do cliente →</button>`;
   const _btnVal = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role)
     ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
     : '';
@@ -2065,25 +2065,6 @@ async function loadTechnicians() {
   }
 }
 
-// ── Envio para assinatura do cliente (equipamentos de preventiva concluídos) ──
-let _respCache = null;
-function _contratoAssinaturaOn(numero){
-  try{ const cs=safeLocalStorageGetJSON('smm_contracts', []); const c=cs.find(x=>String(x.numero)===String(numero)); return !!(c&&c.assinaturaClientePorEstab); }catch(e){ return false; }
-}
-function _contratoRazao(numero){
-  try{ const cs=safeLocalStorageGetJSON('smm_contracts', []); const c=cs.find(x=>String(x.numero)===String(numero)); return c?(c.razao||''):''; }catch(e){ return ''; }
-}
-function _openAssinModal(inner){
-  let m=document.getElementById('asn-modal');
-  if(!m){ m=document.createElement('div'); m.id='asn-modal'; document.body.appendChild(m); }
-  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
-  m.innerHTML=`<div id="asn-card" style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:560px;max-height:92vh;overflow-y:auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-      <div style="font-weight:700;font-size:16px">📱 Assinatura do cliente</div>
-      <button onclick="_closeAssinModal()" style="border:none;background:none;font-size:22px;cursor:pointer;color:var(--text-3)">×</button>
-    </div>${inner}</div>`;
-}
-function _closeAssinModal(){ const m=document.getElementById('asn-modal'); if(m) m.remove(); }
 
 // ── Validação do supervisor ────────────────────────────────────────
 function _valHeader(){
@@ -2134,122 +2115,6 @@ async function _valRejeitar(id){
   catch(e){ showToast('Erro: '+(e.message||e)); }
 }
 
-// Equipamentos com o nível atual concluído, de planos cujo contrato tem a
-// opção ligada — agrupados por contrato+estabelecimento, igual ao fluxo
-// de registro.html, mas o item aqui é {planId, tag} em vez de uma O.S.
-function _prevAssinaveis(){
-  const itens=[];
-  plans.forEach(p=>{
-    if(!_contratoAssinaturaOn(p.client)) return;
-    (p.equipments||[]).forEach(eq=>{
-      if(!isEquipDone(eq, p.level)) return;
-      itens.push({ planId:p.id, tag:eq.tag, contract:p.client, estab:eq.estabelecimento||'(sem estabelecimento)', nivel:LEVEL_LABEL[p.level]||('Nível '+p.level) });
-    });
-  });
-  return itens;
-}
-
-async function abrirEnvioAssinatura(){
-  if(_respCache===null){ try{ _respCache = await DB.getResponsaveis(); }catch(e){ _respCache=[]; } }
-  const itens = _prevAssinaveis();
-  if(!itens.length){ showToast('Nenhum equipamento com preventiva concluída disponível para assinatura'); return; }
-  const grupos={};
-  itens.forEach(it=>{
-    const key=it.contract+'||'+it.estab;
-    (grupos[key]=grupos[key]||{contract:it.contract, estab:it.estab, itens:[]}).itens.push(it);
-  });
-  window._assinGrupos=grupos;
-  const opts=Object.keys(grupos).map(k=>{ const g=grupos[k]; return `<option value="${esc(k)}">${esc(g.estab)} — Contrato ${esc(g.contract)} (${g.itens.length})</option>`; }).join('');
-  _openAssinModal(`
-    <div class="field"><label>Estabelecimento</label>
-      <select id="asn-grupo" onchange="_asnRenderOSS()"><option value="">Selecione…</option>${opts}</select>
-    </div>
-    <div id="asn-oss" style="margin-top:10px"></div>
-    <div id="asn-resp" style="margin-top:10px;display:none"></div>
-    <div id="asn-actions" style="margin-top:14px"></div>
-  `);
-}
-
-function _asnRenderOSS(){
-  const key=document.getElementById('asn-grupo').value;
-  const box=document.getElementById('asn-oss'), respBox=document.getElementById('asn-resp'), act=document.getElementById('asn-actions');
-  window._asnResp=null;
-  if(!key){ box.innerHTML=''; respBox.style.display='none'; act.innerHTML=''; return; }
-  const g=window._assinGrupos[key];
-  box.innerHTML='<div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;margin-bottom:6px">Equipamentos a incluir</div>'+
-    g.itens.map((it,i)=>{
-      return `<label style="display:flex;gap:8px;align-items:flex-start;background:var(--bg);border-radius:8px;padding:8px;margin-bottom:6px;cursor:pointer">
-        <input type="checkbox" class="asn-os" value="${i}" checked style="width:18px;height:18px;margin-top:2px">
-        <div style="flex:1;min-width:0;font-size:13px">
-          <div style="font-weight:600">TAG ${esc(it.tag)}</div>
-          <div style="font-size:12px;color:var(--text-3)">${esc(it.nivel)}</div>
-        </div></label>`;
-    }).join('');
-  respBox.style.display='';
-  respBox.innerHTML=`<div class="field"><label>Celular do tomador de serviço (WhatsApp)</label>
-    <input id="asn-cel" inputmode="numeric" placeholder="Ex: 62999998888" oninput="this.value=this.value.replace(/[^0-9]/g,'');_asnBuscarResp()"></div>
-    <div id="asn-resp-info" style="font-size:13px;margin-top:2px"></div>`;
-  act.innerHTML=`<button id="asn-gerar" onclick="_asnGerar()" disabled style="width:100%;padding:13px;border:none;border-radius:10px;background:#0369a1;color:#fff;font-weight:700;font-size:15px;cursor:pointer;opacity:.5">Gerar link de assinatura</button>`;
-}
-
-function _asnBuscarResp(){
-  const key=document.getElementById('asn-grupo').value; const g=window._assinGrupos[key];
-  const cel=document.getElementById('asn-cel').value;
-  const info=document.getElementById('asn-resp-info'); const btn=document.getElementById('asn-gerar');
-  window._asnResp=null;
-  if(cel.length<10){ info.innerHTML=''; btn.disabled=true; btn.style.opacity=.5; return; }
-  const match=(_respCache||[]).find(r=> String(r.celular).replace(/\D/g,'')===cel && r.contract===g.contract && r.establishment===g.estab && r.ativo!==false);
-  if(match){
-    window._asnResp={responsavelId:match.id};
-    info.innerHTML=`<span style="color:var(--success)">✓ ${esc(match.nome)}${match.cargo?' · '+esc(match.cargo):''}</span>`;
-    btn.disabled=false; btn.style.opacity=1;
-  } else {
-    info.innerHTML=`<div style="color:#92400e;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px;margin-top:4px">
-      Número não cadastrado. <strong>Incluir em campo:</strong>
-      <input id="asn-novo-nome" placeholder="Nome do tomador de serviço" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:6px;box-sizing:border-box" oninput="_asnNovoCheck()">
-      <input id="asn-novo-cargo" placeholder="Cargo (opcional)" style="width:100%;margin-top:6px;padding:8px;border:1px solid var(--border);border-radius:6px;box-sizing:border-box">
-    </div>`;
-    btn.disabled=true; btn.style.opacity=.5;
-  }
-}
-function _asnNovoCheck(){
-  const nome=(document.getElementById('asn-novo-nome')||{}).value||'';
-  const btn=document.getElementById('asn-gerar');
-  if(nome.trim().length>=2){ window._asnResp={novo:true}; btn.disabled=false; btn.style.opacity=1; }
-  else { window._asnResp=null; btn.disabled=true; btn.style.opacity=.5; }
-}
-
-async function _asnGerar(){
-  const key=document.getElementById('asn-grupo').value; const g=window._assinGrupos[key];
-  const cel=document.getElementById('asn-cel').value;
-  const checked=[...document.querySelectorAll('.asn-os:checked')].map(c=>g.itens[+c.value]);
-  if(!checked.length){ showToast('Selecione ao menos um equipamento.'); return; }
-  const payload={ contract:g.contract, establishment:g.estab,
-                  preventivaRefs:checked.map(it=>({planId:it.planId, tag:it.tag})) };
-  if(window._asnResp && window._asnResp.responsavelId){ payload.responsavelId=window._asnResp.responsavelId; }
-  else { payload.novoResponsavel={ nome:(document.getElementById('asn-novo-nome')||{}).value.trim(),
-           cargo:(document.getElementById('asn-novo-cargo')||{}).value.trim(), celular:cel }; }
-  const btn=document.getElementById('asn-gerar'); btn.disabled=true; btn.textContent='Gerando…';
-  try{
-    const res=await DB.solicitarAssinaturaCliente(payload);
-    const link=location.origin+location.pathname.replace(/[^/]*$/,'')+'assinar.html?t='+res.token;
-    window._asnLink=link;
-    if(payload.novoResponsavel){ _respCache=null; }
-    const card=document.getElementById('asn-card');
-    if(card) card.innerHTML=`
-      <div style="text-align:center;padding:6px 0 4px"><div style="font-size:40px">✅</div>
-        <div style="font-weight:700;font-size:16px;margin-top:6px">Link gerado</div>
-        <div style="font-size:13px;color:var(--text-2);margin-top:4px">Enquanto o WhatsApp não está ativo, copie e envie o link ao tomador de serviço. Expira em 48h e é de uso único.</div></div>
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:12px;word-break:break-all;margin-top:12px">${esc(link)}</div>
-      <button onclick="_asnCopiar()" style="width:100%;padding:12px;border:none;border-radius:10px;background:#0369a1;color:#fff;font-weight:700;margin-top:10px;cursor:pointer">📋 Copiar link</button>
-      <button onclick="_closeAssinModal()" style="width:100%;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;margin-top:8px;cursor:pointer">Fechar</button>`;
-  }catch(e){ btn.disabled=false; btn.textContent='Gerar link de assinatura'; showToast('Erro: '+(e.message||e)); }
-}
-function _asnCopiar(){
-  const link=window._asnLink||'';
-  if(navigator.clipboard){ navigator.clipboard.writeText(link).then(()=>showToast('Link copiado')).catch(()=>showToast('Copie manualmente')); }
-  else showToast('Copie manualmente');
-}
 
 // ── Init ──
 renderPlansList();

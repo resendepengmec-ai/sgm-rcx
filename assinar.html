@@ -52,6 +52,11 @@
   .svc li{ margin-left:16px; }
   .consent{ display:flex; gap:10px; align-items:flex-start; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px; margin-top:14px; cursor:pointer; }
   .consent input{ width:22px; height:22px; margin-top:1px; flex-shrink:0; }
+  .verif{ margin-top:14px; }
+  .verif label{ font-size:13px; font-weight:600; display:block; margin-bottom:6px; }
+  .verif input{ width:100%; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:18px; letter-spacing:.1em; text-align:center; box-sizing:border-box; }
+  .verif .ajuda{ font-size:12px; color:var(--text-3); margin-top:4px; }
+  .verif .erro{ font-size:12px; color:#dc2626; margin-top:4px; }
   .btn{ width:100%; padding:14px; border:none; border-radius:12px; font-size:16px; font-weight:700; cursor:pointer; margin-top:14px; }
   .btn-primary{ background:#0369a1; color:#fff; }
   .btn-primary:disabled{ opacity:.5; cursor:not-allowed; }
@@ -116,6 +121,12 @@
       + '<div class="meta" style="font-size:12px;color:var(--text-2)">Contrato '+esc(data.contract||'—')+ (s.tecnico?(' · Técnico: '+esc(s.tecnico)):'') +'</div>'
       + '</div>'
       + '<div class="card"><div class="lbl" style="margin-bottom:6px">Serviços a receber ('+ordens.length+')</div>'+ordensHtml+'</div>'
+      + '<div class="card verif">'
+      +   '<label for="cpf5">Confirme seu CPF</label>'
+      +   '<input type="text" id="cpf5" inputmode="numeric" maxlength="5" placeholder="5 primeiros dígitos" oninput="this.value=this.value.replace(/[^0-9]/g,\'\').slice(0,5);__setCpf(this.value);">'
+      +   '<div class="ajuda">Digite só os <strong>5 primeiros números</strong> do seu CPF — é como confirmamos que é você quem está assinando.</div>'
+      +   '<div class="erro" id="cpf5-erro" style="display:none"></div>'
+      + '</div>'
       + '<label class="consent"><input type="checkbox" id="aceite" onchange="__setAceite(this.checked)">'
       +   '<span style="font-size:13px;line-height:1.5">Eu, <strong>'+esc(data.responsavelNome||'tomador de serviço')+'</strong>, declaro que <strong>recebi</strong> e <strong>atesto a execução</strong> dos serviços descritos neste resumo.</span></label>'
       + '<button class="btn btn-primary" id="btn" disabled onclick="__assinar()">Confirmar recebimento e assinar</button>'
@@ -126,28 +137,47 @@
   // o navegador.geolocation era chamado assim que a página desenhava o
   // resumo, antes de qualquer interação, enquanto o aviso acima dizia
   // "ao assinar". Agora o código corresponde ao texto.
+  var aceiteMarcado = false, cpfParcial = '';
+  function atualizarBotao(){
+    var b=document.getElementById('btn');
+    if(b) b.disabled = !(aceiteMarcado && cpfParcial.length===5);
+  }
   window.__setAceite = function(v){
-    var b=document.getElementById('btn'); if(b) b.disabled=!v;
+    aceiteMarcado = v; atualizarBotao();
     if(v && !geo) pedirGeo();
+  };
+  window.__setCpf = function(v){
+    cpfParcial = v; atualizarBotao();
+    var erro = document.getElementById('cpf5-erro');
+    if(erro) erro.style.display='none';
   };
 
   window.__assinar = function(){
     var btn = document.getElementById('btn');
-    if(!document.getElementById('aceite').checked){ return; }
+    if(!document.getElementById('aceite').checked || cpfParcial.length!==5){ return; }
     btn.disabled = true; btn.textContent = 'Enviando…';
     fetch(API+'/api/assinatura-cliente/t/'+encodeURIComponent(token)+'/assinar', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ aceite:true, geo:geo })
-    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, j:j}; }); })
+      body: JSON.stringify({ aceite:true, geo:geo, cpfParcial:cpfParcial })
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); })
     .then(function(res){
-      if(!res.ok || !res.j.ok){ throw new Error((res.j&&res.j.error) || 'Falha ao assinar'); }
+      if(!res.ok || !res.j.ok){ var e=new Error((res.j&&res.j.error) || 'Falha ao assinar'); e.status=res.status; throw e; }
       var em = res.j.data && res.j.data.em ? new Date(res.j.data.em).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
       root.innerHTML = '<div class="msg"><div class="ico">✅</div><h2>Recebimento assinado!</h2>'
         + '<p>Obrigado, '+esc(data.responsavelNome||'')+'.<br>Registrado em '+esc(em)+'.</p>'
         + '<p style="margin-top:10px;font-size:13px">A empresa foi notificada. Você já pode fechar esta página.</p></div>';
     }).catch(function(e){
       btn.disabled=false; btn.textContent='Confirmar recebimento e assinar';
-      alert('Não foi possível assinar: '+(e.message||e));
+      // 403 (CPF não corresponde) e 429 (tentativas excedidas) aparecem
+      // junto ao próprio campo, não num alert genérico — é um erro de
+      // digitação do usuário, não uma falha do sistema.
+      if(e.status===403 || e.status===429){
+        var erro = document.getElementById('cpf5-erro');
+        if(erro){ erro.textContent = e.message; erro.style.display='block'; }
+        if(e.status===429){ var c=document.getElementById('cpf5'); if(c) c.disabled=true; }
+      } else {
+        alert('Não foi possível assinar: '+(e.message||e));
+      }
     });
   };
 

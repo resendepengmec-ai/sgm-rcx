@@ -513,6 +513,7 @@ function renderDashboard(user) {
     {id:'registro', icon:'🔧',name:'Registros', desc:'O que foi feito em cada visita técnica',          count:`${regMes} este mês`,                         file:'registro.html'},
     {id:'orcamento',icon:'📄',name:'Orçamentos',desc:'Propostas de serviço prontas para aprovar',        count:`${orcPend} pendente${orcPend!==1?'s':''}`,   file:'orcamento.html'},
     {id:'preventiva',icon:'📋',name:'Preventiva',  desc:'Manutenções programadas, planejadas e acompanhadas',count:`${plans.length} plano${plans.length!==1?'s':''}`,    file:'preventiva.html'},
+    {id:'recebimento',icon:'✍️',name:'Recebimento de Serviços',desc:'Assinatura do tomador de serviço para O.S. e preventiva', count:'Assinaturas', file:'recebimento.html'},
     {id:'contratos', icon:'📑',name:'Contratos',   desc:'Contratos, equipamentos e serviços cadastrados', count:`${contratos.length} contrato${contratos.length!==1?'s':''}`, file:'contratos.html'},
     {id:'patrimonio',icon:'🏭',name:'Patrimônio',  desc:'O ciclo de vida de cada equipamento instalado', count:movPendentes>0?`${movPendentes} pendente${movPendentes!==1?'s':''}`:'Equipamentos', file:'patrimonio.html'},
     {id:'relatorios',icon:'📊',name:'Relatórios',  desc:'Indicadores e relatórios da operação',  count:'Consolidado',                                file:'relatorio.html'},
@@ -620,6 +621,11 @@ function showAdminPanel() {
   const escopo = !ehMaster && user?.contract
     ? `Administrando: contrato${String(user.contract).includes(',')?'s':''} ${esc(user.contract)}`
     : (!ehMaster ? 'Administrando: nenhum contrato ainda — cadastre o primeiro em Contratos' : 'Administrador geral');
+  // Tomadores de Serviço é a contraparte administrativa do módulo
+  // Recebimento de Serviços (Avançada+) — mesmo plano, mesmo gate. Admin
+  // master é sempre irrestrito (modulosEfetivos devolve tudo quando
+  // modulosDoPlano é null).
+  const podeRecebimento = modulosEfetivos(user).includes('recebimento');
   panel.innerHTML = `
     <div class="section-title" style="margin-top:8px">Administração</div>
     <div style="font-size:12px;color:var(--text-2);margin:-4px 0 10px">${escopo}</div>
@@ -627,7 +633,7 @@ function showAdminPanel() {
       <div class="admin-tabs" role="tablist">
         <button class="admin-tab ${adminTab==='usuarios'?'active':''}" data-tab="usuarios" role="tab" aria-selected="${adminTab==='usuarios'}" onclick="setAdminTab('usuarios')">👥 Usuários</button>
         <button class="admin-tab ${adminTab==='whitelist'?'active':''}" data-tab="whitelist" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
-        <button class="admin-tab ${adminTab==='responsaveis'?'active':''}" data-tab="responsaveis" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">✍️ Tomadores de Serviço</button>
+        ${podeRecebimento ? `<button class="admin-tab ${adminTab==='responsaveis'?'active':''}" data-tab="responsaveis" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">✍️ Tomadores de Serviço</button>` : ''}
         ${ehMaster
           ? `<button class="admin-tab ${adminTab==='config'?'active':''}" data-tab="config" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>`
           : `<button class="admin-tab ${adminTab==='minhaempresa'?'active':''}" data-tab="minhaempresa" role="tab" aria-selected="${adminTab==='minhaempresa'}" onclick="setAdminTab('minhaempresa')">🏢 Minha Empresa</button>`}
@@ -636,6 +642,7 @@ function showAdminPanel() {
     </div>`;
   if (!ehMaster && adminTab === 'config') adminTab = 'usuarios';
   if (ehMaster && adminTab === 'minhaempresa') adminTab = 'usuarios';
+  if (adminTab === 'responsaveis' && !podeRecebimento) adminTab = 'usuarios';
   renderAdminTab();
   // scroll to panel
   setTimeout(() => panel.scrollIntoView({behavior:'smooth', block:'start'}), 100);
@@ -688,6 +695,16 @@ function _maskCpfInput(el){
            : v.length>6  ? v.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3')
            : v.length>3  ? v.replace(/(\d{3})(\d{1,3})/,'$1.$2')
            : v;
+  // Mensagem de status junto ao campo (mesmo padrão de "Número não
+  // cadastrado"/"✓ Fulano" já usado no envio de assinatura em
+  // registro.html/_asnBuscarResp) — antes só havia toast genérico no
+  // Salvar, sem indicar qual campo e por quê.
+  const msg = document.getElementById('rf-cpf-msg');
+  if(!msg) return;
+  if(v.length===0)      msg.innerHTML='';
+  else if(v.length<11)  msg.innerHTML=`<span style="color:var(--text-3)">Faltam ${11-v.length} dígito(s)</span>`;
+  else if(_cpfValido(v)) msg.innerHTML='<span style="color:var(--success)">✓ CPF válido</span>';
+  else                   msg.innerHTML='<span style="color:var(--danger)">CPF inválido — confira os dígitos</span>';
 }
 // Mesma lógica para celular: trava em 11 dígitos (DDD + 9 no celular; DDD + 8
 // na linha fixa, que cabe nos mesmos 11 porque o grupo final aceita 1-4).
@@ -698,6 +715,11 @@ function _maskCelInput(el){
            : v.length>2  ? v.replace(/(\d{2})(\d{0,4})/,'($1) $2')
            : v.length>0  ? v.replace(/(\d{0,2})/,'($1')
            : v;
+  const msg = document.getElementById('rf-celular-msg');
+  if(!msg) return;
+  if(v.length===0)      msg.innerHTML='';
+  else if(v.length<10)  msg.innerHTML=`<span style="color:var(--text-3)">Faltam ${10-v.length} dígito(s)</span>`;
+  else                   msg.innerHTML='<span style="color:var(--success)">✓ número completo</span>';
 }
 
 async function renderResponsaveisTab(el) {
@@ -766,19 +788,43 @@ function openRespModal(){
   let m = document.getElementById('resp-modal');
   if(!m){ m=document.createElement('div'); m.id='resp-modal'; document.body.appendChild(m); }
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:flex-end;justify-content:center';
-  m.innerHTML=`<div style="background:var(--surface);border-radius:16px 16px 0 0;padding:18px;width:100%;max-width:520px;max-height:90vh;overflow-y:auto">
-    <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} tomador de serviço</div>
-    <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
-    <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
-    <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" maxlength="14" value="${esc(_fmtCpf(r.cpf||''))}" placeholder="000.000.000-00" oninput="_maskCpfInput(this)"></div>
-    <div class="field"><label>Cargo *</label><input id="rf-cargo" value="${esc(r.cargo||'')}"></div>
-    <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" maxlength="16" value="${esc(_fmtCel(r.celular||''))}" placeholder="(00) 00000-0000" oninput="_maskCelInput(this)"></div>
-    <label style="display:flex;align-items:center;gap:8px;margin:6px 0 14px;font-size:13px;cursor:pointer"><input id="rf-ativo" type="checkbox" ${r.ativo===false?'':'checked'} style="width:18px;height:18px"> Ativo</label>
-    <div style="display:flex;gap:8px">
-      <button onclick="closeRespModal()" style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;cursor:pointer">Cancelar</button>
-      <button onclick="saveRespForm(this)" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer">Salvar</button>
+  // Ativo + Cancelar/Salvar ficam num rodapé STICKY dentro da área rolável
+  // (não fora dela) — em celular, o teclado virtual que abre pra digitar
+  // CPF/celular reduz a altura visível, e um rodapé comum (não sticky)
+  // acaba empurrado pra fora da tela, parecendo "não responder" ao toque
+  // mesmo estando 100% funcional. position:sticky;bottom:0 dentro do
+  // próprio contêiner com overflow-y:auto mantém os dois sempre alcançáveis.
+  m.innerHTML=`<div style="background:var(--surface);border-radius:16px 16px 0 0;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;display:flex;flex-direction:column">
+    <div style="padding:18px 18px 4px">
+      <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} tomador de serviço</div>
+      <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
+      <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
+      <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" maxlength="14" value="${esc(_fmtCpf(r.cpf||''))}" placeholder="000.000.000-00" oninput="_maskCpfInput(this)">
+        <div id="rf-cpf-msg" style="font-size:12px;margin-top:4px;min-height:14px"></div>
+      </div>
+      <div class="field"><label>Cargo *</label><input id="rf-cargo" value="${esc(r.cargo||'')}"></div>
+      <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" maxlength="16" value="${esc(_fmtCel(r.celular||''))}" placeholder="(00) 00000-0000" oninput="_maskCelInput(this)">
+        <div id="rf-celular-msg" style="font-size:12px;margin-top:4px;min-height:14px"></div>
+      </div>
+      <div class="field" style="margin-bottom:0">
+        <label style="font-size:12px;font-weight:600;color:var(--text-2);display:block;margin-bottom:4px">Status</label>
+        <!-- Mesmo padrão do botão de status em "Editar usuário" (data-active
+             + classes toggle-btn.active/inactive) — igual em toda a tela de
+             administração, respeita o modo alto contraste (:root.high-contrast). -->
+        <button type="button" id="rf-ativo-btn" data-active="${r.ativo===false?'0':'1'}"
+          onclick="const b=this;const on=b.dataset.active==='1';b.dataset.active=on?'0':'1';b.className='toggle-btn '+(on?'inactive':'active');b.textContent=on?'Inativo':'Ativo';"
+          class="toggle-btn ${r.ativo===false?'inactive':'active'}" style="padding:8px 16px">${r.ativo===false?'Inativo':'Ativo'}</button>
+      </div>
+    </div>
+    <div style="position:sticky;bottom:0;background:var(--surface);padding:10px 18px 18px;border-top:1px solid var(--border);margin-top:6px">
+      <div style="display:flex;gap:8px">
+        <button onclick="closeRespModal()" style="flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:var(--surface);font-weight:600;cursor:pointer">Cancelar</button>
+        <button onclick="saveRespForm(this)" style="flex:1;padding:11px;border:none;border-radius:10px;background:var(--primary);color:#fff;font-weight:600;cursor:pointer">Salvar</button>
+      </div>
     </div>
   </div>`;
+  _maskCpfInput(document.getElementById('rf-cpf'));
+  _maskCelInput(document.getElementById('rf-celular'));
 }
 
 async function saveRespForm(btn){
@@ -789,12 +835,19 @@ async function saveRespForm(btn){
     cpf: document.getElementById('rf-cpf').value.replace(/\D/g,''),
     cargo: document.getElementById('rf-cargo').value.trim(),
     celular: document.getElementById('rf-celular').value.replace(/\D/g,''),
-    ativo: document.getElementById('rf-ativo').checked,
+    ativo: document.getElementById('rf-ativo-btn').dataset.active === '1',
     createdAt: base.createdAt,
   };
+  const msgCpf = document.getElementById('rf-cpf-msg'), msgCel = document.getElementById('rf-celular-msg');
   if(!payload.nome || !payload.cargo){ showToast('Preencha nome e cargo'); return; }
-  if(!_cpfValido(payload.cpf)){ showToast('CPF inválido'); return; }
-  if(payload.celular.length<10 || payload.celular.length>11){ showToast('Celular inválido (DDD + número)'); return; }
+  if(!_cpfValido(payload.cpf)){
+    if(msgCpf) msgCpf.innerHTML='<span style="color:var(--danger)">CPF inválido — confira os dígitos</span>';
+    showToast('CPF inválido'); return;
+  }
+  if(payload.celular.length<10 || payload.celular.length>11){
+    if(msgCel) msgCel.innerHTML='<span style="color:var(--danger)">Celular inválido — informe DDD + número</span>';
+    showToast('Celular inválido (DDD + número)'); return;
+  }
   const restore = setActionBusy(btn, true, 'Salvando tomador de serviço…');
   try{
     const saved = await DB.saveResponsavel(payload);

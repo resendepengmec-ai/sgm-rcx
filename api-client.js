@@ -464,7 +464,7 @@ function selectTab(container, activeTab) {
 window.selectTab = selectTab;
 const ROLES = {
   admin:       { label:'Administrador', icon:'👑', color:'#7c3aed',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai','recebimento'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
@@ -472,27 +472,27 @@ const ROLES = {
   // o admin master faz — cadastra contrato e concede acesso aos papéis
   // abaixo (nunca a outro admin/admin_cliente; isso é exclusivo do master).
   admin_cliente: { label:'Admin Cliente', icon:'🗂️', color:'#9333ea',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','admin','preventiva','contratos','patrimonio','dashboard','qai','recebimento'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:true },
 
   diretor:     { label:'Diretor',       icon:'🏢', color:'#0369a1',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai','recebimento'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   supervisor:  { label:'Supervisor',    icon:'📌', color:'#0891b2',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai','recebimento'],
                  canCreate:true, canEdit:true, canDelete:true, canViewPrices:true,
                  canApprove:true, canManageUsers:false },
 
   gestor:      { label:'Gestor',        icon:'📊', color:'#0284c7',
-                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai'],
+                 modules:['chamados','registro','orcamento','relatorios','laudo','preventiva','contratos','patrimonio','dashboard','qai','recebimento'],
                  canCreate:false, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
   tecnico:     { label:'Técnico',       icon:'🔧', color:'#059669',
-                 modules:['chamados','registro','orcamento','preventiva','contratos','patrimonio'],
+                 modules:['chamados','registro','orcamento','preventiva','contratos','patrimonio','recebimento'],
                  canCreate:true, canEdit:false, canDelete:false, canViewPrices:false,
                  canApprove:false, canManageUsers:false },
 
@@ -513,10 +513,10 @@ const ROLES = {
 const ROTULO_MODULO_PLANO = {
   contratos: 'Contratos', chamados: 'Chamados', registro: 'Registro', preventiva: 'Preventiva',
   patrimonio: 'Patrimônio', relatorios: 'Relatórios', laudo: 'Laudo', orcamento: 'Orçamento',
-  dashboard: 'Dashboard', qai: 'QAI',
+  dashboard: 'Dashboard', qai: 'QAI', recebimento: 'Recebimento de Serviços',
 };
 const MODULOS_BASICA_UI   = ['contratos', 'chamados', 'registro', 'preventiva', 'patrimonio', 'relatorios'];
-const MODULOS_AVANCADA_UI = [...MODULOS_BASICA_UI, 'laudo', 'orcamento'];
+const MODULOS_AVANCADA_UI = [...MODULOS_BASICA_UI, 'laudo', 'orcamento', 'recebimento'];
 const MODULOS_PREMIUM_UI  = [...MODULOS_AVANCADA_UI, 'dashboard', 'qai'];
 const PLANOS = {
   basica:   { label: 'Básica',   modulos: MODULOS_BASICA_UI },
