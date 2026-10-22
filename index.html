@@ -958,7 +958,14 @@ function _renderUsersList(el, users, currentUser) {
     (w.contract ? String(w.contract).split(',').map(s=>s.trim()).filter(Boolean) : [])
       .forEach(num => { empresaPorContrato[num] = w.company; });
   });
-  const empresasDisponiveis = [...new Set(Object.values(empresaPorContrato))].sort();
+  // Bug corrigido aqui: o dropdown do filtro usava só os nomes que
+  // apareciam em empresaPorContrato — ou seja, só empresas que já
+  // tinham AO MENOS 1 contrato cadastrado. Um Admin Cliente recém-criado
+  // (ainda sem contrato nenhum) nunca aparecia como opção pra filtrar,
+  // mesmo já tendo nome fantasia e já aparecendo normalmente na lista.
+  // Agora lista TODA empresa com nome fantasia, direto da whitelist —
+  // independente de já ter contrato ou não.
+  const empresasDisponiveis = [...new Set(wl.filter(w => w.role === 'admin_cliente' && w.company).map(w => w.company))].sort();
 
   const usersWithContracts = users.map(u => {
     // Multi-empresa: um admin_cliente pode ter mais de 1 linha na
