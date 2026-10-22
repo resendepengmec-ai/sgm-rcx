@@ -770,12 +770,40 @@ async function printFilteredPDF() {
   // acima já fica isolada na 1ª página sem precisar de outra quebra aqui.
 
   // Fase 3: uma única sessão pdf-seguro pro relatório inteiro.
-  const totalFotosRel = filtered.reduce((a,r)=>a+(r.photos?r.photos.length:0),0);
+  // Bug corrigido aqui: `filtered` vem de GET /registros?resumo=1, que
+  // SEMPRE devolve photos:[] (só photoCount — ver resumirRegistro no
+  // backend, leve de propósito pra lista). O relatório nunca incluía
+  // nenhuma foto porque media `r.photos.length`, sempre 0 na lista leve.
+  // totalFotos agora vem de photoCount (sempre presente, mesmo na lista
+  // leve) pro cálculo de progresso/tempo já começar certo.
+  const totalFotosRel = filtered.reduce((a,r)=>a+(r.photoCount ?? r.photos?.length ?? 0),0);
   const sessao = iniciarSessaoPdf({ rotulo: 'relatório de registros', totalFotos: totalFotosRel });
   if (!sessao) return;
   await sessao.abrir();
   let falhasRel = 0, cancelado = false;
   try {
+
+  // Hidrata com o detalhe completo (fotos reais) cada registro que a
+  // lista leve ainda não carregou — mesmo DB.getRecord já usado por
+  // _hidratarRegistro ao abrir o detalhe de UM registro, só que aqui
+  // pra TODOS os registros do filtro, antes de montar o PDF.
+  for (let i = 0; i < filtered.length; i++) {
+    if (sessao.cancelada) { cancelado = true; break; }
+    const r = filtered[i];
+    if ((r.photoCount || 0) > 0 && (!r.photos || !r.photos.length)) {
+      sessao.etapaPrecalculo((i + 1) / filtered.length);
+      try {
+        const full = await DB.getRecord('registros', r.id);
+        if (full) {
+          filtered[i] = { ...r, ...full, _detailLoaded: true };
+          const idx = records.findIndex(x => x.id === r.id);
+          if (idx >= 0) records[idx] = filtered[i];
+        }
+      } catch (e) { /* segue sem a foto deste registro — o placeholder de "indisponível" cobre no desenho */ }
+    }
+  }
+  if (cancelado) { showToast('Geração de relatório cancelada.'); return; }
+  saveRegistrosLocal();
 
   // ── Detail pages: one section per record ──
   let rIdx = -1;
@@ -1685,8 +1713,24 @@ function _pdfRecordSigs(doc, sigs, M, y){
 
 async function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
-  const r = records.find(x=>x.id===id);
+  let r = records.find(x=>x.id===id);
   if(!r) return;
+  // Rede de segurança: _hidratarRegistro (disparada ao abrir o detalhe)
+  // é "fire and forget" — clicar em PDF rápido demais, ou uma falha
+  // silenciosa na busca (catch(()=>{})), podia deixar `r` ainda com a
+  // versão leve (photos:[], só photoCount — ver GET ?resumo=1). Confere
+  // e busca o detalhe completo aqui também, antes de montar o PDF.
+  if ((r.photoCount || 0) > 0 && (!r.photos || !r.photos.length)) {
+    try {
+      const full = await DB.getRecord('registros', id);
+      if (full) {
+        const idx = records.findIndex(x => x.id === id);
+        r = { ...r, ...full, _detailLoaded: true };
+        if (idx >= 0) records[idx] = r;
+        saveRegistrosLocal();
+      }
+    } catch (e) { /* segue com o que tinha — melhor um PDF sem foto do que nenhum PDF */ }
+  }
   const {jsPDF} = window.jspdf;
   const doc = new jsPDF({unit:'mm',format:'a4'});
   const W=210, M=20, CW=W-M*2;

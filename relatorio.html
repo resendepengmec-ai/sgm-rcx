@@ -836,7 +836,7 @@ async function render() {
         esc((c.desc||c.descricao||c.description||'—').slice(0,60)),
         c.priority||c.prioridade||'—',
         c.status||'aberto',
-        photoCell(c.photos)
+        photoCell(c.photos, c.photoCount)
       ])
     );
     hidratarFotosDOM(document.getElementById('chamados-table'));
@@ -852,7 +852,7 @@ async function render() {
         esc(r.equip||r.tag)||'—',
         esc((r.services||r.items||[]).map(s=>s.name||s.service||String(s)).join(', ').slice(0,60))||'—',
         esc(r.tech||r.technician||r.tecnico)||'—',
-        photoCell(r.photos)
+        photoCell(r.photos, r.photoCount)
       ])
     );
     hidratarFotosDOM(document.getElementById('registros-table'));
@@ -928,8 +928,19 @@ async function render() {
   } else { document.getElementById('section-patrimonio').style.display='none'; }
 }
 
-function photoCell(photos) {
-  if (!photos || !photos.length) return '<span style="color:var(--text-3)">—</span>';
+// `photoCount`: a pré-visualização na tela usa _dados.chamados/registros,
+// que vem de GET ?resumo=1 — SEMPRE photos:[] (só photoCount, ver
+// resumirRegistro no backend). Sem isto, toda linha mostrava "—" mesmo
+// tendo fotos de verdade (o PDF exportado já hidrata via
+// loadReportDetails e sempre esteve correto; isto é só a pré-visualização).
+// Sem o array real não há como montar a miniatura — mostra a contagem
+// em vez de inventar que não existe foto nenhuma.
+function photoCell(photos, photoCount) {
+  if (!photos || !photos.length) {
+    return (photoCount || 0) > 0
+      ? `<span style="color:var(--text-2)">📷 ${photoCount}</span>`
+      : '<span style="color:var(--text-3)">—</span>';
+  }
   const geo = photos[0].geo;
   return `<img ${fotoAttrs(photos[0])} onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
     ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}

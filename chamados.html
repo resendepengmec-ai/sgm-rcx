@@ -1264,7 +1264,23 @@ function closeDetailModal(){ document.getElementById('detail-modal').classList.a
 // ── PDF individual ──
 async function printPDF(id){
   if (!window.jspdf) { showToast('Erro: biblioteca de PDF não carregou. Verifique sua conexão e tente novamente.'); return; }
-  const c=chamados.find(x=>x.id===id); if(!c) return;
+  let c=chamados.find(x=>x.id===id); if(!c) return;
+  // Rede de segurança: _hidratarChamado (disparada ao abrir o detalhe) é
+  // "fire and forget" — clicar em PDF rápido demais, ou uma falha
+  // silenciosa na busca (catch(()=>{})), podia deixar `c` ainda com a
+  // versão leve (photos:[], só photoCount — ver GET ?resumo=1). Confere e
+  // busca o detalhe completo aqui também, antes de montar o PDF.
+  if ((c.photoCount || 0) > 0 && (!c.photos || !c.photos.length)) {
+    try {
+      const full = await DB.getRecord('chamados', id);
+      if (full) {
+        const idx = chamados.findIndex(x => x.id === id);
+        c = { ...c, ...full, _detailLoaded: true };
+        if (idx >= 0) chamados[idx] = c;
+        safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
+      }
+    } catch (e) { /* segue com o que tinha — melhor um PDF sem foto do que nenhum PDF */ }
+  }
   const {jsPDF}=window.jspdf;
   const doc=new jsPDF({unit:'mm',format:'a4'});
   const W=210,M=20,CW=W-M*2;
@@ -1437,12 +1453,40 @@ async function printFilteredPDF(){
   // Fase 3: uma única sessão pdf-seguro pro relatório inteiro — barra de
   // progresso, retry e cancelamento cobrindo todos os chamados filtrados,
   // não só a foto atual.
-  const totalFotosRelatorio = filtered.reduce((a,c)=>a+(c.photos?c.photos.length:0),0);
+  // Bug corrigido aqui: `filtered` vem de GET /chamados?resumo=1, que
+  // SEMPRE devolve photos:[] (só photoCount — ver resumirRegistro no
+  // backend, leve de propósito pra lista). O relatório nunca incluía
+  // nenhuma foto porque media `c.photos.length`, sempre 0 na lista leve.
+  // totalFotos agora vem de photoCount (sempre presente, mesmo na lista
+  // leve) pro cálculo de progresso/tempo já começar certo.
+  const totalFotosRelatorio = filtered.reduce((a,c)=>a+(c.photoCount ?? c.photos?.length ?? 0),0);
   const sessao = iniciarSessaoPdf({ rotulo: 'relatório de chamados', totalFotos: totalFotosRelatorio });
   if (!sessao) return;
   await sessao.abrir();
   let falhasRelatorio = 0, cancelado = false;
   try {
+
+  // Hidrata com o detalhe completo (fotos reais) cada chamado que a lista
+  // leve ainda não carregou — mesmo DB.getRecord já usado por
+  // _hidratarChamado ao abrir o detalhe de UM chamado, só que aqui pra
+  // TODOS os chamados do filtro, antes de montar o PDF.
+  for (let i = 0; i < filtered.length; i++) {
+    if (sessao.cancelada) { cancelado = true; break; }
+    const c = filtered[i];
+    if ((c.photoCount || 0) > 0 && (!c.photos || !c.photos.length)) {
+      sessao.etapaPrecalculo((i + 1) / filtered.length);
+      try {
+        const full = await DB.getRecord('chamados', c.id);
+        if (full) {
+          filtered[i] = { ...c, ...full, _detailLoaded: true };
+          const idx = chamados.findIndex(x => x.id === c.id);
+          if (idx >= 0) chamados[idx] = filtered[i];
+        }
+      } catch (e) { /* segue sem a foto deste chamado — o placeholder de "indisponível" cobre no desenho */ }
+    }
+  }
+  if (cancelado) { showToast('Geração de relatório cancelada.'); return; }
+  safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
 
   // Detail pages
   let ci = -1;
