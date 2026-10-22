@@ -30,6 +30,7 @@ let LEIT_STUB = [];
 const stubEl = { style: {}, innerHTML: '', classList: { add() {}, remove() {}, toggle() {} } };
 const sandbox = {
   console,
+  URLSearchParams,
   document: { getElementById: () => stubEl, querySelector: () => null },
   guardaDeModulo: async () => null,
   esc: s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
@@ -40,8 +41,11 @@ const sandbox = {
       const p = new URLSearchParams(q.replace(/^\?/, ''));
       const desde = Number(p.get('desde') || 0), ate = Number(p.get('ate') || Infinity);
       const limite = Number(p.get('limite') || 1000);
-      return LEIT_STUB.filter(l => l.criadoEm >= desde && l.criadoEm <= ate)
-        .sort((a, b) => b.criadoEm - a.criadoEm).slice(0, limite);
+      const todas = LEIT_STUB.filter(l => l.criadoEm >= desde && l.criadoEm <= ate)
+        .sort((a, b) => b.criadoEm - a.criadoEm);
+      const offset = Number(p.get('cursor') || 0);
+      const items = todas.slice(offset, offset + limite);
+      return p.get('paginado') === '1' ? { items, nextCursor: offset + limite < todas.length ? String(offset + limite) : null } : items;
     },
   },
   setTimeout: () => 0,
@@ -118,6 +122,20 @@ const PERIODO_TODO = { de: '2026-10-01', ate: '2026-10-06' };
   assert('gera PDF mesmo sem leituras no período', docGerado !== null);
   assert('informa que não há leituras', textoPdf(docGerado).includes('Nenhuma leitura registrada'));
 
+  console.log('── PDF completo acima do antigo teto de 5000 ──');
+  preparar(5105);
+  const inicio = new Date(2026, 9, 1).getTime();
+  LEIT_STUB.forEach((l, i) => {
+    l.criadoEm = inicio + i * 60000;
+    l.limitesNaMedicao = { temp_current: { max: 26 } };
+  });
+  docGerado = null;
+  await sandbox.gerarPdfSensor({}, PERIODO_TODO);
+  const completo = textoPdf(docGerado);
+  assert('PDF inclui 5105 leituras, sem truncar', completo.includes('Leituras no período: 5105'));
+  assert('informa denominador da avaliação histórica', completo.includes('5105 de 5105'));
+  assert('não informa truncamento', !completo.includes('truncado'));
+
   console.log('── eixo X com autoscale nos dados do dia (dashboard) ──');
   preparar(0);
   vm.runInContext(`
@@ -137,7 +155,9 @@ const PERIODO_TODO = { de: '2026-10-01', ate: '2026-10-06' };
   const resumo = vm.runInContext(`resumoGrandeza(
     { limites: { temp_current: { min: 20, max: 26 } } },
     'temp_current',
-    [{ valores: { temp_current: 22 } }, { valores: { temp_current: 27 } }, { valores: { temp_current: 24 } }, { valores: {} }]
+    [{ valores: { temp_current: 22 }, limitesNaMedicao: { temp_current: { max: 26 } } },
+     { valores: { temp_current: 27 }, limitesNaMedicao: { temp_current: { max: 26 } } },
+     { valores: { temp_current: 24 }, limitesNaMedicao: { temp_current: { max: 26 } } }, { valores: {} }]
   )`, sandbox);
   assert('último valor é o da leitura mais recente do período', resumo.ultimo === 24);
   assert('mínimo e máximo no período', resumo.min === 22 && resumo.max === 27);

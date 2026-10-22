@@ -1403,17 +1403,22 @@ async function renderizarGraficoParaImagemQai(config, wPx, hPx) {
 function resumoGrandeza(s, codigo, leituras) {
   const vals = leituras.map(l => l.valores?.[codigo]).filter(v => v != null);
   if (!vals.length) return null;
-  const lim = (s.limites || {})[codigo];
-  const fora = lim
-    ? vals.filter(v => (lim.min != null && v < lim.min) || (lim.max != null && v > lim.max)).length
-    : null;
+  const avaliadas = leituras.filter(l => {
+    const lim = l.limitesNaMedicao?.[codigo];
+    return l.valores?.[codigo] != null && lim && (lim.min != null || lim.max != null);
+  });
+  const fora = avaliadas.filter(l => {
+    const lim = l.limitesNaMedicao[codigo], v = l.valores[codigo];
+    return (lim.min != null && v < lim.min) || (lim.max != null && v > lim.max);
+  }).length;
   return {
     n: vals.length,
     ultimo: vals[vals.length - 1],
     min: Math.min(...vals),
     max: Math.max(...vals),
     media: vals.reduce((a, b) => a + b, 0) / vals.length,
-    pctFora: fora == null ? null : fora / vals.length,
+    avaliadas: avaliadas.length,
+    pctFora: avaliadas.length ? fora / avaliadas.length : null,
   };
 }
 function fmtDiaBR(dia) {
@@ -1427,6 +1432,23 @@ function rotuloTempoPdf(ms, spanDias) {
   return spanDias <= 2 ? hora : d.getDate().toString().padStart(2, '0') + '/' + (d.getMonth() + 1).toString().padStart(2, '0');
 }
 
+async function carregarPeriodoQai(id, desde, ate, progresso) {
+  const leituras = [];
+  let cursor = null;
+  do {
+    const q = new URLSearchParams({ paginado: '1', limite: '500', desde: String(desde), ate: String(ate) });
+    if (cursor) q.set('cursor', cursor);
+    const pagina = await DB.getLeiturasQai(id, '?' + q);
+    if (!Array.isArray(pagina?.items)) throw new Error('Atualize o servidor para consultar o relatório completo.');
+    leituras.push(...pagina.items);
+    if (leituras.length > 50000) throw new Error('Período muito extenso. Divida o relatório em períodos menores (máximo 50.000 leituras).');
+    if (pagina.nextCursor && pagina.nextCursor === cursor) throw new Error('A paginação não avançou. Tente novamente.');
+    cursor = pagina.nextCursor;
+    progresso?.(leituras.length);
+  } while (cursor);
+  return leituras;
+}
+
 async function gerarPdfSensor(btn, opcoes) {
   if (!window.jspdf) { showToast('Biblioteca de PDF não carregou. Recarregue a página.'); return; }
   const s = SENSOR_ABERTO;
@@ -1437,8 +1459,7 @@ async function gerarPdfSensor(btn, opcoes) {
   await withActionBusy(btn, 'Gerando…', async () => {
     const { desde } = limitesDoDia(de);
     const { ate: fimPeriodo } = limitesDoDia(ate);
-    const buscadas = await DB.getLeiturasQai(s.id, `?desde=${desde}&ate=${fimPeriodo}&limite=5000`);
-    const truncado = buscadas.length >= 5000;
+    const buscadas = await carregarPeriodoQai(s.id, desde, fimPeriodo, n => { btn.textContent = `Carregando… ${n} leituras`; });
     // Servidor devolve mais recente primeiro; o PDF é cronológico.
     const leituras = buscadas
       .filter(l => codigos.some(c => l.valores?.[c] != null))
@@ -1468,7 +1489,9 @@ async function gerarPdfSensor(btn, opcoes) {
       `Estabelecimento: ${s.estabelecimento}`,
       `Recinto: ${s.recinto}`,
       `Janelas de medição: ${horarios.length ? horarios.length + 'x/dia (' + horarios.join(', ') + ')' : 'modo contínuo'}`,
-      `Leituras no período: ${leituras.length}${truncado ? ' (limite de 5.000 atingido: o período foi truncado)' : ''}`,
+      `Leituras no período: ${leituras.length}`,
+      'Resumo: limites vigentes em cada medição; leituras sem limites não são avaliadas.',
+      'Faixas dos gráficos: limites atuais, apenas como referência visual.',
     ].forEach(linha => { doc.text(linha, PDF_M, y); y += 5; });
     y += 4;
 
@@ -1500,10 +1523,19 @@ async function gerarPdfSensor(btn, opcoes) {
         { titulo: 'Média', x: 146, align: 'right', largura: 14 },
         { titulo: 'Fora do limite', x: PDF_W - PDF_M - 2, align: 'right', largura: 22 },
       ], linhasResumo);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+      for (const c of codigos) {
+        const r = resumoGrandeza(s, c, leituras);
+        if (!r) continue;
+        const texto = `${infoGrandeza(s, c).rotulo}: ${r.avaliadas} de ${r.n} leituras com limites históricos disponíveis.`;
+        for (const linha of doc.splitTextToSize(texto, CW)) {
+          y = pdfCabe(doc, y, 5); doc.text(linha, PDF_M, y); y += 4.5;
+        }
+      }
 
       const limitesTexto = codigos.filter(c => (s.limites || {})[c]).map(c => {
         const i = infoGrandeza(s, c);
-        return `${i.rotulo}: ${textoLimite(s.limites[c], i.unidade)}`;
+        return `Referência atual — ${i.rotulo}: ${textoLimite(s.limites[c], i.unidade)}`;
       });
       if (limitesTexto.length) {
         doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 60, 60);
