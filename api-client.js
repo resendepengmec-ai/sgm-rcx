@@ -1162,13 +1162,17 @@ const DB = {
   saveSensorQai:      dados      => API.post('/qai/sensores', dados),
   updateSensorQai:    (id,dados) => API.patch(`/qai/sensores/${encodeURIComponent(id)}`, dados),
   deleteSensorQai:    id         => API.delete(`/qai/sensores/${encodeURIComponent(id)}`),
+  restaurarSensorQai: id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/restaurar`, {}),
   testarConexaoQai:   id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/testar-conexao`, {}),
   ativarSensorQai:    id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/ativar`, {}),
   desativarSensorQai: id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/desativar`, {}),
   sincronizarSensorQai: id       => API.post(`/qai/sensores/${encodeURIComponent(id)}/sincronizar`, {}),
   getLeiturasQai:     (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/leituras${q}`),
   getAparelhosQai:    id         => API.get(`/qai/sensores/${encodeURIComponent(id)}/aparelhos`),
-  getDashboardQai:    (contrato) => API.get(`/qai/dashboard${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}`),
+  // opts.incluirExcluidos: abas Ativos/Inativos/Excluídos em qai.html
+  // buscam tudo numa chamada só e filtram no cliente — sem o parâmetro,
+  // comportamento idêntico a antes (sensor excluído nunca aparece).
+  getDashboardQai:    (contrato, opts={}) => API.get(`/qai/dashboard${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}${opts.incluirExcluidos ? (contrato?'&':'?')+'incluirExcluidos=1' : ''}`),
   getLocaisQai:       (contrato) => API.get(`/qai/locais?contrato=${encodeURIComponent(contrato)}`),
 
 };

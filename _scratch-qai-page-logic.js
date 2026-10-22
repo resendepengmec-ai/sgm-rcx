@@ -286,5 +286,106 @@ console.log('── renderDashboard usa exibicao.modoValor do sensor (não mais 
   assert('exibicao.modoValor=cartoes: dash-grandezas volta a renderizar o cartão (classe qai-kpi)', elementoFalso('dash-grandezas').innerHTML.includes('qai-kpi'));
 }
 
+// ── Abas Ativos/Inativos/Excluídos + restaurar sensor (auditoria 2026-10) ──
+// Sensor excluído "se perdia" no servidor: nenhuma rota devolvia/editava
+// de novo. Aqui, o que é testável sem servidor: o bucket client-side
+// (linhasDaAba), o card somente-leitura com botão Restaurar (nunca
+// clicável pra abrir o dashboard — abrirSensor chama GET /sensores/:id,
+// que 404 pra excluído), e a reconciliação da exclusão (não assustar o
+// usuário com erro quando a resposta se perdeu mas o servidor já tinha
+// aplicado).
+sandbox.selectTab = () => {};
+let _toasts = [];
+sandbox.showToast = msg => { _toasts.push(msg); };
+sandbox.confirm = () => true;
+sandbox.fecharModal = () => {};
+
+const linha = (id, { ativo = false, excluido = null } = {}) => ({
+  sensor: { id, estabelecimento: 'E' + id, recinto: 'R' + id, sensorAtivo: ativo, excluidoEm: excluido },
+  telemetriaAoVivo: null, ultimaLeitura: null,
+});
+
+console.log('── linhasDaAba: separa ativos/inativos/excluídos corretamente ──');
+{
+  vm.runInContext(`LINHAS = [
+    ${JSON.stringify(linha('a1', { ativo: true }))},
+    ${JSON.stringify(linha('i1', { ativo: false }))},
+    ${JSON.stringify(linha('x1', { excluido: 1700000000000 }))},
+  ];`, sandbox);
+  const ativos = sandbox.linhasDaAba('ativos');
+  const inativos = sandbox.linhasDaAba('inativos');
+  const excluidos = sandbox.linhasDaAba('excluidos');
+  assert('aba ativos: só o sensor ativo e não excluído', ativos.length === 1 && ativos[0].sensor.id === 'a1');
+  assert('aba inativos: só o sensor inativo e não excluído', inativos.length === 1 && inativos[0].sensor.id === 'i1');
+  assert('aba excluidos: só o sensor com excluidoEm', excluidos.length === 1 && excluidos[0].sensor.id === 'x1');
+  assert('um sensor excluído NUNCA aparece em ativos/inativos, mesmo marcado sensorAtivo:true', !ativos.some(l => l.sensor.id === 'x1') && !inativos.some(l => l.sensor.id === 'x1'));
+}
+
+console.log('── renderCard (excluído): somente leitura, com Restaurar, nunca abre o dashboard ──');
+{
+  const html = sandbox.renderCard(linha('x2', { excluido: Date.now() }));
+  assert('mostra o botão Restaurar', html.includes('restaurarSensor(') && html.includes('Restaurar'));
+  assert('badge indica que foi excluído', /Exclu[ií]do/.test(html));
+  assert('NUNCA é clicável pra abrir o dashboard (sem onclick="abrirSensor)', !html.includes('onclick="abrirSensor('));
+}
+console.log('── renderCard (ativo/inativo): continua clicável, sem botão Restaurar ──');
+{
+  const htmlAtivo = sandbox.renderCard(linha('a2', { ativo: true }));
+  assert('card ativo continua abrindo o dashboard ao clicar', htmlAtivo.includes("onclick=\"abrirSensor('a2')\""));
+  assert('card ativo nunca mostra Restaurar', !htmlAtivo.includes('restaurarSensor('));
+}
+
+// Resto do arquivo é síncrono (node file.js, CommonJS — sem top-level
+// await) — os testes async de restaurarSensor/excluirSensorAtual ficam
+// numa IIFE, que só imprime o resumo final e sai depois de resolvida.
+(async () => {
+
+console.log('── restaurarSensor: chama a API, troca pra aba Inativos ──');
+{
+  vm.runInContext(`DB.restaurarSensorQai = (id) => { __idRestaurado = id; return Promise.resolve({}); };
+    DB.getDashboardQai = () => Promise.resolve([]);`, sandbox);
+  await sandbox.restaurarSensor('x3', {});
+  const idRestaurado = vm.runInContext('__idRestaurado', sandbox);
+  assert('chama DB.restaurarSensorQai com o id certo', idRestaurado === 'x3');
+  assert('troca a aba atual pra Inativos (onde um sensor recém-restaurado aparece)', vm.runInContext('ABA_STATUS', sandbox) === 'inativos');
+}
+
+console.log('── excluirSensorAtual: resposta perdida depois de excluir no servidor NÃO assusta o usuário ──');
+{
+  _toasts = [];
+  vm.runInContext(`SENSOR_ABERTO = { id: 'x4', contrato: '1020' };`, sandbox);
+  vm.runInContext(`
+    DB.deleteSensorQai = () => Promise.reject(Object.assign(new Error('timeout'), { transient: true }));
+    DB.getDashboardQai = () => Promise.resolve([${JSON.stringify(linha('x4', { excluido: Date.now() }))}]);
+  `, sandbox);
+  await sandbox.excluirSensorAtual({});
+  assert('NÃO mostra "Erro ao excluir" quando a reconciliação confirma que já foi excluído', !_toasts.some(t => t.startsWith('Erro ao excluir')));
+  assert('mostra confirmação de sucesso (exclusão confirmada após verificar)', _toasts.some(t => t.includes('confirmado')));
+}
+console.log('── excluirSensorAtual: erro de verdade (não transient) continua mostrando erro ──');
+{
+  _toasts = [];
+  vm.runInContext(`SENSOR_ABERTO = { id: 'x5', contrato: '1020' };`, sandbox);
+  vm.runInContext(`DB.deleteSensorQai = () => Promise.reject(Object.assign(new Error('Sem permissão'), { transient: false }));`, sandbox);
+  await sandbox.excluirSensorAtual({});
+  assert('erro não-transient mostra "Erro ao excluir" normalmente', _toasts.some(t => t.startsWith('Erro ao excluir')));
+}
+console.log('── excluirSensorAtual: erro transient SEM confirmação de que foi excluído continua mostrando erro ──');
+{
+  _toasts = [];
+  vm.runInContext(`SENSOR_ABERTO = { id: 'x6', contrato: '1020' };`, sandbox);
+  vm.runInContext(`
+    DB.deleteSensorQai = () => Promise.reject(Object.assign(new Error('timeout'), { transient: true }));
+    DB.getDashboardQai = () => Promise.resolve([]);
+  `, sandbox);
+  await sandbox.excluirSensorAtual({});
+  assert('sem confirmação (sensor não aparece como excluído): mostra erro, não finge sucesso', _toasts.some(t => t.startsWith('Erro ao excluir')));
+}
+
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
+// process.exit() (não só exitCode) de propósito, igual ao fim de linha
+// único que este arquivo sempre teve: sai na hora, sem deixar nenhum
+// timer pendente (de uma renderização síncrona anterior) dar a chance de
+// disparar — mesma garantia de sempre, agora atrás de um IIFE async.
 process.exit(falhas === 0 ? 0 : 1);
+})();

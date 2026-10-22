@@ -40,10 +40,16 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 
 .qai-contrato-select{flex:1 1 220px;}
 
+.qai-status-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);padding:0 14px;overflow-x:auto;}
+.qai-status-tabs.hidden{display:none;}
+.qai-stab{flex:none;padding:10px 14px;font-size:13px;font-weight:600;color:var(--text-3);border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;}
+.qai-stab.active{color:var(--primary);border-bottom-color:var(--primary);}
+
 .qai-lista{padding:12px 14px;}
 .qai-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px;border-left:4px solid var(--border);cursor:pointer;}
 .qai-card.ativo{border-left-color:var(--success);}
 .qai-card.inativo{border-left-color:var(--text-3);}
+.qai-card.excluido{border-left-color:var(--danger);cursor:default;opacity:.8;}
 .qai-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
 .qai-card-titulo{font-size:15px;font-weight:700;}
 .qai-card-sub{font-size:12px;color:var(--text-2);margin-top:2px;}
@@ -122,6 +128,12 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
 </div>
 
+<div class="qai-status-tabs hidden" id="qai-status-tabs" role="tablist">
+  <button class="qai-stab active" role="tab" data-tab="ativos" aria-selected="true" onclick="trocarAbaStatus('ativos')">Ativos</button>
+  <button class="qai-stab" role="tab" data-tab="inativos" aria-selected="false" onclick="trocarAbaStatus('inativos')">Inativos</button>
+  <button class="qai-stab" role="tab" data-tab="excluidos" aria-selected="false" onclick="trocarAbaStatus('excluidos')">Excluídos</button>
+</div>
+
 <div class="qai-lista" id="qai-lista">
   <div class="empty">Selecione um contrato para ver os sensores.</div>
 </div>
@@ -177,7 +189,8 @@ const FREQUENCIAS = [0, 1, 2, 3, 4, 6, 12];
 
 let user = null;
 let CONTRATOS = [];
-let LINHAS = [];            // dashboard do contrato selecionado
+let LINHAS = [];            // dashboard do contrato selecionado (todos os status)
+let ABA_STATUS = 'ativos';  // aba atual: 'ativos' | 'inativos' | 'excluidos'
 let SENSOR_ABERTO = null;   // sensor completo exibido no modal
 let LEITURAS_ABERTO = [];
 let CHARTS_DASH = [];       // gráficos do histórico do dia
@@ -328,6 +341,7 @@ function preencherSelectContratos() {
 function aoTrocarContrato() {
   const contrato = document.getElementById('f-contrato').value;
   document.getElementById('btn-novo-sensor').disabled = !contrato;
+  document.getElementById('qai-status-tabs').classList.toggle('hidden', !contrato);
   if (!contrato) {
     LINHAS = [];
     document.getElementById('qai-lista').innerHTML = '<div class="empty">Selecione um contrato para ver os sensores.</div>';
@@ -336,14 +350,22 @@ function aoTrocarContrato() {
   carregarLista();
 }
 
+function trocarAbaStatus(aba) {
+  ABA_STATUS = aba;
+  selectTab('#qai-status-tabs', aba);
+  renderLista();
+}
+
 // ── Lista / dashboard ────────────────────────────────────────────────
+// incluirExcluidos:true numa chamada só — as 3 abas (Ativos/Inativos/
+// Excluídos) filtram LINHAS no cliente, sem precisar de 1 fetch por aba.
 async function carregarLista() {
   const contrato = document.getElementById('f-contrato').value;
   if (!contrato) return;
   const lista = document.getElementById('qai-lista');
   lista.innerHTML = '<div class="empty">Carregando…</div>';
   try {
-    LINHAS = await DB.getDashboardQai(contrato);
+    LINHAS = await DB.getDashboardQai(contrato, { incluirExcluidos: true });
     renderLista();
   } catch (e) {
     lista.innerHTML = '<div class="empty">Não foi possível carregar os sensores.</div>';
@@ -351,13 +373,25 @@ async function carregarLista() {
   }
 }
 
+function linhasDaAba(aba) {
+  if (aba === 'excluidos') return LINHAS.filter(l => l.sensor.excluidoEm);
+  if (aba === 'inativos')  return LINHAS.filter(l => !l.sensor.excluidoEm && !l.sensor.sensorAtivo);
+  return LINHAS.filter(l => !l.sensor.excluidoEm && l.sensor.sensorAtivo); // 'ativos'
+}
+
 function renderLista() {
   const lista = document.getElementById('qai-lista');
+  const linhas = linhasDaAba(ABA_STATUS);
   if (!LINHAS.length) {
     lista.innerHTML = '<div class="empty">Nenhum sensor cadastrado neste contrato ainda.<br>Use "+ Novo sensor" para começar.</div>';
     return;
   }
-  lista.innerHTML = LINHAS.map(renderCard).join('');
+  if (!linhas.length) {
+    const msg = ABA_STATUS === 'excluidos' ? 'Nenhum sensor excluído.' : `Nenhum sensor ${ABA_STATUS === 'ativos' ? 'ativo' : 'inativo'} neste contrato.`;
+    lista.innerHTML = `<div class="empty">${msg}</div>`;
+    return;
+  }
+  lista.innerHTML = linhas.map(renderCard).join('');
 }
 
 function renderCard(linha) {
@@ -367,6 +401,24 @@ function renderCard(linha) {
   const valores = tel ? tel.valores : (leitura ? leitura.valores : {});
   const conforme = tel ? tel.conforme : (leitura ? leitura.conforme : null);
   const quando = tel ? tel.recebidoEm : (leitura ? leitura.criadoEm : null);
+
+  // Excluído: card somente leitura (abrirSensor chama GET /sensores/:id
+  // primeiro, que 404 pra sensor excluído — nunca é clicável) com botão
+  // pra restaurar, em vez das ações normais.
+  if (s.excluidoEm) {
+    return `<div class="qai-card excluido">
+      <div class="qai-card-top">
+        <div>
+          <div class="qai-card-titulo">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
+          <div class="qai-card-sub"><span class="badge inativo">Excluído em ${new Date(s.excluidoEm).toLocaleDateString('pt-BR')}</span></div>
+        </div>
+      </div>
+      <div class="qai-card-rodape">Histórico de leituras preservado.</div>
+      <div class="action-bar" style="margin-top:8px">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="event.stopPropagation();restaurarSensor('${s.id}', this)">↩ Restaurar</button>
+      </div>
+    </div>`;
+  }
 
   const badgeConforme = conforme === true ? '<span class="badge conforme">✓ Conforme</span>'
     : conforme === false ? '<span class="badge fora">⚠ Fora do limite</span>'
@@ -387,6 +439,19 @@ function renderCard(linha) {
     <div class="qai-card-valores">${chips || '<span class="qai-valor">sem leitura ainda</span>'}</div>
     <div class="qai-card-rodape">${quando ? 'Última leitura: ' + tempoRelativo(quando) : 'Nunca sincronizado'}</div>
   </div>`;
+}
+
+async function restaurarSensor(id, btn) {
+  if (!confirm('Restaurar este sensor? Ele volta pra aba Inativos, sem religar o polling automaticamente.')) return;
+  await withActionBusy(btn, 'Restaurando…', async () => {
+    try {
+      await DB.restaurarSensorQai(id);
+      showToast('Sensor restaurado.');
+      ABA_STATUS = 'inativos';
+      selectTab('#qai-status-tabs', 'inativos');
+      carregarLista();
+    } catch (e) { showToast('Erro ao restaurar: ' + e.message, 6000); }
+  });
 }
 
 // ── Novo sensor ──────────────────────────────────────────────────────
@@ -570,15 +635,30 @@ async function sincronizarSensorAtual(btn) {
   });
 }
 async function excluirSensorAtual(btn) {
-  if (!confirm('Excluir este sensor? O histórico de leituras é mantido, mas o sensor sai da lista ativa.')) return;
+  if (!confirm('Excluir este sensor? O histórico de leituras é mantido — pode ser restaurado na aba Excluídos.')) return;
   await withActionBusy(btn, 'Excluindo…', async () => {
+    const idAlvo = SENSOR_ABERTO.id;
+    const contratoAlvo = SENSOR_ABERTO.contrato;
     try {
-      await DB.deleteSensorQai(SENSOR_ABERTO.id);
+      await DB.deleteSensorQai(idAlvo);
       showToast('Sensor excluído.');
-      fecharModal('modal-sensor');
-      SENSOR_ABERTO = null;
-      carregarLista();
-    } catch (e) { showToast('Erro ao excluir: ' + e.message, 6000); }
+    } catch (e) {
+      // A exclusão pode ter chegado ao servidor mesmo que a RESPOSTA se
+      // perca (timeout/rede instável) — mesmo princípio de
+      // updateChamadoStatus (api-client.js): antes de assustar o usuário
+      // com um erro, confere se o sensor já está excluído de verdade.
+      if (!e.transient) { showToast('Erro ao excluir: ' + e.message, 6000); return; }
+      let jaExcluido = false;
+      try {
+        const linhas = await DB.getDashboardQai(contratoAlvo, { incluirExcluidos: true });
+        jaExcluido = linhas.some(l => l.sensor.id === idAlvo && l.sensor.excluidoEm);
+      } catch (e2) { /* não conseguiu confirmar — mantém o erro original */ }
+      if (!jaExcluido) { showToast('Erro ao excluir: ' + e.message, 6000); return; }
+      showToast('Sensor excluído (confirmado após verificar a conexão).');
+    }
+    fecharModal('modal-sensor');
+    SENSOR_ABERTO = null;
+    carregarLista();
   });
 }
 
