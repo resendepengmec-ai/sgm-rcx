@@ -1173,23 +1173,16 @@ const DB = {
 
 };
 
-// ── Machine DB local fallback ──────────────────────────────────────
-// Usado pelos módulos que ainda precisam acesso síncrono às TAGs
-let _machineDBCache = null;
-async function loadMachineDB() {
-  try { _machineDBCache = await DB.getMachineDB(); }
-  catch(e) {
-    const c = localStorage.getItem('smm_custom_db');
-    _machineDBCache = c ? JSON.parse(c) : {};
-  }
-  return _machineDBCache;
-}
+// ── Inventário de equipamentos por contrato ────────────────────────
+// Fonte única: contrato.equipamentos, vindo sempre fresco do backend
+// via DB.getContratos() (ver populateContractDropdowns* de cada módulo),
+// cacheado em smm_contracts. Nunca cai pro "banco de equipamentos"
+// embutido/importado em lote (.xlsx) — removido na auditoria de 2026-10
+// por ser um blob global sem dono/tenant, nunca purgado, que podia
+// vazar equipamento de um contrato apagado/reaproveitado pra outro
+// tenant (mesmo achado corrigido no backend em machine_db).
 function getEffDB() {
-  // 1. Cache
-  if (_machineDBCache) return _machineDBCache;
-
-  // 2. Constrói mapa contrato→equipamentos a partir de smm_contracts (fonte principal)
-  let db = {};
+  const db = {};
   try {
     const contracts = safeLocalStorageGetJSON('smm_contracts', []);
     contracts.forEach(c => {
@@ -1198,13 +1191,6 @@ function getEffDB() {
       }
     });
   } catch(e) {}
-
-  // 3. Se ainda vazio, tenta smm_custom_db (importação em lote via .xlsx no admin)
-  if (Object.keys(db).length === 0) {
-    const c = localStorage.getItem('smm_custom_db');
-    if (c) try { db = JSON.parse(c); } catch {}
-  }
-
   return db;
 }
 

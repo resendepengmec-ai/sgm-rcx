@@ -75,10 +75,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <!-- Lista de contratos -->
 <div id="screen-list" class="screen active" style="padding:12px">
-  <div id="cont-tabs" role="tablist" style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:14px;overflow-x:auto">
-    <button class="stab active" id="cont-tab-lista" role="tab" data-tab="lista" aria-selected="true" aria-controls="cont-lista-content" onclick="switchContTab('lista')">📑 Contratos</button>
-    <button class="stab" id="cont-tab-banco" role="tab" data-tab="banco" aria-selected="false" aria-controls="cont-banco-content" onclick="switchContTab('banco')">📦 Banco de dados</button>
-  </div>
   <div id="cont-lista-content">
   <div id="contracts-list"></div>
   <div id="contracts-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
@@ -87,7 +83,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div style="font-size:13px">Clique em + para adicionar o primeiro contrato</div>
   </div>
   </div><!-- /cont-lista-content -->
-  <div id="cont-banco-content" style="display:none"></div>
 </div>
 
 <!-- Form de contrato -->
@@ -264,7 +259,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
-<script src="db.js"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
@@ -778,14 +772,6 @@ async function saveContract(btn) {
     restore();
   }
 
-  // Sync machine DB com os equipamentos do contrato
-  if (c.equipamentos.length) {
-    const mdb = getEffDB() || {};
-    mdb[c.numero] = c.equipamentos;
-    safeLocalStorageSetJSON('smm_custom_db', mdb, { stripBinaries: true });
-    await DB.saveMachineDB(mdb).catch(()=>{});
-  }
-
   showScreen('list');
   renderList();
 }
@@ -1017,40 +1003,6 @@ DB.getContratos('?resumo=1').then(data => {
   // fallback já carregado do localStorage
 });
 
-// ── Banco de dados (integrado de contratos) ───────────────────────
-
-function renderBancoTab(el) {
-  const customDb = safeLocalStorageGet('smm_custom_db', '');
-  let dbInfo = '';
-  const sourceDb = customDb ? safeLocalStorageGetJSON('smm_custom_db', {}) : (typeof MACHINE_DB!=='undefined'?MACHINE_DB:{});
-  const contracts = Object.keys(sourceDb);
-  if (contracts.length) {
-    dbInfo = `<div class="db-info">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${customDb?'📦 Banco personalizado':'📦 Banco original embutido'}</div>
-      ${contracts.map(c=>`
-        <div class="db-contract-row">
-          <span style="font-weight:600">Contrato ${c}</span>
-          <span style="color:var(--text-2)">${sourceDb[c].length} equipamentos</span>
-        </div>`).join('')}
-      <div style="font-size:12px;color:var(--text-3);margin-top:8px;text-align:right">
-        Total: ${contracts.reduce((s,c)=>s+sourceDb[c].length,0)} equipamentos
-      </div>
-    </div>`;
-  }
-  el.innerHTML = `
-    <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">
-      Importe um novo arquivo <strong>.xlsx</strong> para atualizar o banco de equipamentos de todos os contratos.
-      Cada aba = um contrato. Colunas: A=TAG · B=Marca · C=Tipo · D=Capacidade · E=Estabelecimento · F=Recinto
-    </p>
-    ${dbInfo}
-    <div class="action-bar" style="flex-direction:column;gap:8px">
-      <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('db-modal').classList.remove('hidden')">
-        📂 Importar novo arquivo .xlsx
-      </button>
-      ${customDb?`<button class="btn btn-danger" style="width:100%;font-size:13px" onclick="resetDB()">🔄 Restaurar banco original</button>`:''}
-    </div>`;
-}
-
 // Detecta se CNPJ ou razão social já existem em outros contratos
 function checkExistingClient() {
   const cnpj  = document.getElementById('f-cnpj').value.trim().replace(/\D/g,'');
@@ -1124,13 +1076,6 @@ async function importFromContract(cid) {
     <br>Total: ${pendingEquip.filter(e=>equipamentoOperante(e)).length} equipamento(s)
   </div>`;
   showToast(`${added} equipamentos importados de ${src.numero}`);
-}
-
-function switchContTab(tab) {
-  document.getElementById('cont-lista-content').style.display = tab==='lista' ? '' : 'none';
-  document.getElementById('cont-banco-content').style.display = tab==='banco' ? '' : 'none';
-  selectTab('#cont-tabs', tab);
-  if (tab==='banco') renderBancoTab(document.getElementById('cont-banco-content'));
 }
 </script>
 </body>

@@ -308,38 +308,8 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </div>
 </div>
 
-<div class="modal-bg hidden" id="db-modal">
-  <div class="modal">
-    <div class="modal-handle"></div>
-    <div class="modal-title">📦 Atualizar banco de dados</div>
-    <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;line-height:1.6">
-      Envie o arquivo <strong>.xlsx</strong> com o banco de equipamentos.<br>
-      Cada aba deve ter o nome do contrato (1020, 1023, 1123…) e colunas:<br>
-      A=TAG &nbsp;B=Marca &nbsp;C=Tipo &nbsp;D=Capacidade &nbsp;E=Estabelecimento &nbsp;F=Recinto
-    </p>
-    <div class="db-drop" id="db-drop"
-      ondragover="event.preventDefault();this.classList.add('drag')"
-      ondragleave="this.classList.remove('drag')"
-      ondrop="handleDbDrop(event)">
-      <input type="file" id="db-file" accept=".xlsx,.xls" onchange="handleDbFile(event)">
-      <span class="db-drop-icon">📂</span>
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">Toque para selecionar o arquivo</div>
-      <div style="font-size:12px;color:var(--text-3)">ou arraste o .xlsx aqui</div>
-    </div>
-    <div id="db-preview" style="display:none" class="db-info"></div>
-    <div class="action-bar" style="margin-top:16px">
-      <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('db-modal').classList.add('hidden')">Cancelar</button>
-      <button class="btn btn-primary" style="flex:1" id="btn-apply-db" onclick="applyNewDB()" disabled>✅ Aplicar banco</button>
-    </div>
-    <div style="margin-top:12px">
-      <button class="btn btn-danger" style="width:100%;font-size:13px" onclick="resetDB()">🔄 Restaurar banco original (embutido)</button>
-    </div>
-  </div>
-</div>
-
 <script src="config.js"></script>
-<script src="api-client.js?v=20261020.1"></script>
-<script src="db.js"></script>
+<script src="api-client.js?v=20261022.1"></script>
 <script>
 
 // ── V31: e-mail dentro de string JS em atributo onclick ───────────
@@ -390,7 +360,6 @@ document.addEventListener('click', e => {
 
 // ── Admin state ──
 let adminTab = 'usuarios';
-let pendingDB = null;
 
 // ── Login ──
 function renderLogin() {
@@ -523,9 +492,6 @@ function renderDashboard(user) {
     {id:'admin',    icon:'👑',name:'Administração',desc:'Quem acessa o quê, por perfil e contrato', count:`${wl.length} autorizado${wl.length!==1?'s':''}`, file:null},
   ].filter(m=>modulosVisiveis.includes(m.id));
 
-  const customDb = localStorage.getItem('smm_custom_db');
-  const dbStatus = customDb ? '📦 Banco personalizado ativo' : '📦 Banco original embutido';
-
   app.innerHTML = `
     <div class="dash-header">
       <div class="dash-header-top">
@@ -592,9 +558,6 @@ function renderDashboard(user) {
             <div class="activity-time">${timeAgo(a.ts)}</div>
           </div>`).join('')}
       </div>` : ''}
-
-      ${modulosVisiveis.includes('admin') ? `
-      <div style="font-size:12px;color:var(--text-3);text-align:center;padding:4px 0 8px">${dbStatus}</div>` : ''}
 
       <div id="admin-panel"></div>
     </div>`;
@@ -1836,39 +1799,6 @@ async function removeWLEntry(email) {
   } catch(e) { showToast('Erro: ' + e.message); }
 }
 
-// ── Tab: Banco de dados ──
-function renderBancoTab(el) {
-  const customDb = localStorage.getItem('smm_custom_db');
-  let dbInfo = '';
-  const sourceDb = customDb ? JSON.parse(customDb) : (typeof MACHINE_DB!=='undefined'?MACHINE_DB:{});
-  const contracts = Object.keys(sourceDb);
-  if (contracts.length) {
-    dbInfo = `<div class="db-info">
-      <div style="font-weight:600;font-size:13px;margin-bottom:8px">${customDb?'📦 Banco personalizado':'📦 Banco original embutido'}</div>
-      ${contracts.map(c=>`
-        <div class="db-contract-row">
-          <span style="font-weight:600">Contrato ${c}</span>
-          <span style="color:var(--text-2)">${sourceDb[c].length} equipamentos</span>
-        </div>`).join('')}
-      <div style="font-size:12px;color:var(--text-3);margin-top:8px;text-align:right">
-        Total: ${contracts.reduce((s,c)=>s+sourceDb[c].length,0)} equipamentos
-      </div>
-    </div>`;
-  }
-  el.innerHTML = `
-    <p style="font-size:13px;color:var(--text-2);margin-bottom:14px;line-height:1.6">
-      Importe um novo arquivo <strong>.xlsx</strong> para atualizar o banco de equipamentos de todos os contratos.
-      Cada aba = um contrato. Colunas: A=TAG · B=Marca · C=Tipo · D=Capacidade · E=Estabelecimento · F=Recinto
-    </p>
-    ${dbInfo}
-    <div class="action-bar" style="flex-direction:column;gap:8px">
-      <button class="btn btn-primary" style="width:100%" onclick="document.getElementById('db-modal').classList.remove('hidden')">
-        📂 Importar novo arquivo .xlsx
-      </button>
-      ${customDb?`<button class="btn btn-danger" style="width:100%;font-size:13px" onclick="resetDB()">🔄 Restaurar banco original</button>`:''}
-    </div>`;
-}
-
 // ── User management ──
 async function changeRole(userId, newRole) {
   const users = getUsers();
@@ -1911,89 +1841,6 @@ async function toggleUser(userId) {
   }
 }
 
-// ── DB import ──
-function handleDbDrop(e) {
-  e.preventDefault();
-  document.getElementById('db-drop').classList.remove('drag');
-  const file = e.dataTransfer.files[0];
-  if (file) processDbFile(file);
-}
-function handleDbFile(e) {
-  const file = e.target.files[0];
-  if (file) processDbFile(file);
-  e.target.value = '';
-}
-
-function processDbFile(file) {
-  if (!file.name.match(/\.xlsx?$/i)) { showToast('Arquivo inválido. Use .xlsx'); return; }
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const wb = XLSX.read(ev.target.result, { type: 'binary' });
-      const result = {};
-      let totalEquip = 0;
-      wb.SheetNames.forEach(sheet => {
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1 });
-        const records = [];
-        rows.forEach((row, i) => {
-          if (i === 0) return; // skip header
-          const tag = String(row[0]||'').trim().replace(/\.0$/,'');
-          if (!tag || tag==='nan') return;
-          records.push({
-            tag,
-            marca:          String(row[1]||'').trim(),
-            tipo:           String(row[2]||'').trim(),
-            capacidade:     String(row[3]||'').trim().replace(/\.0$/,''),
-            estabelecimento:String(row[4]||'').trim(),
-            recinto:        String(row[5]||'').trim(),
-          });
-        });
-        if (records.length) { result[sheet] = records; totalEquip += records.length; }
-      });
-      if (!Object.keys(result).length) { showToast('Nenhum dado encontrado no arquivo'); return; }
-      pendingDB = result;
-      const preview = document.getElementById('db-preview');
-      preview.style.display = '';
-      preview.innerHTML = `
-        <div style="font-weight:600;font-size:13px;margin-bottom:10px;color:var(--primary)">✅ Arquivo lido com sucesso</div>
-        ${Object.entries(result).map(([c,r])=>`
-          <div class="db-contract-row">
-            <span style="font-weight:600">Contrato ${c}</span>
-            <span>${r.length} equipamentos</span>
-          </div>`).join('')}
-        <div style="font-size:12px;color:var(--text-3);margin-top:8px;text-align:right">
-          Total: ${totalEquip} equipamentos em ${Object.keys(result).length} contrato(s)
-        </div>`;
-      document.getElementById('btn-apply-db').disabled = false;
-    } catch(err) {
-      showToast('Erro ao ler arquivo: ' + err.message);
-    }
-  };
-  reader.readAsBinaryString(file);
-}
-
-function applyNewDB() {
-  if (!pendingDB) return;
-  safeLocalStorageSetJSON('smm_custom_db', pendingDB, { stripBinaries: true });
-  // db.js fallback: also set MACHINE_DB in window for current session
-  window.MACHINE_DB = pendingDB;
-  showToast('Banco de dados atualizado!');
-  pendingDB = null;
-  document.getElementById('db-modal').classList.add('hidden');
-  document.getElementById('db-preview').style.display = 'none';
-  document.getElementById('btn-apply-db').disabled = true;
-  renderAdminTab();
-}
-
-function resetDB() {
-  if (!confirm('Restaurar o banco original embutido no sistema? O banco importado será removido.')) return;
-  localStorage.removeItem('smm_custom_db');
-  window.MACHINE_DB = typeof MACHINE_DB !== 'undefined' ? MACHINE_DB : {};
-  showToast('Banco original restaurado');
-  document.getElementById('db-modal').classList.add('hidden');
-  renderAdminTab();
-}
-
 // ── Tab: Configurações (Client ID + link de distribuição) ──
 function renderConfigTab(el) {
   const hasId    = !!localStorage.getItem(CLIENT_ID_KEY);
@@ -2023,38 +1870,7 @@ function renderConfigTab(el) {
     </div>
     <button class="btn btn-primary" style="margin-bottom:16px" onclick="saveClientIdFromConfig()">
       💾 Salvar Client ID
-    </button>
-
-    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
-      <div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">
-        📲 Acessar em novo dispositivo
-      </div>
-      <p style="font-size:13px;color:var(--text-2);line-height:1.6;margin-bottom:10px">
-        Para fazer login como admin em outro dispositivo, exporte a configuração
-        e importe no novo dispositivo antes de entrar.
-      </p>
-      <div class="action-bar">
-        <button class="btn btn-secondary" style="flex:1" onclick="exportAdminConfig()">
-          📤 Exportar configuração
-        </button>
-        <button class="btn btn-secondary" style="flex:1" onclick="document.getElementById('import-admin-file').click()">
-          📥 Importar configuração
-        </button>
-      </div>
-      <input type="file" id="import-admin-file" accept=".json" style="display:none" onchange="importAdminConfig(event)">
-    </div>
-
-    <div style="border-top:1px solid var(--border);padding-top:14px">
-      <div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">
-        Como funciona o login admin em novo dispositivo
-      </div>
-      <div style="font-size:13px;color:var(--text-2);line-height:2">
-        <div>1. Neste dispositivo: <strong>Exportar configuração</strong></div>
-        <div>2. No novo dispositivo: <strong>Importar configuração</strong></div>
-        <div>3. No novo dispositivo: painel admin → <strong>Autenticar com Google</strong></div>
-        <div style="color:var(--success);margin-top:4px">✅ Login confirmado pelo e-mail da conta Google</div>
-      </div>
-    </div>`;
+    </button>`;
   loadPrestadoraConfig();
 }
 
@@ -2307,51 +2123,6 @@ function saveMinhaEmpresaConfig(btn) {
     .catch(e => showToast('Erro ao salvar: ' + e.message))
     .finally(() => restore());
 }
-
-function exportAdminConfig() {
-  const config = {
-    smm_client_id:    localStorage.getItem(CLIENT_ID_KEY)    || '',
-    smm_users:        localStorage.getItem(USERS_KEY)         || '[]',
-    smm_whitelist:    localStorage.getItem(WHITELIST_KEY)     || '[]',
-    smm_custom_db:    localStorage.getItem(DB_KEY)            || '',
-    smm_admin_email:  localStorage.getItem(ADMIN_EMAIL_KEY)   || '',
-    smm_setup_done:   localStorage.getItem(SETUP_DONE_KEY)    || '',
-    exportedAt:       Date.now(),
-    exportedBy:       getCurrentUser()?.email || 'admin',
-  };
-  if (!config.smm_admin_email) {
-    showToast('Complete o primeiro login admin antes de exportar'); return;
-  }
-  const blob = new Blob([JSON.stringify(config, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `smm-config-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  showToast('Configuração exportada!');
-}
-
-function importAdminConfig(e) {
-  const file = e.target.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const cfg = JSON.parse(ev.target.result);
-      if (!cfg.smm_client_id)  { showToast('Arquivo inválido — Client ID não encontrado'); return; }
-      if (!cfg.smm_admin_email){ showToast('Arquivo inválido — E-mail admin não encontrado'); return; }
-      localStorage.setItem(CLIENT_ID_KEY,   cfg.smm_client_id);
-      localStorage.setItem(ADMIN_EMAIL_KEY,  cfg.smm_admin_email);
-      localStorage.setItem(SETUP_DONE_KEY,   cfg.smm_setup_done || 'true');
-      if (cfg.smm_users     && cfg.smm_users     !== '[]') localStorage.setItem(USERS_KEY,    cfg.smm_users);
-      if (cfg.smm_whitelist && cfg.smm_whitelist !== '[]') localStorage.setItem(WHITELIST_KEY, cfg.smm_whitelist);
-      if (cfg.smm_custom_db) localStorage.setItem(DB_KEY, cfg.smm_custom_db);
-      showToast('✅ Configuração importada! Agora abra o painel admin e autentique com Google.');
-      renderAdminTab();
-    } catch { showToast('Erro ao ler arquivo'); }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
-}
-
 
 function saveClientIdFromConfig() {
   const id = document.getElementById('cfg-cid').value.trim();
