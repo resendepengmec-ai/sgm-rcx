@@ -1785,6 +1785,13 @@ async function saveMovimento(btn) {
       showToast(`A TAG ${novaTag} já existe neste contrato. Use uma nova instalação apenas para reativar uma TAG inoperante.`, 7000);
       return;
     }
+    // Baixa é descarte definitivo — diferente de desmontagem (que só tira
+    // de operação; o equipamento continua existindo e pode ser
+    // reinstalado). Uma TAG baixada nunca pode voltar como instalação.
+    if (existente && statusEquipamento(existente) === 'baixado/inoperante') {
+      showToast(`A TAG ${novaTag} foi baixada (descartada) e não pode ser reinstalada. Cadastre uma TAG nova.`, 7000);
+      return;
+    }
   }
 
   const mov = {
