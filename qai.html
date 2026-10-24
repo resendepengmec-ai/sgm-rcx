@@ -126,6 +126,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     <option value="">Selecione o contrato…</option>
   </select>
   <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
+  <button class="btn btn-secondary btn-sm hidden" id="btn-config-local" onclick="abrirConfigLocal()" disabled>🌍 Local</button>
 </div>
 
 <div class="qai-status-tabs hidden" id="qai-status-tabs" role="tablist">
@@ -173,6 +174,15 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   </div>
 </div>
 
+<!-- Modal: configuração de local (Fase 1 — Estatísticas QAI) -->
+<div class="modal-bg hidden" id="modal-config-local">
+  <div class="modal" style="max-width:520px;margin:0 auto">
+    <div class="modal-handle"></div>
+    <div id="config-local-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-config-local')">Fechar</button>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -205,6 +215,11 @@ let LOCAIS = [];             // estabelecimentos/recintos do contrato (autocompl
 let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
 let DISPONIVEIS_RENDER = []; // ordem das linhas de grandezas, lida no salvar
 let LIMITES_RENDER = [];     // ordem das linhas de limites, lida no salvar
+let CONFIGS_LOCAL = new Map(); // estabelecimento (normalizado) -> config de local, do contrato atual
+let CONFIG_LOCAL_EDITANDO = null; // nome do estabelecimento em edição no modal, ou null (lista)
+let ESTAT_INICIO = '', ESTAT_FIM = '', ESTAT_PERIODO = '24h'; // filtros da tela de Estatísticas
+let ESTAT_SEQ = 0;          // ignora resposta antiga depois de trocar o filtro de novo
+let CHARTS_ESTAT = [];
 
 function showToast(msg, dur = 3000) {
   const t = document.getElementById('toast');
@@ -298,6 +313,118 @@ function preencherDatalists(idEstab, idRecinto, estabelecimentoAtual) {
   atualizarDatalistRecinto(idRecinto, estabelecimentoAtual);
 }
 
+// ── Configuração de local (Fase 1 — Estatísticas QAI) ───────────────
+// Latitude/longitude/fuso/diurno-noturno por estabelecimento — dado
+// estrutural, não operação do dia a dia; mesma faixa de papel que já
+// edita contrato no resto do sistema (authz.SUPERVISOR_ACIMA, aplicado
+// no servidor — isto só evita mostrar um botão que ele rejeitaria).
+function podeConfigurarLocalQai(role) {
+  return ['admin', 'admin_cliente', 'diretor', 'supervisor'].includes(role);
+}
+
+async function abrirConfigLocal() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  await carregarLocais(contrato);
+  if (!LOCAIS.length) {
+    showToast('Nenhum estabelecimento cadastrado neste contrato ainda (cadastre um sensor ou equipamento primeiro).', 6000);
+    return;
+  }
+  try {
+    const configs = await DB.getConfigLocalQai(contrato);
+    CONFIGS_LOCAL = new Map((configs || []).map(c => [_normTexto(c.estabelecimento), c]));
+  } catch (e) {
+    CONFIGS_LOCAL = new Map();
+    showToast('Não foi possível carregar as configurações já salvas: ' + e.message, 6000);
+  }
+  CONFIG_LOCAL_EDITANDO = null;
+  renderConfigLocal();
+  abrirModal('modal-config-local');
+}
+
+function renderConfigLocal() {
+  const el = document.getElementById('config-local-conteudo');
+  if (CONFIG_LOCAL_EDITANDO) {
+    const cfg = CONFIGS_LOCAL.get(_normTexto(CONFIG_LOCAL_EDITANDO)) || {};
+    el.innerHTML = `
+      <div class="modal-title">${esc(CONFIG_LOCAL_EDITANDO)}</div>
+      <div class="qai-sub">
+        Latitude/longitude e fuso definem o relógio local do
+        estabelecimento, usado para calcular os períodos diurno e
+        noturno nas estatísticas. A noite é contada pela data em que
+        COMEÇOU — ex.: 23h de um dia e 3h da madrugada seguinte
+        pertencem à mesma "noite", não a duas noites diferentes.
+      </div>
+      <div class="field">
+        <label>Latitude</label>
+        <input type="number" id="cfgl-lat" step="0.000001" min="-90" max="90" value="${cfg.latitude ?? ''}" placeholder="ex.: -16.686891">
+      </div>
+      <div class="field">
+        <label>Longitude</label>
+        <input type="number" id="cfgl-lon" step="0.000001" min="-180" max="180" value="${cfg.longitude ?? ''}" placeholder="ex.: -49.264794">
+      </div>
+      <div class="field">
+        <label>Fuso horário (IANA)</label>
+        <input type="text" id="cfgl-tz" list="dl-fusos" maxlength="60" value="${esc(cfg.timezone || 'America/Sao_Paulo')}" placeholder="ex.: America/Sao_Paulo">
+        <datalist id="dl-fusos">
+          <option value="America/Sao_Paulo"></option>
+          <option value="America/Manaus"></option>
+          <option value="America/Rio_Branco"></option>
+          <option value="America/Noronha"></option>
+          <option value="UTC"></option>
+        </datalist>
+      </div>
+      <div class="field">
+        <label>Início do período diurno</label>
+        <input type="time" id="cfgl-diurno-inicio" value="${cfg.diurnoInicio || '06:00'}">
+      </div>
+      <div class="field">
+        <label>Fim do período diurno</label>
+        <input type="time" id="cfgl-diurno-fim" value="${cfg.diurnoFim || '18:00'}">
+      </div>
+      <div class="qai-sub">O período noturno é o complemento automático do diurno (ex.: diurno 06:00–18:00 → noturno 18:00–06:00 do dia seguinte).</div>
+      <div class="action-bar">
+        <button class="btn btn-secondary" onclick="CONFIG_LOCAL_EDITANDO=null;renderConfigLocal()">Voltar</button>
+        <button class="btn btn-primary" id="btn-salvar-config-local" onclick="salvarConfigLocal(this)">Salvar</button>
+      </div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="modal-title">Configuração de local</div>
+    <div class="qai-sub">Latitude/longitude/fuso/período diurno-noturno, por estabelecimento. Necessário para estatísticas com recorte diurno/noturno.</div>
+    ${LOCAIS.map(l => {
+      const cfg = CONFIGS_LOCAL.get(_normTexto(l.estabelecimento));
+      return `<div class="card" style="margin-top:10px">
+        <div class="card-title">${esc(l.estabelecimento)}</div>
+        <div class="qai-sub">${cfg
+          ? `Lat ${cfg.latitude}, Long ${cfg.longitude} · ${esc(cfg.timezone)} · Diurno ${esc(cfg.diurnoInicio)}–${esc(cfg.diurnoFim)}`
+          : 'Sem configuração — diurno/noturno indisponível para estatística até configurar'}</div>
+        <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="CONFIG_LOCAL_EDITANDO=${JSON.stringify(l.estabelecimento)};renderConfigLocal()">${cfg ? 'Editar' : 'Configurar'}</button>
+      </div>`;
+    }).join('')}`;
+}
+
+async function salvarConfigLocal(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  const dados = {
+    contrato, estabelecimento: CONFIG_LOCAL_EDITANDO,
+    latitude: document.getElementById('cfgl-lat').value,
+    longitude: document.getElementById('cfgl-lon').value,
+    timezone: document.getElementById('cfgl-tz').value.trim(),
+    diurnoInicio: document.getElementById('cfgl-diurno-inicio').value,
+    diurnoFim: document.getElementById('cfgl-diurno-fim').value,
+  };
+  await withActionBusy(btn, 'Salvando…', async () => {
+    try {
+      const salvo = await DB.salvarConfigLocalQai(dados);
+      CONFIGS_LOCAL.set(_normTexto(salvo.estabelecimento), salvo);
+      CONFIG_LOCAL_EDITANDO = null;
+      renderConfigLocal();
+      showToast('Configuração salva.');
+    } catch (e) { showToast('Não foi possível salvar: ' + e.message, 7000); }
+  });
+}
+
 // Rótulo e unidade de um data point, a partir do próprio sensor.
 function infoGrandeza(sensor, code) {
   const a = sensor?.grandezasAtivas?.[code];
@@ -314,6 +441,12 @@ async function iniciarQai() {
   if (!confirmado) return;
   user = confirmado;
   document.getElementById('auth-overlay').style.display = 'none';
+  // Configuração de local (lat/long/fuso/diurno-noturno) é dado
+  // estrutural do estabelecimento — mesma faixa de papel que já edita
+  // contrato no resto do sistema (authz.SUPERVISOR_ACIMA no backend,
+  // que é quem de fato aplica a regra; isto só evita mostrar um botão
+  // que o servidor rejeitaria).
+  document.getElementById('btn-config-local').classList.toggle('hidden', !podeConfigurarLocalQai(user?.role));
   DB.getPrestadoraConfig().then(async cfg => {
     cfg = cfg || {};
     cfg.logo = await resolverLogoDataUrl(cfg);
@@ -341,6 +474,7 @@ function preencherSelectContratos() {
 function aoTrocarContrato() {
   const contrato = document.getElementById('f-contrato').value;
   document.getElementById('btn-novo-sensor').disabled = !contrato;
+  document.getElementById('btn-config-local').disabled = !contrato;
   document.getElementById('qai-status-tabs').classList.toggle('hidden', !contrato);
   if (!contrato) {
     LINHAS = [];
@@ -438,6 +572,10 @@ function renderCard(linha) {
     </div>
     <div class="qai-card-valores">${chips || '<span class="qai-valor">sem leitura ainda</span>'}</div>
     <div class="qai-card-rodape">${quando ? 'Última leitura: ' + tempoRelativo(quando) : 'Nunca sincronizado'}</div>
+    ${s.sensorAtivo ? `
+      <div class="action-bar" style="margin-top:8px">
+        <button class="btn btn-secondary btn-sm" style="flex:1" onclick="event.stopPropagation();abrirEstatisticas('${s.id}')">📊 Estatísticas</button>
+      </div>` : ''}
   </div>`;
 }
 
@@ -543,6 +681,32 @@ function renderModalSensor() {
     renderHorarios(s);
     renderExibicao(s);
     renderAparelhos(APARELHOS_ABERTO);
+  } else if (MODO_MODAL === 'estatisticas') {
+    if (!ESTAT_INICIO || !ESTAT_FIM) {
+      // Padrão: últimos 7 dias — período curto o bastante pra abrir rápido,
+      // longo o bastante pra já mostrar alguma tendência na 1ª visita.
+      const hoje = new Date();
+      ESTAT_FIM = diaLocalDe(hoje.getTime());
+      ESTAT_INICIO = diaLocalDe(hoje.getTime() - 6 * 86400000);
+    }
+    el.innerHTML = `${titulo}
+      <div class="qai-toolbar"><button class="btn btn-secondary btn-sm" onclick="irParaModo('dashboard')">← Voltar</button></div>
+      <div class="card">
+        <div class="qai-grid2">
+          <div class="field"><label>Data inicial</label><input type="date" id="estat-inicio" value="${esc(ESTAT_INICIO)}" onchange="buscarEstatisticas()"></div>
+          <div class="field"><label>Data final</label><input type="date" id="estat-fim" value="${esc(ESTAT_FIM)}" onchange="buscarEstatisticas()"></div>
+        </div>
+        <div class="field">
+          <label>Período</label>
+          <select id="estat-periodo" onchange="buscarEstatisticas()">
+            <option value="24h" ${ESTAT_PERIODO === '24h' ? 'selected' : ''}>24 horas (dia completo)</option>
+            <option value="diurno" ${ESTAT_PERIODO === 'diurno' ? 'selected' : ''}>Diurno</option>
+            <option value="noturno" ${ESTAT_PERIODO === 'noturno' ? 'selected' : ''}>Noturno</option>
+          </select>
+        </div>
+      </div>
+      <div id="estat-conteudo"><div class="qai-sub" style="margin:0">Carregando…</div></div>`;
+    buscarEstatisticas();
   } else {
     el.innerHTML = `${titulo}
       <div class="qai-toolbar">
@@ -557,6 +721,214 @@ function renderModalSensor() {
       <div id="dash-historico"></div>`;
     renderDashboard(s);
   }
+}
+
+async function abrirEstatisticas(id) {
+  ESTAT_INICIO = ''; ESTAT_FIM = ''; ESTAT_PERIODO = '24h'; // cada sensor abre com os defaults, nunca o filtro do sensor anterior
+  await abrirSensor(id, 'estatisticas');
+}
+
+// ── Estatísticas: busca + render (Fase 3 — Interface) ───────────────
+async function buscarEstatisticas() {
+  const s = SENSOR_ABERTO;
+  const cont = document.getElementById('estat-conteudo');
+  if (!s || !cont) return;
+  // Sem fallback pra ESTAT_INICIO/FIM aqui: o campo é a fonte da verdade
+  // quando o modal já está aberto — um campo de data limpo pelo usuário
+  // precisa ser tratado como "vazio de propósito", nunca reviver um
+  // valor antigo que sobrou de uma busca anterior.
+  const inicioStr = document.getElementById('estat-inicio')?.value ?? '';
+  const fimStr = document.getElementById('estat-fim')?.value ?? '';
+  const periodo = document.getElementById('estat-periodo')?.value || '24h';
+  ESTAT_INICIO = inicioStr; ESTAT_FIM = fimStr; ESTAT_PERIODO = periodo;
+  if (!inicioStr || !fimStr) { cont.innerHTML = '<div class="qai-sub" style="margin:0">Selecione a data inicial e final.</div>'; return; }
+  const inicio = limitesDoDia(inicioStr).desde;
+  const fim = limitesDoDia(fimStr).ate;
+  if (inicio > fim) { cont.innerHTML = '<div class="empty">A data inicial não pode ser depois da final.</div>'; return; }
+
+  // Sequência própria: se o usuário trocar o filtro de novo antes desta
+  // resposta voltar, a resposta velha é descartada ao chegar — nunca
+  // sobrescreve um resultado mais novo que já apareceu na tela.
+  const minhaVez = ++ESTAT_SEQ;
+  cont.innerHTML = '<div class="qai-sub" style="margin:0">Carregando estatísticas…</div>';
+  try {
+    const q = `?inicio=${inicio}&fim=${fim}&periodo=${periodo}`;
+    // Comparação (Fase 5) nunca derruba as estatísticas (Fase 2/3) se
+    // falhar — tem o próprio catch, sempre resolve com disponivel:false
+    // em vez de rejeitar o Promise.all inteiro.
+    const [r, comparacao] = await Promise.all([
+      DB.getEstatisticasQai(s.id, q),
+      DB.getComparacaoQai(s.id, q).catch(e => ({ disponivel: false, motivo: e.message })),
+    ]);
+    if (minhaVez !== ESTAT_SEQ) return; // resposta de um filtro antigo — ignorada
+    renderResultadoEstatisticas(s, r, comparacao);
+  } catch (e) {
+    if (minhaVez !== ESTAT_SEQ) return;
+    // Estatística é um complemento — uma falha aqui nunca deve parecer
+    // que o monitoramento do sensor parou; só avisa e deixa tentar de novo.
+    cont.innerHTML = `<div class="empty">Não foi possível calcular as estatísticas agora.<div class="qai-sub" style="margin-top:6px">${esc(e.message)}</div>
+      <div class="action-bar" style="margin-top:10px"><button class="btn btn-secondary btn-sm" onclick="buscarEstatisticas()">Tentar novamente</button></div></div>`;
+  }
+}
+
+function kpiCardEstatistica(g) {
+  if (!g.amostrasValidas) {
+    return `<div class="qai-kpi sem">
+      <div class="qai-kpi-label">${esc(g.rotulo)}</div>
+      <div class="qai-kpi-sub">📊 Dados insuficientes — nenhuma leitura válida desta grandeza no período/filtro selecionado.</div>
+    </div>`;
+  }
+  const classe = !g.amostrasComLimiteAplicavel ? 'sem' : g.amostrasForaDoLimite > 0 ? 'fora' : 'ok';
+  const desvioTxt = g.desvioPadrao != null
+    ? `desvio-padrão ${fmtValor(g.desvioPadrao, g.unidade)}`
+    : 'desvio-padrão: dados insuficientes (mín. 2 amostras)';
+  const metaTxt = g.meta != null
+    ? ` · desvio da meta ${g.desvioDaMeta >= 0 ? '+' : ''}${fmtValor(g.desvioDaMeta, g.unidade)} (meta ${fmtValor(g.meta, g.unidade)})`
+    : '';
+  const limiteTxt = g.amostrasComLimiteAplicavel
+    ? `${Math.round(g.proporcaoForaDoLimite * 100)}% das ${g.amostrasComLimiteAplicavel} amostra(s) com limite aplicável ficaram fora dele`
+    : 'sem limite histórico aplicável nas amostras deste período';
+  return `<div class="qai-kpi ${classe}">
+    <div class="qai-kpi-label">${esc(g.rotulo)}</div>
+    <div class="qai-kpi-val">${fmtValor(g.media, '')}<span class="qai-kpi-un">${esc(g.unidade)}</span></div>
+    <div class="qai-kpi-sub">média por amostra · ${g.amostrasValidas} amostra(s)</div>
+    <div class="qai-kpi-sub">mín ${fmtValor(g.minimo, g.unidade)} · máx ${fmtValor(g.maximo, g.unidade)}</div>
+    <div class="qai-kpi-sub">${desvioTxt}${metaTxt}</div>
+    <div class="qai-kpi-sub">${limiteTxt}</div>
+  </div>`;
+}
+
+// Prioriza temperatura/umidade quando existirem entre as grandezas ATIVAS
+// do sensor — nunca presume que todo sensor as tem; os demais parâmetros
+// só aparecem aqui porque já vieram de volta na resposta (ou seja, são de
+// fato medidos por este sensor).
+function ordenarGrandezasEstatistica(grandezas) {
+  const prioridade = g => g.code.includes('temp') ? 0 : g.code.includes('humid') ? 1 : 2;
+  return [...grandezas].sort((a, b) => prioridade(a) - prioridade(b));
+}
+
+function renderResultadoEstatisticas(s, r, comparacao) {
+  const cont = document.getElementById('estat-conteudo');
+  CHARTS_ESTAT.forEach(c => c.destroy());
+  CHARTS_ESTAT = [];
+  if (!r.disponivel) {
+    cont.innerHTML = `<div class="empty">📊 Dados insuficientes<div class="qai-sub" style="margin-top:6px">${esc(r.motivo)}</div></div>`;
+    return;
+  }
+  if (!r.grandezas.length) {
+    cont.innerHTML = '<div class="empty">Nenhuma grandeza ativa neste sensor. Escolha em ⚙ Configurações.</div>';
+    return;
+  }
+  const grandezas = ordenarGrandezasEstatistica(r.grandezas);
+  const avisoGeral = !r.cobertura.amostrasNoPeriodo
+    ? `<div class="empty">📊 Dados insuficientes<div class="qai-sub" style="margin-top:6px">Nenhuma leitura encontrada no período e filtro selecionados.</div></div>`
+    : '';
+  const avisoTruncamento = r.truncado
+    ? `<div class="qai-sub">⚠️ Resultado baseado nas primeiras ${r.cobertura.amostrasEscaneadas} leituras do período (limite de processamento atingido) — reduza o intervalo para um resultado completo.</div>`
+    : '';
+  cont.innerHTML = `
+    ${avisoGeral}
+    <div class="qai-kpis">${grandezas.map(kpiCardEstatistica).join('')}</div>
+    <div class="qai-sub">
+      ${r.cobertura.amostrasNoPeriodo} amostra(s) no período selecionado
+      ${r.cobertura.intervaloMedioMin != null ? ` · intervalo médio entre amostras: ${Math.round(r.cobertura.intervaloMedioMin)} min (desvio ${Math.round(r.cobertura.desvioIntervaloMin || 0)} min — quanto maior, mais irregular foi a coleta)` : ''}
+    </div>
+    ${avisoTruncamento}
+    ${r.serieTemporal.length ? `
+      <div id="estat-graficos" style="margin-top:12px"></div>
+    ` : '<div class="qai-sub">Sem leituras suficientes no período para desenhar o gráfico.</div>'}
+    <div id="estat-comparacao" style="margin-top:14px"></div>
+  `;
+  if (r.serieTemporal.length) renderGraficoEstatisticas(s, r.serieTemporal, r.serieTemporalTruncada);
+  if (comparacao) renderComparacao(comparacao);
+}
+
+// ── Comparação interno/externo (Fase 5) ─────────────────────────────
+function renderComparacao(c) {
+  const cont = document.getElementById('estat-comparacao');
+  if (!cont) return;
+  if (!c.disponivel) {
+    // Complemento opcional — nunca um "erro" vermelho em cima das
+    // estatísticas (que já carregaram com sucesso); só um aviso discreto.
+    cont.innerHTML = `<div class="card"><div class="card-title">🌡️ Comparação com o clima externo</div><div class="qai-sub">${esc(c.motivo || 'Indisponível.')}</div></div>`;
+    return;
+  }
+  const semParesTemp = c.cobertura.paresTemperatura === 0;
+  const correlacaoTxt = c.temperatura.correlacao != null
+    ? `Correlação (temperatura): ${c.temperatura.correlacao.toFixed(2)}`
+    : `Correlação (temperatura): dados insuficientes${c.temperatura.correlacaoIndisponivel ? ' — ' + esc(c.temperatura.correlacaoIndisponivel) : ''}`;
+  const avisoRecorte = c.serieTemporalTruncada
+    ? `<div class="qai-sub">⚠️ Período tem mais leituras do que o recorte usado aqui — a comparação reflete só as mais recentes dentro do período, não o período inteiro.</div>`
+    : '';
+  cont.innerHTML = `
+    <div class="card">
+      <div class="card-title">🌡️ Comparação com o clima externo</div>
+      ${avisoRecorte}
+      ${semParesTemp ? `<div class="qai-sub">📊 Dados insuficientes — nenhum par interno/externo dentro da tolerância de ${c.toleranciaMin} min neste período.</div>` : `
+        <div class="qai-kpis">
+          <div class="qai-kpi ${c.temperatura.diferencaMedia > 0 ? 'fora' : 'ok'}">
+            <div class="qai-kpi-label">Temperatura interna − externa</div>
+            <div class="qai-kpi-val">${c.temperatura.diferencaMedia >= 0 ? '+' : ''}${fmtValor(c.temperatura.diferencaMedia, '°C')}</div>
+            <div class="qai-kpi-sub">média de ${c.cobertura.paresTemperatura} par(es) válido(s)</div>
+          </div>
+          ${c.cobertura.paresUmidade ? `
+            <div class="qai-kpi sem">
+              <div class="qai-kpi-label">Umidade (relativa)</div>
+              <div class="qai-kpi-sub">${c.cobertura.paresUmidade} par(es) — interna e externa comparadas lado a lado no gráfico</div>
+            </div>` : ''}
+          <div class="qai-kpi sem">
+            <div class="qai-kpi-label">${correlacaoTxt.split(':')[0]}</div>
+            <div class="qai-kpi-sub">${correlacaoTxt.split(': ').slice(1).join(': ')}</div>
+          </div>
+        </div>
+      `}
+      <div class="qai-sub" style="margin-top:4px">${esc(c.avisos.correlacaoNaoEhCausalidade)}</div>
+      <div class="qai-sub">${esc(c.avisos.dependenciaTemporal)}</div>
+      <div class="qai-sub">${esc(c.avisos.umidadeRelativa)}</div>
+    </div>`;
+}
+
+// Reaproveita a MESMA infraestrutura de gráfico do dashboard/PDF
+// (datasetsDoGrupo/escalasYDoGrupo/faixasDoLimite/pluginFaixaLimites),
+// só troca o eixo X pra instante em ms (pontosDoPeriodo/rotuloTempoPdf —
+// já usados no PDF de período) em vez de minuto-do-dia: o intervalo
+// escolhido aqui pode ter vários dias, não só um.
+function renderGraficoEstatisticas(s, serie, truncada) {
+  const cont = document.getElementById('estat-graficos');
+  if (!cont) return;
+  const codigos = Object.keys(s.grandezasAtivas || {}).filter(c => serie.some(l => l.valores?.[c] != null));
+  if (!codigos.length) { cont.innerHTML = '<div class="qai-sub">Nenhuma das grandezas ativas aparece nas leituras deste período.</div>'; return; }
+  const cores = coresParaChaves(codigos);
+  const grupos = montarGrupos(s, codigos, exibicaoDoSensor(s).agrupar);
+  const tsOrdenados = serie.map(l => l.criadoEm);
+  const spanDias = Math.max(1, Math.round((Math.max(...tsOrdenados) - Math.min(...tsOrdenados)) / 86400000));
+
+  cont.innerHTML = (truncada ? `<div class="qai-sub" style="margin-bottom:6px">Mostrando as ${serie.length} leituras mais recentes dentro do período selecionado.</div>` : '') +
+    grupos.map((grupo, k) => `
+      <div class="qai-grafico-bloco">
+        <div class="qai-grafico-titulo">${grupo.flatMap(b => b.codigos).map(c => esc(abreviacaoGrandeza(s, c))).join(' × ')}</div>
+        <div class="qai-chart-wrap"><canvas id="ch-estat-${k}"></canvas></div>
+      </div>`).join('');
+
+  grupos.forEach((grupo, k) => {
+    const ctx = document.getElementById(`ch-estat-${k}`);
+    if (!ctx) return;
+    const datasets = datasetsDoGrupo(s, grupo, cores, serie, pontosDoPeriodo);
+    const xs = datasets.flatMap(d => d.data.map(p => p.x));
+    if (!xs.length) return;
+    const { escalas, faixasPorEixo } = escalasYDoGrupo(s, grupo, cores, serie, pontosDoPeriodo);
+    escalas.x = {
+      type: 'linear', min: Math.min(...xs), max: Math.max(...xs),
+      ticks: { maxTicksLimit: 8, color: '#475569', font: { size: 10 }, callback: v => rotuloTempoPdf(v, spanDias) },
+      grid: { display: false },
+      title: { display: true, text: spanDias <= 2 ? 'Horário' : 'Data', color: '#475569', font: { size: 10 } },
+    };
+    CHARTS_ESTAT.push(new Chart(ctx, {
+      type: 'line', data: { datasets },
+      options: opcoesGraficoBase(escalas, items => items.length ? rotuloTempoPdf(items[0].parsed.x, spanDias) : ''),
+      plugins: [pluginFaixaLimites(faixasPorEixo)],
+    }));
+  });
 }
 
 // PATCH com _version (lock otimista). Em conflito, recarrega o sensor.
@@ -844,7 +1216,30 @@ function renderHorarios(s) {
       </div>
       <div id="horario-campos">${renderCamposHorario(horarios)}</div>
       <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarHorarios(this)">Salvar horários</button></div>
+      ${freqAtual ? `
+        <div class="field" style="margin-top:12px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="coleta-analitica" ${s.coletaAnalitica ? 'checked' : ''} onchange="alternarColetaAnalitica(this)">
+            Coletar leituras extras para estatística
+          </label>
+          <div class="qai-sub">
+            Além das leituras formais dos horários acima, grava também
+            toda leitura válida do polling automático que não caiu numa
+            janela — só para servir de base a cálculos estatísticos,
+            nunca conta para conformidade. Fica disponível por um tempo
+            limitado (90 dias) e depois é descartada automaticamente; o
+            histórico formal nunca é afetado.
+          </div>
+        </div>
+      ` : ''}
     </div>`;
+}
+async function alternarColetaAnalitica(checkbox) {
+  const ligado = checkbox.checked;
+  try {
+    await patchSensorAtual({ coletaAnalitica: ligado },
+      ligado ? 'Coleta extra para estatística ativada.' : 'Coleta extra para estatística desativada.');
+  } catch (e) { checkbox.checked = !ligado; }
 }
 function renderCamposHorario(horarios) {
   const freq = Number(document.getElementById('horario-freq')?.value ?? horarios.length);

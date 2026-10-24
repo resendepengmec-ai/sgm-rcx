@@ -174,6 +174,23 @@ const PERIODO_TODO = { de: '2026-10-01', ate: '2026-10-06' };
   assert('visão configurações renderiza sem erro', erroConfig === null);
   assert('alternância de modo é preservada no estado', vm.runInContext('MODO_MODAL', sandbox) === 'config');
 
+  console.log('── modal: visão Estatísticas (Fase 3) renderiza sem erro e preenche datas padrão ──');
+  let erroEstat = null;
+  // Não depende do SENSOR_ABERTO deixado pelo teste anterior — garante
+  // explicitamente, senão renderModalSensor cai no `if (!s) return;` e
+  // o teste passaria "sem erro" mesmo sem ter renderizado nada de verdade.
+  vm.runInContext(`SENSOR_ABERTO = { id: 's-estat', estabelecimento: 'Unidade A', recinto: 'Sala 1', grandezasAtivas: {}, limites: {}, exibicao: { agrupar: true } };
+    ESTAT_INICIO = ''; ESTAT_FIM = '';`, sandbox);
+  try { vm.runInContext(`MODO_MODAL = 'estatisticas'; renderModalSensor();`, sandbox); } catch (e) { erroEstat = e; }
+  assert('visão estatísticas renderiza sem erro (mesmo sem DB.getEstatisticasQai estubado — a chamada é fire-and-forget)', erroEstat === null);
+  // O teste do preenchimento padrão das datas está em
+  // _scratch-qai-page-logic.js, que usa um elemento falso POR id — este
+  // arquivo usa 1 único stubEl compartilhado pra todo getElementById,
+  // então o buscarEstatisticas() disparado em seguida (fire-and-forget,
+  // síncrono até o 1º await) sobrescreve esse MESMO objeto ao não achar
+  // um <input id="estat-inicio"> de verdade — limitação do stub
+  // compartilhado, não um lugar útil pra afirmar sobre o valor do campo.
+
   console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);
   process.exit(falhas === 0 ? 0 : 1);
 })().catch(e => { console.error('ERRO:', e); process.exit(1); });

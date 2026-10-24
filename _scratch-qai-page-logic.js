@@ -33,7 +33,10 @@ const sandbox = {
   esc: s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
   withActionBusy: async (btn, label, task) => task(),
   Chart: function (ctx, cfg) { this.cfg = cfg; this.destroy = () => {}; (sandbox.__charts = sandbox.__charts || []).push(this); },
-  DB: {},
+  // getComparacaoQai (Fase 5): default seguro — buscarEstatisticas sempre
+  // chama os dois em paralelo; testes que só querem exercitar as
+  // estatísticas (Fase 2/3) não precisam redefinir este também.
+  DB: { getComparacaoQai: () => Promise.resolve({ disponivel: false, motivo: 'não testado neste bloco' }) },
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
@@ -335,6 +338,17 @@ console.log('── renderCard (ativo/inativo): continua clicável, sem botão R
   assert('card ativo nunca mostra Restaurar', !htmlAtivo.includes('restaurarSensor('));
 }
 
+console.log('── renderCard: botão "📊 Estatísticas" só em sensor ATIVO (pedido explícito), nunca inativo/excluído ──');
+{
+  const htmlAtivo = sandbox.renderCard(linha('a3', { ativo: true }));
+  assert('card ativo mostra o botão de Estatísticas', htmlAtivo.includes("abrirEstatisticas('a3')"));
+  assert('botão usa stopPropagation (mesmo padrão do Restaurar) — não deve também abrir o dashboard', htmlAtivo.includes('event.stopPropagation();abrirEstatisticas('));
+  const htmlInativo = sandbox.renderCard(linha('a4', { ativo: false }));
+  assert('card inativo NÃO mostra o botão de Estatísticas', !htmlInativo.includes('abrirEstatisticas('));
+  const htmlExcluido = sandbox.renderCard(linha('a5', { excluido: Date.now() }));
+  assert('card excluído NÃO mostra o botão de Estatísticas', !htmlExcluido.includes('abrirEstatisticas('));
+}
+
 // Resto do arquivo é síncrono (node file.js, CommonJS — sem top-level
 // await) — os testes async de restaurarSensor/excluirSensorAtual ficam
 // numa IIFE, que só imprime o resumo final e sai depois de resolvida.
@@ -380,6 +394,287 @@ console.log('── excluirSensorAtual: erro transient SEM confirmação de que 
   `, sandbox);
   await sandbox.excluirSensorAtual({});
   assert('sem confirmação (sensor não aparece como excluído): mostra erro, não finge sucesso', _toasts.some(t => t.startsWith('Erro ao excluir')));
+}
+
+console.log('── podeConfigurarLocalQai: mesma faixa de papel que edita contrato (authz.SUPERVISOR_ACIMA) ──');
+['admin', 'admin_cliente', 'diretor', 'supervisor'].forEach(r =>
+  assert(`${r} pode configurar local`, sandbox.podeConfigurarLocalQai(r)));
+['gestor', 'tecnico', 'solicitante', undefined, null].forEach(r =>
+  assert(`${JSON.stringify(r)} NÃO pode configurar local`, !sandbox.podeConfigurarLocalQai(r)));
+
+console.log('── renderConfigLocal: lista mostra "Configurar" pra quem não tem config e "Editar" + resumo pra quem tem ──');
+{
+  vm.runInContext(`
+    CONFIG_LOCAL_EDITANDO = null;
+    LOCAIS = [{ estabelecimento: 'Unidade A', recintos: [] }, { estabelecimento: 'Unidade B', recintos: [] }];
+    CONFIGS_LOCAL = new Map([['unidade a', { estabelecimento: 'Unidade A', latitude: -16.68, longitude: -49.25, timezone: 'America/Sao_Paulo', diurnoInicio: '06:00', diurnoFim: '18:00' }]]);
+  `, sandbox);
+  sandbox.renderConfigLocal();
+  const html = elementoFalso('config-local-conteudo').innerHTML;
+  assert('Unidade A (tem config) mostra "Editar" e o resumo', html.includes('Editar') && html.includes('America/Sao_Paulo') && html.includes('-16.68'));
+  assert('Unidade B (sem config) mostra "Configurar" e avisa que falta', html.includes('Configurar') && html.includes('indisponível para estatística'));
+}
+
+console.log('── renderConfigLocal: tela de edição carrega os valores já salvos (ou os defaults, pra quem nunca configurou) ──');
+{
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade A';`, sandbox);
+  sandbox.renderConfigLocal();
+  assert('campo latitude vem preenchido com o valor salvo', elementoFalso('config-local-conteudo').innerHTML.includes('value="-16.68"'));
+
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B';`, sandbox);
+  sandbox.renderConfigLocal();
+  const htmlSemConfig = elementoFalso('config-local-conteudo').innerHTML;
+  assert('Unidade B (nunca configurada) usa os defaults de diurno 06:00–18:00, nunca um valor inventado de lat/long', htmlSemConfig.includes('value="06:00"') && htmlSemConfig.includes('value="18:00"') && !htmlSemConfig.includes('value="-16.68"'));
+}
+
+console.log('── salvarConfigLocal: envia os campos do formulário e atualiza o estado local após salvar ──');
+{
+  elementoFalso('f-contrato').value = '1020';
+  elementoFalso('cfgl-lat').value = '-16.68';
+  elementoFalso('cfgl-lon').value = '-49.25';
+  elementoFalso('cfgl-tz').value = ' America/Sao_Paulo ';
+  elementoFalso('cfgl-diurno-inicio').value = '07:00';
+  elementoFalso('cfgl-diurno-fim').value = '19:00';
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B';`, sandbox);
+  let payloadEnviado = null;
+  vm.runInContext(`DB.salvarConfigLocalQai = (dados) => { __payload = dados; return Promise.resolve({ ...dados, estabelecimento: 'Unidade B' }); };`, sandbox);
+  await sandbox.salvarConfigLocal({});
+  payloadEnviado = vm.runInContext('__payload', sandbox);
+  assert('envia contrato, estabelecimento em edição e os 5 campos do formulário', payloadEnviado.contrato === '1020' && payloadEnviado.estabelecimento === 'Unidade B'
+    && payloadEnviado.latitude === '-16.68' && payloadEnviado.longitude === '-49.25' && payloadEnviado.diurnoInicio === '07:00' && payloadEnviado.diurnoFim === '19:00');
+  assert('volta pra lista após salvar (CONFIG_LOCAL_EDITANDO vira null)', vm.runInContext('CONFIG_LOCAL_EDITANDO', sandbox) === null);
+  const configs = vm.runInContext('CONFIGS_LOCAL', sandbox);
+  assert('CONFIGS_LOCAL é atualizado com a resposta do servidor, sem precisar recarregar a lista inteira', configs.get('unidade b')?.diurnoInicio === '07:00');
+}
+
+console.log('── alternarColetaAnalitica: liga/desliga e reverte o checkbox se o servidor rejeitar ──');
+{
+  vm.runInContext(`SENSOR_ABERTO = { id: 's1', contrato: '1020', _version: 1 };`, sandbox);
+  vm.runInContext(`DB.updateSensorQai = (id, dados) => { __patchEnviado = dados; return Promise.resolve({ id, contrato: '1020', coletaAnalitica: dados.coletaAnalitica }); };
+    DB.getDashboardQai = () => Promise.resolve([]);`, sandbox);
+  const checkboxLigando = { checked: true };
+  await sandbox.alternarColetaAnalitica(checkboxLigando);
+  const patchEnviado = vm.runInContext('__patchEnviado', sandbox);
+  assert('envia coletaAnalitica:true no PATCH do sensor', patchEnviado.coletaAnalitica === true);
+  assert('checkbox continua marcado após sucesso', checkboxLigando.checked === true);
+
+  vm.runInContext(`DB.updateSensorQai = () => Promise.reject(new Error('Sem permissão'));`, sandbox);
+  const checkboxFalhando = { checked: true };
+  await sandbox.alternarColetaAnalitica(checkboxFalhando);
+  assert('em erro, o checkbox é revertido (volta a desmarcado, já que a intenção era ligar)', checkboxFalhando.checked === false);
+}
+
+console.log('── renderModalSensor (estatisticas): abre com datas padrão (últimos 7 dias), nunca sem filtro nenhum ──');
+{
+  elementoFalso('sensor-modal-conteudo').innerHTML = '';
+  vm.runInContext(`SENSOR_ABERTO = { id: 's-estat-default', estabelecimento: 'Unidade A', recinto: 'Sala 1', grandezasAtivas: {}, limites: {}, exibicao: { agrupar: true } };
+    MODO_MODAL = 'estatisticas'; ESTAT_INICIO = ''; ESTAT_FIM = '';`, sandbox);
+  let erro = null;
+  try { sandbox.renderModalSensor(); } catch (e) { erro = e; }
+  assert('renderiza sem erro', erro === null);
+  const html = elementoFalso('sensor-modal-conteudo').innerHTML;
+  assert('campo de data inicial vem preenchido (nunca abre sem filtro nenhum)', /id="estat-inicio" value="\d{4}-\d{2}-\d{2}"/.test(html));
+  assert('campo de data final vem preenchido', /id="estat-fim" value="\d{4}-\d{2}-\d{2}"/.test(html));
+  assert('tem o botão "← Voltar"', html.includes('← Voltar') && html.includes("irParaModo('dashboard')"));
+}
+
+console.log('── ordenarGrandezasEstatistica: temperatura e umidade vêm primeiro quando existem, sem presumir que todo sensor as tem ──');
+{
+  const entrada = [{ code: 'co2_value' }, { code: 'humidity_value' }, { code: 'temp_current' }];
+  const ordenado = sandbox.ordenarGrandezasEstatistica(entrada).map(g => g.code);
+  assert('temperatura primeiro, depois umidade, depois o resto', JSON.stringify(ordenado) === JSON.stringify(['temp_current', 'humidity_value', 'co2_value']));
+  const soOutras = sandbox.ordenarGrandezasEstatistica([{ code: 'co2_value' }, { code: 'pm25_value' }]).map(g => g.code);
+  assert('sensor sem temp/umidade não quebra, só mantém a ordem entre as que existem', JSON.stringify(soOutras) === JSON.stringify(['co2_value', 'pm25_value']));
+}
+
+console.log('── kpiCardEstatistica: "Dados insuficientes" quando não há amostra, nunca inventa número ──');
+{
+  const html = sandbox.kpiCardEstatistica({ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 0, media: null, minimo: null, maximo: null, desvioPadrao: null, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null });
+  assert('mostra "Dados insuficientes" quando amostrasValidas é 0', html.includes('Dados insuficientes'));
+  assert('card sem amostra fica na classe neutra "sem"', html.includes('qai-kpi sem'));
+}
+
+console.log('── kpiCardEstatistica: card completo (média, desvio, meta, limite) ──');
+{
+  const g = { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 10, media: 24.5, minimo: 20, maximo: 28, desvioPadrao: 1.8, meta: 22, desvioDaMeta: 2.5, amostrasComLimiteAplicavel: 10, amostrasForaDoLimite: 3, proporcaoForaDoLimite: 0.3 };
+  const html = sandbox.kpiCardEstatistica(g);
+  assert('mostra a média formatada', html.includes('24.5'));
+  assert('mostra mínimo e máximo', html.includes('20') && html.includes('28'));
+  assert('mostra o desvio-padrão', html.includes('1.8'));
+  assert('mostra o desvio da meta e a própria meta', html.includes('desvio da meta') && html.includes('meta 22'));
+  assert('mostra a proporção fora do limite como % de AMOSTRAS, nunca "percentual do tempo"', html.includes('30%') && !html.toLowerCase().includes('percentual do tempo'));
+  assert('card com amostras fora do limite fica na classe "fora"', html.includes('qai-kpi fora'));
+}
+{
+  const gSemMeta = { code: 'co2_value', rotulo: 'CO₂', unidade: 'ppm', amostrasValidas: 1, media: 800, minimo: 800, maximo: 800, desvioPadrao: null, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null };
+  const html = sandbox.kpiCardEstatistica(gSemMeta);
+  assert('sem meta configurada, não menciona "desvio da meta"', !html.includes('desvio da meta'));
+  assert('com 1 amostra só, desvio-padrão é anunciado como dados insuficientes, nunca um número', html.includes('dados insuficientes'));
+  assert('sem limite aplicável, explica isso em vez de mostrar 0%', html.includes('sem limite histórico aplicável'));
+}
+
+console.log('── renderResultadoEstatisticas: disponivel:false mostra "Dados insuficientes" com o motivo, nunca tenta montar cartão nenhum ──');
+{
+  elementoFalso('estat-conteudo').innerHTML = '';
+  sandbox.renderResultadoEstatisticas({ grandezasAtivas: {} }, { disponivel: false, motivo: 'Configure latitude/longitude/fuso.' });
+  const html = elementoFalso('estat-conteudo').innerHTML;
+  assert('mostra "Dados insuficientes"', html.includes('Dados insuficientes'));
+  assert('mostra o motivo explicando por quê', html.includes('Configure latitude/longitude/fuso.'));
+}
+
+console.log('── renderResultadoEstatisticas: resultado normal monta os cartões, o aviso de cobertura e o(s) gráfico(s) ──');
+{
+  elementoFalso('estat-conteudo').innerHTML = '';
+  const sensor = { grandezasAtivas: { temp_current: { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C' } }, limites: {}, exibicao: { agrupar: true } };
+  const resultado = {
+    disponivel: true, periodo: '24h', truncado: false,
+    cobertura: { amostrasNoPeriodo: 5, intervaloMedioMin: 60, desvioIntervaloMin: 5 },
+    grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 5, media: 24, minimo: 22, maximo: 26, desvioPadrao: 1, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }],
+    serieTemporal: [{ criadoEm: Date.now() - 3600000, valores: { temp_current: 22 } }, { criadoEm: Date.now(), valores: { temp_current: 26 } }],
+    serieTemporalTruncada: false,
+  };
+  sandbox.renderResultadoEstatisticas(sensor, resultado);
+  const html = elementoFalso('estat-conteudo').innerHTML;
+  assert('monta o cartão da grandeza', html.includes('Temperatura'));
+  assert('mostra a quantidade de amostras no período', html.includes('5 amostra'));
+  assert('mostra o intervalo médio entre amostras', html.includes('60 min'));
+  assert('cria um gráfico (via Chart falso stubado no sandbox)', sandbox.__charts.length > 0);
+}
+
+console.log('── renderResultadoEstatisticas: 0 amostras no período avisa "Dados insuficientes" mesmo com disponivel:true (período sem leitura nenhuma) ──');
+{
+  elementoFalso('estat-conteudo').innerHTML = '';
+  const sensor = { grandezasAtivas: { temp_current: { code: 'temp_current' } }, limites: {}, exibicao: { agrupar: true } };
+  sandbox.renderResultadoEstatisticas(sensor, {
+    disponivel: true, periodo: '24h', truncado: false,
+    cobertura: { amostrasNoPeriodo: 0, intervaloMedioMin: null, desvioIntervaloMin: null },
+    grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 0, media: null, minimo: null, maximo: null, desvioPadrao: null, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }],
+    serieTemporal: [], serieTemporalTruncada: false,
+  });
+  assert('avisa "Dados insuficientes" quando não há nenhuma amostra no período, mesmo a config estando ok', elementoFalso('estat-conteudo').innerHTML.includes('Dados insuficientes'));
+}
+
+console.log('── buscarEstatisticas: ignora resposta de um filtro antigo depois de trocar o filtro de novo ──');
+{
+  vm.runInContext(`SENSOR_ABERTO = { id: 'sx', contrato: '1020', grandezasAtivas: {}, limites: {}, exibicao: { agrupar: true } };`, sandbox);
+  elementoFalso('estat-inicio').value = '2026-03-01';
+  elementoFalso('estat-fim').value = '2026-03-07';
+  elementoFalso('estat-periodo').value = '24h';
+  elementoFalso('estat-conteudo').innerHTML = '';
+
+  let resolverPrimeira;
+  vm.runInContext(`DB.getEstatisticasQai = (id, q) => new Promise(r => { __resolverPrimeira = r; });`, sandbox);
+  const primeiraBusca = sandbox.buscarEstatisticas(); // fica pendente de propósito
+
+  // Troca o filtro ANTES da 1ª resposta voltar — simula o usuário mudando
+  // de ideia rápido. A 2ª busca resolve na hora.
+  elementoFalso('estat-periodo').value = 'diurno';
+  vm.runInContext(`DB.getEstatisticasQai = (id, q) => Promise.resolve({ disponivel: true, periodo: 'diurno', truncado: false, cobertura: { amostrasNoPeriodo: 1, intervaloMedioMin: null, desvioIntervaloMin: null }, grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 1, media: 24, minimo: 24, maximo: 24, desvioPadrao: null, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }], serieTemporal: [], serieTemporalTruncada: false });`, sandbox);
+  await sandbox.buscarEstatisticas();
+  const htmlAposSegunda = elementoFalso('estat-conteudo').innerHTML;
+
+  // Só agora a 1ª promessa (do filtro velho) resolve, com um resultado
+  // BEM diferente — se não fosse ignorada, sobrescreveria a tela.
+  vm.runInContext(`__resolverPrimeira({ disponivel: true, periodo: '24h', truncado: false, cobertura: { amostrasNoPeriodo: 999, intervaloMedioMin: null, desvioIntervaloMin: null }, grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 999, media: 24, minimo: 24, maximo: 24, desvioPadrao: null, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }], serieTemporal: [], serieTemporalTruncada: false });`, sandbox);
+  await primeiraBusca; // espera a função async inteira (inclusive o render) terminar — sem precisar de outro tick de verdade
+  assert('a resposta do filtro velho (24h, 999 amostras) NUNCA chega a sobrescrever a tela', !elementoFalso('estat-conteudo').innerHTML.includes('999 amostra'));
+  assert('a tela continua mostrando o resultado do filtro mais recente (diurno, 1 amostra)', elementoFalso('estat-conteudo').innerHTML.includes('1 amostra'));
+}
+
+console.log('── buscarEstatisticas: datas ausentes ou invertidas nunca chegam a chamar o servidor ──');
+{
+  vm.runInContext(`SENSOR_ABERTO = { id: 'sy', contrato: '1020', grandezasAtivas: {}, limites: {}, exibicao: { agrupar: true } };`, sandbox);
+  let chamouServidor = false;
+  vm.runInContext(`DB.getEstatisticasQai = () => { __chamou = true; return Promise.resolve({}); };`, sandbox);
+
+  vm.runInContext(`__chamou = false;`, sandbox);
+  elementoFalso('estat-inicio').value = '';
+  elementoFalso('estat-fim').value = '2026-03-07';
+  await sandbox.buscarEstatisticas();
+  assert('sem data inicial, nunca chama o servidor', vm.runInContext('__chamou', sandbox) === false);
+  assert('avisa que falta selecionar a data', elementoFalso('estat-conteudo').innerHTML.includes('Selecione'));
+
+  vm.runInContext(`__chamou = false;`, sandbox);
+  elementoFalso('estat-inicio').value = '2026-03-10';
+  elementoFalso('estat-fim').value = '2026-03-01';
+  await sandbox.buscarEstatisticas();
+  assert('data inicial depois da final nunca chama o servidor', vm.runInContext('__chamou', sandbox) === false);
+  assert('avisa que o período é inválido', elementoFalso('estat-conteudo').innerHTML.includes('não pode ser depois'));
+}
+
+console.log('── renderComparacao (Fase 5): indisponível mostra motivo, sem aparentar erro grave ──');
+{
+  elementoFalso('estat-comparacao').innerHTML = '';
+  sandbox.renderComparacao({ disponivel: false, motivo: 'Integração climática não configurada.' });
+  const html = elementoFalso('estat-comparacao').innerHTML;
+  assert('mostra o título do bloco', html.includes('Comparação com o clima externo'));
+  assert('mostra o motivo', html.includes('Integração climática não configurada.'));
+}
+
+console.log('── renderComparacao: disponível mas sem pares válidos — "Dados insuficientes", nunca um cartão com número inventado ──');
+{
+  elementoFalso('estat-comparacao').innerHTML = '';
+  sandbox.renderComparacao({
+    disponivel: true, toleranciaMin: 35,
+    cobertura: { totalInterno: 3, totalExterno: 0, paresTemperatura: 0, paresUmidade: 0 },
+    temperatura: { pares: [], diferencaMedia: null, correlacao: null, correlacaoIndisponivel: null },
+    umidade: { pares: [] },
+    avisos: { correlacaoNaoEhCausalidade: 'x', dependenciaTemporal: 'y', umidadeRelativa: 'z' },
+  });
+  assert('mostra "Dados insuficientes" quando não há pares válidos', elementoFalso('estat-comparacao').innerHTML.includes('Dados insuficientes'));
+}
+
+console.log('── renderComparacao: resultado completo — diferença de temperatura, correlação e os 3 avisos sempre presentes ──');
+{
+  elementoFalso('estat-comparacao').innerHTML = '';
+  sandbox.renderComparacao({
+    disponivel: true, toleranciaMin: 35,
+    cobertura: { totalInterno: 20, totalExterno: 24, paresTemperatura: 18, paresUmidade: 18 },
+    temperatura: { pares: [], diferencaMedia: 3.2, correlacao: 0.87, correlacaoIndisponivel: null },
+    umidade: { pares: [{}] },
+    avisos: {
+      correlacaoNaoEhCausalidade: 'Correlação não implica causa.',
+      dependenciaTemporal: 'Autocorrelação temporal presente.',
+      umidadeRelativa: 'Umidade é relativa, não absoluta.',
+    },
+  });
+  const html = elementoFalso('estat-comparacao').innerHTML;
+  assert('mostra a diferença média de temperatura', html.includes('3.2'));
+  assert('mostra a correlação calculada', html.includes('0.87'));
+  assert('mostra o aviso de correlação não é causa', html.includes('Correlação não implica causa.'));
+  assert('mostra o aviso de dependência temporal', html.includes('Autocorrelação temporal presente.'));
+  assert('mostra o aviso de umidade relativa', html.includes('Umidade é relativa, não absoluta.'));
+  assert('sem serieTemporalTruncada, não mostra o aviso de recorte parcial', !html.includes('não o período inteiro'));
+}
+
+console.log('── renderComparacao: serieTemporalTruncada:true avisa que a comparação usou um recorte, não o período inteiro ──');
+{
+  elementoFalso('estat-comparacao').innerHTML = '';
+  sandbox.renderComparacao({
+    disponivel: true, toleranciaMin: 35, serieTemporalTruncada: true,
+    cobertura: { totalInterno: 300, totalExterno: 2160, paresTemperatura: 290, paresUmidade: 290 },
+    temperatura: { pares: [], diferencaMedia: 2, correlacao: 0.5, correlacaoIndisponivel: null },
+    umidade: { pares: [{}] },
+    avisos: { correlacaoNaoEhCausalidade: 'a', dependenciaTemporal: 'b', umidadeRelativa: 'c' },
+  });
+  assert('mostra o aviso de recorte parcial quando serieTemporalTruncada é true', elementoFalso('estat-comparacao').innerHTML.includes('não o período inteiro'));
+}
+
+console.log('── buscarEstatisticas: busca estatísticas e comparação em paralelo, e repassa a comparação pro render ──');
+{
+  vm.runInContext(`SENSOR_ABERTO = { id: 'sz', contrato: '1020', grandezasAtivas: { temp_current: { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C' } }, limites: {}, exibicao: { agrupar: true } };`, sandbox);
+  elementoFalso('estat-inicio').value = '2026-03-01';
+  elementoFalso('estat-fim').value = '2026-03-07';
+  elementoFalso('estat-periodo').value = '24h';
+  elementoFalso('estat-conteudo').innerHTML = '';
+  elementoFalso('estat-comparacao').innerHTML = '';
+  vm.runInContext(`
+    DB.getEstatisticasQai = () => Promise.resolve({ disponivel: true, periodo: '24h', truncado: false, cobertura: { amostrasNoPeriodo: 2, intervaloMedioMin: null, desvioIntervaloMin: null }, grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 2, media: 24, minimo: 23, maximo: 25, desvioPadrao: 1, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }], serieTemporal: [], serieTemporalTruncada: false });
+    DB.getComparacaoQai = () => Promise.resolve({ disponivel: true, toleranciaMin: 35, cobertura: { totalInterno: 2, totalExterno: 2, paresTemperatura: 1, paresUmidade: 0 }, temperatura: { pares: [], diferencaMedia: 1.5, correlacao: null, correlacaoIndisponivel: 'amostra insuficiente' }, umidade: { pares: [] }, avisos: { correlacaoNaoEhCausalidade: 'a', dependenciaTemporal: 'b', umidadeRelativa: 'c' } });
+  `, sandbox);
+  await sandbox.buscarEstatisticas();
+  assert('estatísticas renderizadas normalmente', elementoFalso('estat-conteudo').innerHTML.includes('Temperatura'));
+  assert('comparação também renderizada na mesma busca', elementoFalso('estat-comparacao').innerHTML.includes('1.5'));
 }
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);

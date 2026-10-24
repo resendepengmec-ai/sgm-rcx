@@ -1168,12 +1168,24 @@ const DB = {
   desativarSensorQai: id         => API.post(`/qai/sensores/${encodeURIComponent(id)}/desativar`, {}),
   sincronizarSensorQai: id       => API.post(`/qai/sensores/${encodeURIComponent(id)}/sincronizar`, {}),
   getLeiturasQai:     (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/leituras${q}`),
+  // Fase 2/3 — Estatísticas: agregados já calculados no servidor (nunca
+  // o histórico cru) + um recorte pequeno pro gráfico (serieTemporal).
+  getEstatisticasQai: (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/estatisticas${q}`),
+  // Fase 5 — comparação interno (sensor) x externo (clima): mesmos
+  // parâmetros de inicio/fim/periodo de getEstatisticasQai.
+  getComparacaoQai:   (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/comparacao${q}`),
   getAparelhosQai:    id         => API.get(`/qai/sensores/${encodeURIComponent(id)}/aparelhos`),
   // opts.incluirExcluidos: abas Ativos/Inativos/Excluídos em qai.html
   // buscam tudo numa chamada só e filtram no cliente — sem o parâmetro,
   // comportamento idêntico a antes (sensor excluído nunca aparece).
   getDashboardQai:    (contrato, opts={}) => API.get(`/qai/dashboard${contrato ? '?contrato='+encodeURIComponent(contrato) : ''}${opts.incluirExcluidos ? (contrato?'&':'?')+'incluirExcluidos=1' : ''}`),
   getLocaisQai:       (contrato) => API.get(`/qai/locais?contrato=${encodeURIComponent(contrato)}`),
+  // Configuração de local (Fase 1 — Estatísticas QAI): lat/long/fuso/
+  // diurno-noturno por (contrato, estabelecimento). Escrita é POST
+  // (upsert), sem verbo PUT no helper API — mesmo padrão de
+  // restaurarSensorQai/ativarSensorQai acima.
+  getConfigLocalQai:    (contrato, estabelecimento) => API.get(`/qai/config-local?contrato=${encodeURIComponent(contrato)}${estabelecimento ? '&estabelecimento='+encodeURIComponent(estabelecimento) : ''}`),
+  salvarConfigLocalQai: dados => API.post('/qai/config-local', dados),
 
 };
 
