@@ -126,7 +126,6 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     <option value="">Selecione o contrato…</option>
   </select>
   <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
-  <button class="btn btn-secondary btn-sm hidden" id="btn-config-local" onclick="abrirConfigLocal()" disabled>🌍 Local</button>
 </div>
 
 <div class="qai-status-tabs hidden" id="qai-status-tabs" role="tablist">
@@ -216,7 +215,8 @@ let LOCAIS_CONTRATO = null;  // contrato a que LOCAIS pertence
 let DISPONIVEIS_RENDER = []; // ordem das linhas de grandezas, lida no salvar
 let LIMITES_RENDER = [];     // ordem das linhas de limites, lida no salvar
 let CONFIGS_LOCAL = new Map(); // estabelecimento (normalizado) -> config de local, do contrato atual
-let CONFIG_LOCAL_EDITANDO = null; // nome do estabelecimento em edição no modal, ou null (lista)
+let CONFIGS_LOCAL_CONTRATO = null; // contrato a que CONFIGS_LOCAL pertence
+let CONFIG_LOCAL_EDITANDO = null; // nome do estabelecimento em edição no modal
 let ESTAT_INICIO = '', ESTAT_FIM = '', ESTAT_PERIODO = '24h'; // filtros da tela de Estatísticas
 let ESTAT_SEQ = 0;          // ignora resposta antiga depois de trocar o filtro de novo
 let CHARTS_ESTAT = [];
@@ -303,6 +303,22 @@ async function carregarLocais(contrato) {
     showToast('Não foi possível carregar os locais do contrato: ' + e.message, 5000);
   }
 }
+
+// Configuração geográfica (lat/long/fuso) por estabelecimento — carregada
+// junto com o sensor (ver abrirSensor) para a aba Configurações já mostrar
+// o status sem precisar de um clique extra.
+async function carregarConfigsLocal(contrato) {
+  if (!contrato) { CONFIGS_LOCAL = new Map(); CONFIGS_LOCAL_CONTRATO = null; return; }
+  if (CONFIGS_LOCAL_CONTRATO === contrato) return;
+  try {
+    const configs = await DB.getConfigLocalQai(contrato);
+    CONFIGS_LOCAL = new Map((configs || []).map(c => [_normTexto(c.estabelecimento), c]));
+    CONFIGS_LOCAL_CONTRATO = contrato;
+  } catch (e) {
+    CONFIGS_LOCAL = new Map(); CONFIGS_LOCAL_CONTRATO = null;
+    showToast('Não foi possível carregar a configuração de local: ' + e.message, 5000);
+  }
+}
 function atualizarDatalistRecinto(idRecinto, estabelecimento) {
   document.getElementById(idRecinto).innerHTML =
     recintosDe(LOCAIS, estabelecimento).map(r => `<option value="${esc(r)}"></option>`).join('');
@@ -322,86 +338,98 @@ function podeConfigurarLocalQai(role) {
   return ['admin', 'admin_cliente', 'diretor', 'supervisor'].includes(role);
 }
 
-async function abrirConfigLocal() {
-  const contrato = document.getElementById('f-contrato').value;
-  if (!contrato) return;
-  await carregarLocais(contrato);
-  if (!LOCAIS.length) {
-    showToast('Nenhum estabelecimento cadastrado neste contrato ainda (cadastre um sensor ou equipamento primeiro).', 6000);
-    return;
-  }
-  try {
-    const configs = await DB.getConfigLocalQai(contrato);
-    CONFIGS_LOCAL = new Map((configs || []).map(c => [_normTexto(c.estabelecimento), c]));
-  } catch (e) {
-    CONFIGS_LOCAL = new Map();
-    showToast('Não foi possível carregar as configurações já salvas: ' + e.message, 6000);
-  }
-  CONFIG_LOCAL_EDITANDO = null;
+// Acesso sempre a partir do sensor aberto (Configurações > Local) — a
+// localização é dado do ESTABELECIMENTO (compartilhada por todos os
+// sensores daquele local), mas não há mais uma tela solta pra "escolher
+// qual estabelecimento configurar": o sensor já diz qual é.
+async function abrirGeoSensor() {
+  const s = SENSOR_ABERTO;
+  if (!s) return;
+  await carregarConfigsLocal(s.contrato);
+  CONFIG_LOCAL_EDITANDO = s.estabelecimento;
   renderConfigLocal();
   abrirModal('modal-config-local');
 }
 
 function renderConfigLocal() {
   const el = document.getElementById('config-local-conteudo');
-  if (CONFIG_LOCAL_EDITANDO) {
-    const cfg = CONFIGS_LOCAL.get(_normTexto(CONFIG_LOCAL_EDITANDO)) || {};
-    el.innerHTML = `
-      <div class="modal-title">${esc(CONFIG_LOCAL_EDITANDO)}</div>
-      <div class="qai-sub">
-        Latitude/longitude e fuso definem o relógio local do
-        estabelecimento, usado para calcular os períodos diurno e
-        noturno nas estatísticas. A noite é contada pela data em que
-        COMEÇOU — ex.: 23h de um dia e 3h da madrugada seguinte
-        pertencem à mesma "noite", não a duas noites diferentes.
-      </div>
-      <div class="field">
-        <label>Latitude</label>
-        <input type="number" id="cfgl-lat" step="0.000001" min="-90" max="90" value="${cfg.latitude ?? ''}" placeholder="ex.: -16.686891">
-      </div>
-      <div class="field">
-        <label>Longitude</label>
-        <input type="number" id="cfgl-lon" step="0.000001" min="-180" max="180" value="${cfg.longitude ?? ''}" placeholder="ex.: -49.264794">
-      </div>
-      <div class="field">
-        <label>Fuso horário (IANA)</label>
-        <input type="text" id="cfgl-tz" list="dl-fusos" maxlength="60" value="${esc(cfg.timezone || 'America/Sao_Paulo')}" placeholder="ex.: America/Sao_Paulo">
-        <datalist id="dl-fusos">
-          <option value="America/Sao_Paulo"></option>
-          <option value="America/Manaus"></option>
-          <option value="America/Rio_Branco"></option>
-          <option value="America/Noronha"></option>
-          <option value="UTC"></option>
-        </datalist>
-      </div>
-      <div class="field">
-        <label>Início do período diurno</label>
-        <input type="time" id="cfgl-diurno-inicio" value="${cfg.diurnoInicio || '06:00'}">
-      </div>
-      <div class="field">
-        <label>Fim do período diurno</label>
-        <input type="time" id="cfgl-diurno-fim" value="${cfg.diurnoFim || '18:00'}">
-      </div>
-      <div class="qai-sub">O período noturno é o complemento automático do diurno (ex.: diurno 06:00–18:00 → noturno 18:00–06:00 do dia seguinte).</div>
-      <div class="action-bar">
-        <button class="btn btn-secondary" onclick="CONFIG_LOCAL_EDITANDO=null;renderConfigLocal()">Voltar</button>
-        <button class="btn btn-primary" id="btn-salvar-config-local" onclick="salvarConfigLocal(this)">Salvar</button>
-      </div>`;
-    return;
-  }
+  const cfg = CONFIGS_LOCAL.get(_normTexto(CONFIG_LOCAL_EDITANDO)) || {};
   el.innerHTML = `
-    <div class="modal-title">Configuração de local</div>
-    <div class="qai-sub">Latitude/longitude/fuso/período diurno-noturno, por estabelecimento. Necessário para estatísticas com recorte diurno/noturno.</div>
-    ${LOCAIS.map(l => {
-      const cfg = CONFIGS_LOCAL.get(_normTexto(l.estabelecimento));
-      return `<div class="card" style="margin-top:10px">
-        <div class="card-title">${esc(l.estabelecimento)}</div>
-        <div class="qai-sub">${cfg
-          ? `Lat ${cfg.latitude}, Long ${cfg.longitude} · ${esc(cfg.timezone)} · Diurno ${esc(cfg.diurnoInicio)}–${esc(cfg.diurnoFim)}`
-          : 'Sem configuração — diurno/noturno indisponível para estatística até configurar'}</div>
-        <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="CONFIG_LOCAL_EDITANDO=${JSON.stringify(l.estabelecimento)};renderConfigLocal()">${cfg ? 'Editar' : 'Configurar'}</button>
-      </div>`;
-    }).join('')}`;
+    <div class="modal-title">${esc(CONFIG_LOCAL_EDITANDO)}</div>
+    <div class="qai-sub">
+      Latitude/longitude e fuso definem o relógio local do
+      estabelecimento, usado para calcular os períodos diurno e
+      noturno nas estatísticas. A noite é contada pela data em que
+      COMEÇOU — ex.: 23h de um dia e 3h da madrugada seguinte
+      pertencem à mesma "noite", não a duas noites diferentes.
+    </div>
+    <div class="field">
+      <label>Colar coordenadas do Google Maps</label>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="cfgl-colar" placeholder="ex.: -16.81491152196471, -49.242589442946105" style="flex:1">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="aplicarCoordenadasColadas()">Aplicar</button>
+      </div>
+      <div class="qai-sub">No Google Maps, clique com o botão direito sobre o ponto exato: o primeiro item do menu já é "latitude, longitude" — cole aqui.</div>
+    </div>
+    <button type="button" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px" onclick="abrirGoogleMaps()">🗺️ Abrir no Google Maps</button>
+    <div class="field">
+      <label>Latitude</label>
+      <input type="number" id="cfgl-lat" step="0.000001" min="-90" max="90" value="${cfg.latitude ?? ''}" placeholder="ex.: -16.686891">
+    </div>
+    <div class="field">
+      <label>Longitude</label>
+      <input type="number" id="cfgl-lon" step="0.000001" min="-180" max="180" value="${cfg.longitude ?? ''}" placeholder="ex.: -49.264794">
+    </div>
+    <div class="field">
+      <label>Fuso horário (IANA)</label>
+      <input type="text" id="cfgl-tz" list="dl-fusos" maxlength="60" value="${esc(cfg.timezone || 'America/Sao_Paulo')}" placeholder="ex.: America/Sao_Paulo">
+      <datalist id="dl-fusos">
+        <option value="America/Sao_Paulo"></option>
+        <option value="America/Manaus"></option>
+        <option value="America/Rio_Branco"></option>
+        <option value="America/Noronha"></option>
+        <option value="UTC"></option>
+      </datalist>
+    </div>
+    <div class="field">
+      <label>Início do período diurno</label>
+      <input type="time" id="cfgl-diurno-inicio" value="${cfg.diurnoInicio || '06:00'}">
+    </div>
+    <div class="field">
+      <label>Fim do período diurno</label>
+      <input type="time" id="cfgl-diurno-fim" value="${cfg.diurnoFim || '18:00'}">
+    </div>
+    <div class="qai-sub">O período noturno é o complemento automático do diurno (ex.: diurno 06:00–18:00 → noturno 18:00–06:00 do dia seguinte).</div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="fecharModal('modal-config-local')">Fechar</button>
+      <button class="btn btn-primary" id="btn-salvar-config-local" onclick="salvarConfigLocal(this)">Salvar</button>
+    </div>`;
+}
+
+// Formato exato que o Google Maps copia ao clicar com o botão direito
+// num ponto: "-16.81491152196471, -49.242589442946105".
+function aplicarCoordenadasColadas() {
+  const texto = document.getElementById('cfgl-colar').value;
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(texto);
+  if (!m) { showToast('Cole no formato "latitude, longitude", copiado do Google Maps.', 6000); return; }
+  const lat = Number(m[1]), lon = Number(m[2]);
+  if (lat < -90 || lat > 90) { showToast('Latitude fora do intervalo válido (-90 a 90).', 6000); return; }
+  if (lon < -180 || lon > 180) { showToast('Longitude fora do intervalo válido (-180 a 180).', 6000); return; }
+  document.getElementById('cfgl-lat').value = lat;
+  document.getElementById('cfgl-lon').value = lon;
+  document.getElementById('cfgl-colar').value = '';
+  showToast('Coordenadas aplicadas — confira e clique em Salvar.');
+}
+
+// Sem coordenadas ainda: abre uma busca pelo nome do estabelecimento, pra
+// ajudar a localizar e copiar as coordenadas de lá.
+function abrirGoogleMaps() {
+  const lat = document.getElementById('cfgl-lat').value;
+  const lon = document.getElementById('cfgl-lon').value;
+  const url = (lat !== '' && lon !== '')
+    ? `https://www.google.com/maps?q=${encodeURIComponent(lat + ',' + lon)}`
+    : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(CONFIG_LOCAL_EDITANDO || '')}`;
+  window.open(url, '_blank', 'noopener');
 }
 
 async function salvarConfigLocal(btn) {
@@ -418,8 +446,8 @@ async function salvarConfigLocal(btn) {
     try {
       const salvo = await DB.salvarConfigLocalQai(dados);
       CONFIGS_LOCAL.set(_normTexto(salvo.estabelecimento), salvo);
-      CONFIG_LOCAL_EDITANDO = null;
-      renderConfigLocal();
+      fecharModal('modal-config-local');
+      if (SENSOR_ABERTO) renderBasico(SENSOR_ABERTO);
       showToast('Configuração salva.');
     } catch (e) { showToast('Não foi possível salvar: ' + e.message, 7000); }
   });
@@ -441,12 +469,6 @@ async function iniciarQai() {
   if (!confirmado) return;
   user = confirmado;
   document.getElementById('auth-overlay').style.display = 'none';
-  // Configuração de local (lat/long/fuso/diurno-noturno) é dado
-  // estrutural do estabelecimento — mesma faixa de papel que já edita
-  // contrato no resto do sistema (authz.SUPERVISOR_ACIMA no backend,
-  // que é quem de fato aplica a regra; isto só evita mostrar um botão
-  // que o servidor rejeitaria).
-  document.getElementById('btn-config-local').classList.toggle('hidden', !podeConfigurarLocalQai(user?.role));
   DB.getPrestadoraConfig().then(async cfg => {
     cfg = cfg || {};
     cfg.logo = await resolverLogoDataUrl(cfg);
@@ -474,7 +496,6 @@ function preencherSelectContratos() {
 function aoTrocarContrato() {
   const contrato = document.getElementById('f-contrato').value;
   document.getElementById('btn-novo-sensor').disabled = !contrato;
-  document.getElementById('btn-config-local').disabled = !contrato;
   document.getElementById('qai-status-tabs').classList.toggle('hidden', !contrato);
   if (!contrato) {
     LINHAS = [];
@@ -644,7 +665,7 @@ async function abrirSensor(id, modo = 'dashboard') {
     LEITURAS_ABERTO = leituras;
     APARELHOS_ABERTO = aparelhos || [];
     DASH_LINHA = (linhas || []).find(l => l.sensor.id === id) || null;
-    await carregarLocais(sensor.contrato);
+    await Promise.all([carregarLocais(sensor.contrato), carregarConfigsLocal(sensor.contrato)]);
     renderModalSensor();
   } catch (e) {
     document.getElementById('sensor-modal-conteudo').innerHTML =
@@ -1036,6 +1057,10 @@ async function excluirSensorAtual(btn) {
 
 // ── Dados básicos ────────────────────────────────────────────────────
 function renderBasico(s) {
+  const cfgGeo = CONFIGS_LOCAL.get(_normTexto(s.estabelecimento));
+  const statusGeo = cfgGeo
+    ? `📍 Lat ${cfgGeo.latitude}, Long ${cfgGeo.longitude} · ${esc(cfgGeo.timezone)}`
+    : '📍 Localização (lat/long) não configurada — necessária para estatísticas com recorte diurno/noturno.';
   document.getElementById('sec-basico').innerHTML = `
     <div class="card">
       <div class="card-title">Local</div>
@@ -1050,6 +1075,10 @@ function renderBasico(s) {
         </div>
       </div>
       <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="salvarBasico(this)">Salvar local</button></div>
+      ${podeConfigurarLocalQai(user?.role) ? `
+      <div class="qai-sub" style="margin-top:10px">${statusGeo}</div>
+      <div class="action-bar"><button class="btn btn-secondary btn-sm" style="width:100%" onclick="abrirGeoSensor()">📍 Configurar localização (lat/long)</button></div>
+      ` : ''}
     </div>`;
   preencherDatalists('dl-estab-cfg', 'dl-recinto-cfg', s.estabelecimento);
 }

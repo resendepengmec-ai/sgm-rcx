@@ -402,17 +402,18 @@ console.log('── podeConfigurarLocalQai: mesma faixa de papel que edita contr
 ['gestor', 'tecnico', 'solicitante', undefined, null].forEach(r =>
   assert(`${JSON.stringify(r)} NÃO pode configurar local`, !sandbox.podeConfigurarLocalQai(r)));
 
-console.log('── renderConfigLocal: lista mostra "Configurar" pra quem não tem config e "Editar" + resumo pra quem tem ──');
+console.log('── abrirGeoSensor: entra direto na edição do estabelecimento do sensor aberto (sem tela de lista) ──');
 {
   vm.runInContext(`
-    CONFIG_LOCAL_EDITANDO = null;
-    LOCAIS = [{ estabelecimento: 'Unidade A', recintos: [] }, { estabelecimento: 'Unidade B', recintos: [] }];
-    CONFIGS_LOCAL = new Map([['unidade a', { estabelecimento: 'Unidade A', latitude: -16.68, longitude: -49.25, timezone: 'America/Sao_Paulo', diurnoInicio: '06:00', diurnoFim: '18:00' }]]);
+    SENSOR_ABERTO = { id: 's-geo', contrato: '1020', estabelecimento: 'Unidade A' };
+    CONFIGS_LOCAL_CONTRATO = null;
+    DB.getConfigLocalQai = (c) => { __contratoPedido = c; return Promise.resolve([{ estabelecimento: 'Unidade A', latitude: -16.68, longitude: -49.25, timezone: 'America/Sao_Paulo', diurnoInicio: '06:00', diurnoFim: '18:00' }]); };
   `, sandbox);
-  sandbox.renderConfigLocal();
+  await sandbox.abrirGeoSensor();
+  assert('busca a config do contrato do sensor aberto', vm.runInContext('__contratoPedido', sandbox) === '1020');
+  assert('entra direto editando o estabelecimento do sensor (nunca uma lista pra escolher)', vm.runInContext('CONFIG_LOCAL_EDITANDO', sandbox) === 'Unidade A');
   const html = elementoFalso('config-local-conteudo').innerHTML;
-  assert('Unidade A (tem config) mostra "Editar" e o resumo', html.includes('Editar') && html.includes('America/Sao_Paulo') && html.includes('-16.68'));
-  assert('Unidade B (sem config) mostra "Configurar" e avisa que falta', html.includes('Configurar') && html.includes('indisponível para estatística'));
+  assert('já renderiza a edição com os valores carregados', html.includes('value="-16.68"') && html.includes('Unidade A'));
 }
 
 console.log('── renderConfigLocal: tela de edição carrega os valores já salvos (ou os defaults, pra quem nunca configurou) ──');
@@ -421,10 +422,46 @@ console.log('── renderConfigLocal: tela de edição carrega os valores já s
   sandbox.renderConfigLocal();
   assert('campo latitude vem preenchido com o valor salvo', elementoFalso('config-local-conteudo').innerHTML.includes('value="-16.68"'));
 
-  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B';`, sandbox);
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B'; CONFIGS_LOCAL = new Map();`, sandbox);
   sandbox.renderConfigLocal();
   const htmlSemConfig = elementoFalso('config-local-conteudo').innerHTML;
   assert('Unidade B (nunca configurada) usa os defaults de diurno 06:00–18:00, nunca um valor inventado de lat/long', htmlSemConfig.includes('value="06:00"') && htmlSemConfig.includes('value="18:00"') && !htmlSemConfig.includes('value="-16.68"'));
+  assert('oferece colar coordenadas do Google Maps e um link pra abrir o Google Maps', htmlSemConfig.includes('cfgl-colar') && htmlSemConfig.includes('Google Maps'));
+}
+
+console.log('── aplicarCoordenadasColadas: aceita exatamente o formato que o Google Maps copia ──');
+{
+  elementoFalso('cfgl-lat').value = ''; elementoFalso('cfgl-lon').value = '';
+  elementoFalso('cfgl-colar').value = '-16.81491152196471, -49.242589442946105';
+  sandbox.aplicarCoordenadasColadas();
+  assert('preenche latitude a partir do texto colado', elementoFalso('cfgl-lat').value === -16.81491152196471);
+  assert('preenche longitude a partir do texto colado', elementoFalso('cfgl-lon').value === -49.242589442946105);
+  assert('limpa o campo de colar depois de aplicar', elementoFalso('cfgl-colar').value === '');
+
+  _toasts.length = 0;
+  elementoFalso('cfgl-lat').value = ''; elementoFalso('cfgl-lon').value = '';
+  elementoFalso('cfgl-colar').value = 'não é uma coordenada';
+  sandbox.aplicarCoordenadasColadas();
+  assert('texto sem o formato "lat, long" não altera os campos e avisa', elementoFalso('cfgl-lat').value === '' && _toasts.some(t => t.includes('latitude, longitude')));
+
+  _toasts.length = 0;
+  elementoFalso('cfgl-colar').value = '-95, -49.25';
+  sandbox.aplicarCoordenadasColadas();
+  assert('latitude fora de -90..90 é rejeitada', elementoFalso('cfgl-lat').value === '' && _toasts.some(t => t.includes('Latitude fora')));
+}
+
+console.log('── abrirGoogleMaps: usa as coordenadas já preenchidas, ou busca pelo nome do estabelecimento se ainda não houver nenhuma ──');
+{
+  const _mapsAbertos = [];
+  sandbox.open = (url) => { _mapsAbertos.push(url); };
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade A';`, sandbox);
+  elementoFalso('cfgl-lat').value = '-16.68'; elementoFalso('cfgl-lon').value = '-49.25';
+  sandbox.abrirGoogleMaps();
+  assert('com coordenadas preenchidas, abre o ponto exato', _mapsAbertos[0].includes('q=-16.68%2C-49.25'));
+
+  elementoFalso('cfgl-lat').value = ''; elementoFalso('cfgl-lon').value = '';
+  sandbox.abrirGoogleMaps();
+  assert('sem coordenadas ainda, busca pelo nome do estabelecimento em edição', _mapsAbertos[1].includes('query=Unidade%20A'));
 }
 
 console.log('── salvarConfigLocal: envia os campos do formulário e atualiza o estado local após salvar ──');
@@ -435,16 +472,15 @@ console.log('── salvarConfigLocal: envia os campos do formulário e atualiza
   elementoFalso('cfgl-tz').value = ' America/Sao_Paulo ';
   elementoFalso('cfgl-diurno-inicio').value = '07:00';
   elementoFalso('cfgl-diurno-fim').value = '19:00';
-  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B';`, sandbox);
+  vm.runInContext(`CONFIG_LOCAL_EDITANDO = 'Unidade B'; SENSOR_ABERTO = { id: 's-geo', contrato: '1020', estabelecimento: 'Unidade B' };`, sandbox);
   let payloadEnviado = null;
   vm.runInContext(`DB.salvarConfigLocalQai = (dados) => { __payload = dados; return Promise.resolve({ ...dados, estabelecimento: 'Unidade B' }); };`, sandbox);
   await sandbox.salvarConfigLocal({});
   payloadEnviado = vm.runInContext('__payload', sandbox);
   assert('envia contrato, estabelecimento em edição e os 5 campos do formulário', payloadEnviado.contrato === '1020' && payloadEnviado.estabelecimento === 'Unidade B'
     && payloadEnviado.latitude === '-16.68' && payloadEnviado.longitude === '-49.25' && payloadEnviado.diurnoInicio === '07:00' && payloadEnviado.diurnoFim === '19:00');
-  assert('volta pra lista após salvar (CONFIG_LOCAL_EDITANDO vira null)', vm.runInContext('CONFIG_LOCAL_EDITANDO', sandbox) === null);
   const configs = vm.runInContext('CONFIGS_LOCAL', sandbox);
-  assert('CONFIGS_LOCAL é atualizado com a resposta do servidor, sem precisar recarregar a lista inteira', configs.get('unidade b')?.diurnoInicio === '07:00');
+  assert('CONFIGS_LOCAL é atualizado com a resposta do servidor', configs.get('unidade b')?.diurnoInicio === '07:00');
 }
 
 console.log('── alternarColetaAnalitica: liga/desliga e reverte o checkbox se o servidor rejeitar ──');
