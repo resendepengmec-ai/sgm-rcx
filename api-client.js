@@ -1174,6 +1174,10 @@ const DB = {
   // Fase 5 — comparação interno (sensor) x externo (clima): mesmos
   // parâmetros de inicio/fim/periodo de getEstatisticasQai.
   getComparacaoQai:   (id,q='')  => API.get(`/qai/sensores/${encodeURIComponent(id)}/comparacao${q}`),
+  // Fase 4b — alerta de previsão: olha pra FRENTE (dias que ainda vão
+  // acontecer), por isso não usa inicio/fim/periodo — só "dias" (padrão
+  // do servidor: 3, teto: 7).
+  getAlertaClimaQai:  (id,dias)   => API.get(`/qai/sensores/${encodeURIComponent(id)}/alerta-clima${dias ? '?dias='+encodeURIComponent(dias) : ''}`),
   getAparelhosQai:    id         => API.get(`/qai/sensores/${encodeURIComponent(id)}/aparelhos`),
   // opts.incluirExcluidos: abas Ativos/Inativos/Excluídos em qai.html
   // buscam tudo numa chamada só e filtram no cliente — sem o parâmetro,

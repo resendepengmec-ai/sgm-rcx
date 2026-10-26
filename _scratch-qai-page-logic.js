@@ -33,10 +33,14 @@ const sandbox = {
   esc: s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'),
   withActionBusy: async (btn, label, task) => task(),
   Chart: function (ctx, cfg) { this.cfg = cfg; this.destroy = () => {}; (sandbox.__charts = sandbox.__charts || []).push(this); },
-  // getComparacaoQai (Fase 5): default seguro — buscarEstatisticas sempre
-  // chama os dois em paralelo; testes que só querem exercitar as
-  // estatísticas (Fase 2/3) não precisam redefinir este também.
-  DB: { getComparacaoQai: () => Promise.resolve({ disponivel: false, motivo: 'não testado neste bloco' }) },
+  // getComparacaoQai (Fase 5) e getAlertaClimaQai (Fase 4b): defaults
+  // seguros — buscarEstatisticas sempre chama os três em paralelo;
+  // testes que só querem exercitar as estatísticas (Fase 2/3) não
+  // precisam redefinir estes também.
+  DB: {
+    getComparacaoQai: () => Promise.resolve({ disponivel: false, motivo: 'não testado neste bloco' }),
+    getAlertaClimaQai: () => Promise.resolve({ disponivel: false, motivo: 'não testado neste bloco' }),
+  },
 };
 sandbox.window = sandbox;
 vm.createContext(sandbox);
@@ -512,6 +516,20 @@ console.log('── renderModalSensor (estatisticas): abre com datas padrão (ú
   assert('campo de data inicial vem preenchido (nunca abre sem filtro nenhum)', /id="estat-inicio" value="\d{4}-\d{2}-\d{2}"/.test(html));
   assert('campo de data final vem preenchido', /id="estat-fim" value="\d{4}-\d{2}-\d{2}"/.test(html));
   assert('tem o botão "← Voltar"', html.includes('← Voltar') && html.includes("irParaModo('dashboard')"));
+  assert('tem o botão (i) de ajuda, pro usuário entender os números', html.includes('abrirAjudaEstatisticas()'));
+  assert('tem o rótulo "histórico — sem previsão" visível direto na tela, sem precisar abrir o (i)', html.includes('Histórico — sem previsão'));
+}
+
+console.log('── abrirAjudaEstatisticas: explica os números da tela e deixa explícito que não é previsão ──');
+{
+  sandbox.abrirAjudaEstatisticas();
+  const html = elementoFalso('ajuda-estatisticas-conteudo').innerHTML;
+  assert('deixa explícito que os cartões/comparação são histórico, nunca projeção', html.toLowerCase().includes('nunca projeta nem estima'));
+  assert('explica o que é o desvio-padrão', html.toLowerCase().includes('desvio-padrão'));
+  assert('explica a dependência da configuração de local pro diurno/noturno', html.includes('Configurações → Local') || html.toLowerCase().includes('diurno e noturno dependem'));
+  assert('explica a correlação da comparação externa, inclusive que um valor baixo pode ser bom sinal', html.toLowerCase().includes('correlação') && html.toLowerCase().includes('boa notícia'));
+  assert('deixa claro que o alerta de previsão é o ÚNICO ponto que olha pra frente', html.toLowerCase().includes('único lugar da tela que olha pra frente') || html.toLowerCase().includes('único cartão que de fato olha pros próximos dias'));
+  assert('explica que o gatilho do alerta é o limite já configurado, nunca um limiar genérico', html.toLowerCase().includes('nunca um limiar genérico'));
 }
 
 console.log('── ordenarGrandezasEstatistica: temperatura e umidade vêm primeiro quando existem, sem presumir que todo sensor as tem ──');
@@ -530,14 +548,24 @@ console.log('── kpiCardEstatistica: "Dados insuficientes" quando não há am
   assert('card sem amostra fica na classe neutra "sem"', html.includes('qai-kpi sem'));
 }
 
-console.log('── kpiCardEstatistica: card completo (média, desvio, meta, limite) ──');
+console.log('── fmtValorEstat: sempre uma casa decimal, nunca a precisão crua de fmtValor ──');
 {
-  const g = { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 10, media: 24.5, minimo: 20, maximo: 28, desvioPadrao: 1.8, meta: 22, desvioDaMeta: 2.5, amostrasComLimiteAplicavel: 10, amostrasForaDoLimite: 3, proporcaoForaDoLimite: 0.3 };
+  assert('arredonda pra baixo (21.294 -> 21.3)', sandbox.fmtValorEstat(21.294, '°C') === '21.3 °C');
+  assert('arredonda pra cima (26.051 -> 26.1)', sandbox.fmtValorEstat(26.051, '°C') === '26.1 °C');
+  assert('completa com .0 quando o valor já é inteiro (22 -> 22.0)', sandbox.fmtValorEstat(22, '°C') === '22.0 °C');
+  assert('preserva o sinal negativo (-0.706 -> -0.7)', sandbox.fmtValorEstat(-0.706, '°C') === '-0.7 °C');
+  assert('sem valor continua travessão', sandbox.fmtValorEstat(null, '°C') === '—');
+  assert('sem unidade, não deixa espaço sobrando', sandbox.fmtValorEstat(21.294, '') === '21.3');
+}
+
+console.log('── kpiCardEstatistica: card completo (média, desvio, meta, limite) — sempre 1 casa decimal, mesmo com valor cru de mais dígitos ──');
+{
+  const g = { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 10, media: 21.294, minimo: 16.549, maximo: 26.051, desvioPadrao: 2.987, meta: 22, desvioDaMeta: -0.706, amostrasComLimiteAplicavel: 10, amostrasForaDoLimite: 3, proporcaoForaDoLimite: 0.3 };
   const html = sandbox.kpiCardEstatistica(g);
-  assert('mostra a média formatada', html.includes('24.5'));
-  assert('mostra mínimo e máximo', html.includes('20') && html.includes('28'));
-  assert('mostra o desvio-padrão', html.includes('1.8'));
-  assert('mostra o desvio da meta e a própria meta', html.includes('desvio da meta') && html.includes('meta 22'));
+  assert('mostra a média com 1 casa decimal (21.294 -> 21.3), nunca os 3 dígitos crus', html.includes('21.3') && !html.includes('21.294'));
+  assert('mostra mínimo e máximo com 1 casa decimal', html.includes('16.5') && html.includes('26.1') && !html.includes('16.549') && !html.includes('26.051'));
+  assert('mostra o desvio-padrão com 1 casa decimal (2.987 -> 3.0)', html.includes('3.0') && !html.includes('2.987'));
+  assert('mostra o desvio da meta e a própria meta, ambos com 1 casa decimal', html.includes('desvio da meta -0.7') && html.includes('meta 22.0'));
   assert('mostra a proporção fora do limite como % de AMOSTRAS, nunca "percentual do tempo"', html.includes('30%') && !html.toLowerCase().includes('percentual do tempo'));
   assert('card com amostras fora do limite fica na classe "fora"', html.includes('qai-kpi fora'));
 }
@@ -645,6 +673,7 @@ console.log('── renderComparacao (Fase 5): indisponível mostra motivo, sem 
   const html = elementoFalso('estat-comparacao').innerHTML;
   assert('mostra o título do bloco', html.includes('Comparação com o clima externo'));
   assert('mostra o motivo', html.includes('Integração climática não configurada.'));
+  assert('mostra o rótulo "histórico" mesmo quando indisponível', html.includes('badge historico'));
 }
 
 console.log('── renderComparacao: disponível mas sem pares válidos — "Dados insuficientes", nunca um cartão com número inventado ──');
@@ -666,7 +695,7 @@ console.log('── renderComparacao: resultado completo — diferença de tempe
   sandbox.renderComparacao({
     disponivel: true, toleranciaMin: 35,
     cobertura: { totalInterno: 20, totalExterno: 24, paresTemperatura: 18, paresUmidade: 18 },
-    temperatura: { pares: [], diferencaMedia: 3.2, correlacao: 0.87, correlacaoIndisponivel: null },
+    temperatura: { pares: [], diferencaMedia: 3.249, correlacao: 0.87, correlacaoIndisponivel: null },
     umidade: { pares: [{}] },
     avisos: {
       correlacaoNaoEhCausalidade: 'Correlação não implica causa.',
@@ -675,12 +704,13 @@ console.log('── renderComparacao: resultado completo — diferença de tempe
     },
   });
   const html = elementoFalso('estat-comparacao').innerHTML;
-  assert('mostra a diferença média de temperatura', html.includes('3.2'));
+  assert('mostra a diferença média de temperatura com 1 casa decimal (3.249 -> 3.2), nunca o valor cru', html.includes('+3.2') && !html.includes('3.249'));
   assert('mostra a correlação calculada', html.includes('0.87'));
   assert('mostra o aviso de correlação não é causa', html.includes('Correlação não implica causa.'));
   assert('mostra o aviso de dependência temporal', html.includes('Autocorrelação temporal presente.'));
   assert('mostra o aviso de umidade relativa', html.includes('Umidade é relativa, não absoluta.'));
   assert('sem serieTemporalTruncada, não mostra o aviso de recorte parcial', !html.includes('não o período inteiro'));
+  assert('mostra o rótulo "histórico" junto do título, deixando claro que não é previsão', html.includes('badge historico') && html.includes('histórico'));
 }
 
 console.log('── renderComparacao: serieTemporalTruncada:true avisa que a comparação usou um recorte, não o período inteiro ──');
@@ -696,7 +726,59 @@ console.log('── renderComparacao: serieTemporalTruncada:true avisa que a com
   assert('mostra o aviso de recorte parcial quando serieTemporalTruncada é true', elementoFalso('estat-comparacao').innerHTML.includes('não o período inteiro'));
 }
 
-console.log('── buscarEstatisticas: busca estatísticas e comparação em paralelo, e repassa a comparação pro render ──');
+console.log('── renderAlertaClima (Fase 4b): indisponível mostra motivo discreto, sem aparentar erro grave ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '';
+  sandbox.renderAlertaClima({ disponivel: false, motivo: 'Integração climática não configurada.' });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('mostra o título do bloco', html.includes('Alerta de previsão climática'));
+  assert('mostra o motivo', html.includes('Integração climática não configurada.'));
+}
+
+console.log('── renderAlertaClima: sem nenhum limite configurado, explica em vez de alertar algo inventado ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '';
+  sandbox.renderAlertaClima({ disponivel: true, semLimitesConfigurados: true, dias: [] });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('explica que precisa configurar um limite pra habilitar o alerta', html.toLowerCase().includes('configure um limite'));
+  assert('nunca inventa um limiar genérico de clima', !html.includes('⚠️'));
+}
+
+console.log('── renderAlertaClima: com limite configurado mas nenhum dia fora dele, mostra "tudo ok" em vez de nada ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '';
+  sandbox.renderAlertaClima({
+    disponivel: true, semLimitesConfigurados: false,
+    dias: [
+      { data: '2026-11-01', temperaturaMax: 24, temperaturaMin: 18, alertas: [] },
+      { data: '2026-11-02', temperaturaMax: 25, temperaturaMin: 19, alertas: [] },
+    ],
+  });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('mostra a confirmação de que nenhum dia fica fora dos limites', html.includes('Nenhum dia dos próximos 2 foge dos limites'));
+  assert('menciona que é uma previsão (nunca histórico) junto do título', html.includes('previsão'));
+}
+
+console.log('── renderAlertaClima: dia com alerta mostra a grandeza, o valor previsto e o limite configurado ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '';
+  sandbox.renderAlertaClima({
+    disponivel: true, semLimitesConfigurados: false,
+    dias: [
+      { data: '2026-11-01', temperaturaMax: 31.4, temperaturaMin: 20, alertas: [{ grandeza: 'temp_current', rotulo: 'Temperatura', tipo: 'acima', valorPrevisto: 31.4, limite: 26 }] },
+      { data: '2026-11-02', temperaturaMax: 24, temperaturaMin: 18, alertas: [] },
+    ],
+  });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('mostra o rótulo da grandeza em alerta', html.includes('Temperatura'));
+  assert('mostra o valor previsto com 1 casa decimal (31.4), nunca cru sem formatação', html.includes('31.4'));
+  assert('mostra o limite configurado (26)', html.includes('26'));
+  assert('deixa claro que é "acima do máximo" (não um "abaixo" genérico)', html.toLowerCase().includes('acima do máximo'));
+  assert('dia sem alerta (02/11) não aparece na lista de dias — só o que teve alerta (01/11) é listado', !html.includes('02/11') && html.includes('01/11'));
+  assert('aviso fixo de que é estimativa de modelo, nunca garantia', html.toLowerCase().includes('nunca é uma medição') || html.toLowerCase().includes('nunca uma garantia'));
+}
+
+console.log('── buscarEstatisticas: busca estatísticas, comparação e alerta de previsão em paralelo, repassando os três pro render ──');
 {
   vm.runInContext(`SENSOR_ABERTO = { id: 'sz', contrato: '1020', grandezasAtivas: { temp_current: { code: 'temp_current', rotulo: 'Temperatura', unidade: '°C' } }, limites: {}, exibicao: { agrupar: true } };`, sandbox);
   elementoFalso('estat-inicio').value = '2026-03-01';
@@ -704,13 +786,16 @@ console.log('── buscarEstatisticas: busca estatísticas e comparação em pa
   elementoFalso('estat-periodo').value = '24h';
   elementoFalso('estat-conteudo').innerHTML = '';
   elementoFalso('estat-comparacao').innerHTML = '';
+  elementoFalso('estat-alerta-clima').innerHTML = '';
   vm.runInContext(`
     DB.getEstatisticasQai = () => Promise.resolve({ disponivel: true, periodo: '24h', truncado: false, cobertura: { amostrasNoPeriodo: 2, intervaloMedioMin: null, desvioIntervaloMin: null }, grandezas: [{ code: 'temp_current', rotulo: 'Temperatura', unidade: '°C', amostrasValidas: 2, media: 24, minimo: 23, maximo: 25, desvioPadrao: 1, meta: null, desvioDaMeta: null, amostrasComLimiteAplicavel: 0, amostrasForaDoLimite: 0, proporcaoForaDoLimite: null }], serieTemporal: [], serieTemporalTruncada: false });
     DB.getComparacaoQai = () => Promise.resolve({ disponivel: true, toleranciaMin: 35, cobertura: { totalInterno: 2, totalExterno: 2, paresTemperatura: 1, paresUmidade: 0 }, temperatura: { pares: [], diferencaMedia: 1.5, correlacao: null, correlacaoIndisponivel: 'amostra insuficiente' }, umidade: { pares: [] }, avisos: { correlacaoNaoEhCausalidade: 'a', dependenciaTemporal: 'b', umidadeRelativa: 'c' } });
+    DB.getAlertaClimaQai = () => Promise.resolve({ disponivel: true, semLimitesConfigurados: false, dias: [{ data: '2026-03-08', temperaturaMax: 31, temperaturaMin: 20, alertas: [{ grandeza: 'temp_current', rotulo: 'Temperatura', tipo: 'acima', valorPrevisto: 31, limite: 26 }] }] });
   `, sandbox);
   await sandbox.buscarEstatisticas();
   assert('estatísticas renderizadas normalmente', elementoFalso('estat-conteudo').innerHTML.includes('Temperatura'));
   assert('comparação também renderizada na mesma busca', elementoFalso('estat-comparacao').innerHTML.includes('1.5'));
+  assert('alerta de previsão também renderizado na mesma busca', elementoFalso('estat-alerta-clima').innerHTML.includes('Temperatura'));
 }
 
 console.log(falhas === 0 ? '\n✅ tudo passou' : `\n❌ ${falhas} falha(s)`);

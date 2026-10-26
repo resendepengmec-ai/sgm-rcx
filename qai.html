@@ -62,6 +62,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .badge.conforme{background:var(--success-bg);color:var(--success);}
 .badge.fora{background:var(--danger-bg);color:var(--danger);}
 .badge.semlimite{background:var(--bg);color:var(--text-3);}
+.badge.historico{background:var(--bg);color:var(--text-3);font-weight:600;white-space:nowrap;}
 
 .qai-sub{font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.5;}
 .qai-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -110,6 +111,17 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-grafico-titulo{font-size:12px;font-weight:700;color:var(--text-2);margin-bottom:2px;}
 .qai-check{display:block;font-size:13px;margin:6px 0;cursor:pointer;}
 #pdf-painel{margin-bottom:12px;}
+
+.qai-info-btn{width:26px;height:26px;flex-shrink:0;border-radius:50%;border:1.5px solid var(--primary);background:var(--surface);color:var(--primary);font-weight:700;font-size:13px;font-style:italic;font-family:Georgia,serif;cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;}
+.qai-info-btn:hover{background:var(--primary-light);}
+.qai-ajuda-titulo{font-weight:700;color:var(--text);margin-top:12px;}
+.qai-ajuda-titulo:first-child{margin-top:0;}
+.badge.previsao{background:var(--warning-bg);color:var(--warning);font-weight:600;white-space:nowrap;}
+.qai-alerta-clima{border-left:3px solid var(--warning);}
+.qai-alerta-dia{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:7px 0;border-top:1px solid var(--border);}
+.qai-alerta-dia:first-child{border-top:none;}
+.qai-alerta-dia-data{font-weight:600;font-size:13px;white-space:nowrap;}
+.qai-alerta-dia-itens{font-size:12.5px;color:var(--warning);text-align:right;}
 </style>
 </head>
 <body>
@@ -174,11 +186,22 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 </div>
 
 <!-- Modal: configuração de local (Fase 1 — Estatísticas QAI) -->
+<!-- Sem botão Fechar aqui fora: renderConfigLocal já termina num
+     action-bar próprio (Fechar + Salvar) — um 2º Fechar solto embaixo
+     era duplicado e sobrava na tela (achado na auditoria de layout). -->
 <div class="modal-bg hidden" id="modal-config-local">
   <div class="modal" style="max-width:520px;margin:0 auto">
     <div class="modal-handle"></div>
     <div id="config-local-conteudo">Carregando…</div>
-    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-config-local')">Fechar</button>
+  </div>
+</div>
+
+<!-- Modal: explicação dos números da tela de Estatísticas -->
+<div class="modal-bg hidden" id="modal-ajuda-estatisticas">
+  <div class="modal" style="max-width:560px;margin:0 auto">
+    <div class="modal-handle"></div>
+    <div id="ajuda-estatisticas-conteudo"></div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:14px" onclick="fecharModal('modal-ajuda-estatisticas')">Fechar</button>
   </div>
 </div>
 
@@ -271,6 +294,14 @@ function fmtDataHora(ts) { return ts ? new Date(ts).toLocaleString('pt-BR') : '�
 function fmtValor(valor, unidade) {
   if (valor == null) return '—';
   return String(Math.round(valor * 1000) / 1000) + (unidade ? ' ' + unidade : '');
+}
+// Só pra tela de Estatísticas (Fase 3): uma casa decimal fixa, sempre —
+// os cartões ali são resumo/estatística, não a leitura instantânea, então
+// não precisam da mesma precisão de fmtValor (usada no dashboard ao vivo,
+// no gauge e no PDF, que continuam como estavam).
+function fmtValorEstat(valor, unidade) {
+  if (valor == null) return '—';
+  return valor.toFixed(1) + (unidade ? ' ' + unidade : '');
 }
 function tempoRelativo(ts) {
   if (!ts) return '—';
@@ -711,7 +742,13 @@ function renderModalSensor() {
       ESTAT_INICIO = diaLocalDe(hoje.getTime() - 6 * 86400000);
     }
     el.innerHTML = `${titulo}
-      <div class="qai-toolbar"><button class="btn btn-secondary btn-sm" onclick="irParaModo('dashboard')">← Voltar</button></div>
+      <div class="qai-toolbar">
+        <button class="btn btn-secondary btn-sm" onclick="irParaModo('dashboard')">← Voltar</button>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span class="badge historico" title="Resume leituras já registradas no período escolhido — não projeta nem estima valores futuros.">📊 Histórico — sem previsão</span>
+          <button type="button" class="qai-info-btn" onclick="abrirAjudaEstatisticas()" title="O que significam esses números?" aria-label="O que significam esses números?">i</button>
+        </div>
+      </div>
       <div class="card">
         <div class="qai-grid2">
           <div class="field"><label>Data inicial</label><input type="date" id="estat-inicio" value="${esc(ESTAT_INICIO)}" onchange="buscarEstatisticas()"></div>
@@ -777,12 +814,17 @@ async function buscarEstatisticas() {
     // Comparação (Fase 5) nunca derruba as estatísticas (Fase 2/3) se
     // falhar — tem o próprio catch, sempre resolve com disponivel:false
     // em vez de rejeitar o Promise.all inteiro.
-    const [r, comparacao] = await Promise.all([
+    const [r, comparacao, alertaClima] = await Promise.all([
       DB.getEstatisticasQai(s.id, q),
       DB.getComparacaoQai(s.id, q).catch(e => ({ disponivel: false, motivo: e.message })),
+      // Alerta de previsão (Fase 4b) é independente do período acima
+      // (olha pra FRENTE, não pro intervalo histórico filtrado) — mas
+      // entra no mesmo Promise.all pra não atrasar a tela esperando uma
+      // 3ª chamada sequencial; mesmo catch defensivo dos outros dois.
+      DB.getAlertaClimaQai(s.id).catch(e => ({ disponivel: false, motivo: e.message })),
     ]);
     if (minhaVez !== ESTAT_SEQ) return; // resposta de um filtro antigo — ignorada
-    renderResultadoEstatisticas(s, r, comparacao);
+    renderResultadoEstatisticas(s, r, comparacao, alertaClima);
   } catch (e) {
     if (minhaVez !== ESTAT_SEQ) return;
     // Estatística é um complemento — uma falha aqui nunca deve parecer
@@ -801,19 +843,19 @@ function kpiCardEstatistica(g) {
   }
   const classe = !g.amostrasComLimiteAplicavel ? 'sem' : g.amostrasForaDoLimite > 0 ? 'fora' : 'ok';
   const desvioTxt = g.desvioPadrao != null
-    ? `desvio-padrão ${fmtValor(g.desvioPadrao, g.unidade)}`
+    ? `desvio-padrão ${fmtValorEstat(g.desvioPadrao, g.unidade)}`
     : 'desvio-padrão: dados insuficientes (mín. 2 amostras)';
   const metaTxt = g.meta != null
-    ? ` · desvio da meta ${g.desvioDaMeta >= 0 ? '+' : ''}${fmtValor(g.desvioDaMeta, g.unidade)} (meta ${fmtValor(g.meta, g.unidade)})`
+    ? ` · desvio da meta ${g.desvioDaMeta >= 0 ? '+' : ''}${fmtValorEstat(g.desvioDaMeta, g.unidade)} (meta ${fmtValorEstat(g.meta, g.unidade)})`
     : '';
   const limiteTxt = g.amostrasComLimiteAplicavel
     ? `${Math.round(g.proporcaoForaDoLimite * 100)}% das ${g.amostrasComLimiteAplicavel} amostra(s) com limite aplicável ficaram fora dele`
     : 'sem limite histórico aplicável nas amostras deste período';
   return `<div class="qai-kpi ${classe}">
     <div class="qai-kpi-label">${esc(g.rotulo)}</div>
-    <div class="qai-kpi-val">${fmtValor(g.media, '')}<span class="qai-kpi-un">${esc(g.unidade)}</span></div>
+    <div class="qai-kpi-val">${fmtValorEstat(g.media, '')}<span class="qai-kpi-un">${esc(g.unidade)}</span></div>
     <div class="qai-kpi-sub">média por amostra · ${g.amostrasValidas} amostra(s)</div>
-    <div class="qai-kpi-sub">mín ${fmtValor(g.minimo, g.unidade)} · máx ${fmtValor(g.maximo, g.unidade)}</div>
+    <div class="qai-kpi-sub">mín ${fmtValorEstat(g.minimo, g.unidade)} · máx ${fmtValorEstat(g.maximo, g.unidade)}</div>
     <div class="qai-kpi-sub">${desvioTxt}${metaTxt}</div>
     <div class="qai-kpi-sub">${limiteTxt}</div>
   </div>`;
@@ -828,7 +870,7 @@ function ordenarGrandezasEstatistica(grandezas) {
   return [...grandezas].sort((a, b) => prioridade(a) - prioridade(b));
 }
 
-function renderResultadoEstatisticas(s, r, comparacao) {
+function renderResultadoEstatisticas(s, r, comparacao, alertaClima) {
   const cont = document.getElementById('estat-conteudo');
   CHARTS_ESTAT.forEach(c => c.destroy());
   CHARTS_ESTAT = [];
@@ -848,6 +890,7 @@ function renderResultadoEstatisticas(s, r, comparacao) {
     ? `<div class="qai-sub">⚠️ Resultado baseado nas primeiras ${r.cobertura.amostrasEscaneadas} leituras do período (limite de processamento atingido) — reduza o intervalo para um resultado completo.</div>`
     : '';
   cont.innerHTML = `
+    <div id="estat-alerta-clima"></div>
     ${avisoGeral}
     <div class="qai-kpis">${grandezas.map(kpiCardEstatistica).join('')}</div>
     <div class="qai-sub">
@@ -862,6 +905,47 @@ function renderResultadoEstatisticas(s, r, comparacao) {
   `;
   if (r.serieTemporal.length) renderGraficoEstatisticas(s, r.serieTemporal, r.serieTemporalTruncada);
   if (comparacao) renderComparacao(comparacao);
+  if (alertaClima) renderAlertaClima(alertaClima);
+}
+
+// ── Alerta de previsão climática (Fase 4b) ──────────────────────────
+// Olha pra FRENTE (dias que ainda vão acontecer) — por isso tem seu
+// próprio rótulo "🔮 Previsão" (nunca o badge "histórico" usado no resto
+// da tela) e um aviso fixo deixando claro que é uma estimativa de
+// modelo meteorológico, não uma garantia.
+function diaDaSemanaCurto(dataISO) {
+  try {
+    return new Date(dataISO + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
+  } catch { return ''; }
+}
+function renderAlertaClima(a) {
+  const cont = document.getElementById('estat-alerta-clima');
+  if (!cont) return;
+  if (!a.disponivel) {
+    // Mesma política discreta da comparação: nunca aparenta erro grave
+    // em cima de uma tela que já carregou com sucesso.
+    cont.innerHTML = `<div class="card qai-alerta-clima" style="margin-bottom:14px"><div class="card-title">⛅ Alerta de previsão climática</div><div class="qai-sub">${esc(a.motivo || 'Indisponível.')}</div></div>`;
+    return;
+  }
+  if (a.semLimitesConfigurados) {
+    cont.innerHTML = `<div class="card qai-alerta-clima" style="margin-bottom:14px">
+      <div class="card-title">⛅ Alerta de previsão climática</div>
+      <div class="qai-sub">Configure um limite de temperatura e/ou umidade (menu ⚙ Configurações → Limites) para habilitar o alerta — o alerta só dispara em cima do limite que o próprio gestor já configurou, nunca um limiar genérico inventado aqui.</div>
+    </div>`;
+    return;
+  }
+  const diasComAlerta = a.dias.filter(d => d.alertas.length);
+  cont.innerHTML = `
+    <div class="card qai-alerta-clima" style="margin-bottom:14px">
+      <div class="card-title">⛅ Alerta de previsão climática <span class="badge previsao" style="margin-left:6px" title="Olha pra FRENTE — estimativa do modelo meteorológico pros próximos dias, nunca uma garantia.">🔮 previsão — próximos ${a.dias.length} dia(s)</span></div>
+      ${diasComAlerta.length ? diasComAlerta.map(d => `
+        <div class="qai-alerta-dia">
+          <div class="qai-alerta-dia-data">${esc(diaDaSemanaCurto(d.data))} ${esc(d.data.split('-').reverse().slice(0,2).join('/'))}</div>
+          <div class="qai-alerta-dia-itens">${d.alertas.map(al => `⚠️ ${esc(al.rotulo)} prevista ${al.tipo === 'acima' ? 'acima do máximo' : 'abaixo do mínimo'} configurado (${fmtValorEstat(al.valorPrevisto, '')} vs. limite ${fmtValorEstat(al.limite, '')})`).join('<br>')}</div>
+        </div>
+      `).join('') : `<div class="qai-sub">✅ Nenhum dia dos próximos ${a.dias.length} foge dos limites configurados, segundo a previsão atual.</div>`}
+      <div class="qai-sub" style="margin-top:8px">Previsão de modelo meteorológico (Open-Meteo) para a localização configurada — quanto mais distante o dia, menos confiável a estimativa. Nunca é uma medição do sensor.</div>
+    </div>`;
 }
 
 // ── Comparação interno/externo (Fase 5) ─────────────────────────────
@@ -871,7 +955,7 @@ function renderComparacao(c) {
   if (!c.disponivel) {
     // Complemento opcional — nunca um "erro" vermelho em cima das
     // estatísticas (que já carregaram com sucesso); só um aviso discreto.
-    cont.innerHTML = `<div class="card"><div class="card-title">🌡️ Comparação com o clima externo</div><div class="qai-sub">${esc(c.motivo || 'Indisponível.')}</div></div>`;
+    cont.innerHTML = `<div class="card"><div class="card-title">🌡️ Comparação com o clima externo <span class="badge historico" style="margin-left:6px">histórico</span></div><div class="qai-sub">${esc(c.motivo || 'Indisponível.')}</div></div>`;
     return;
   }
   const semParesTemp = c.cobertura.paresTemperatura === 0;
@@ -883,13 +967,13 @@ function renderComparacao(c) {
     : '';
   cont.innerHTML = `
     <div class="card">
-      <div class="card-title">🌡️ Comparação com o clima externo</div>
+      <div class="card-title">🌡️ Comparação com o clima externo <span class="badge historico" style="margin-left:6px" title="Compara leituras já registradas com o clima que já ocorreu no mesmo horário — nunca uma previsão.">histórico</span></div>
       ${avisoRecorte}
       ${semParesTemp ? `<div class="qai-sub">📊 Dados insuficientes — nenhum par interno/externo dentro da tolerância de ${c.toleranciaMin} min neste período.</div>` : `
         <div class="qai-kpis">
           <div class="qai-kpi ${c.temperatura.diferencaMedia > 0 ? 'fora' : 'ok'}">
             <div class="qai-kpi-label">Temperatura interna − externa</div>
-            <div class="qai-kpi-val">${c.temperatura.diferencaMedia >= 0 ? '+' : ''}${fmtValor(c.temperatura.diferencaMedia, '°C')}</div>
+            <div class="qai-kpi-val">${c.temperatura.diferencaMedia >= 0 ? '+' : ''}${fmtValorEstat(c.temperatura.diferencaMedia, '°C')}</div>
             <div class="qai-kpi-sub">média de ${c.cobertura.paresTemperatura} par(es) válido(s)</div>
           </div>
           ${c.cobertura.paresUmidade ? `
@@ -907,6 +991,36 @@ function renderComparacao(c) {
       <div class="qai-sub">${esc(c.avisos.dependenciaTemporal)}</div>
       <div class="qai-sub">${esc(c.avisos.umidadeRelativa)}</div>
     </div>`;
+}
+
+// Explicação única, acessível pelo botão (i) no topo da tela de
+// Estatísticas — cobre o que cada número significa E deixa explícito que
+// isto é histórico (leituras já registradas), nunca previsão/projeção.
+function abrirAjudaEstatisticas() {
+  document.getElementById('ajuda-estatisticas-conteudo').innerHTML = `
+    <div class="modal-title">O que significam esses números?</div>
+
+    <div class="qai-ajuda-titulo">Dois tipos de informação nesta tela — não confunda os dois</div>
+    <div class="qai-sub">• <b>📊 Histórico</b> (cartões por grandeza + comparação com o clima externo, mais abaixo): resume leituras que JÁ ACONTECERAM, dentro do período escolhido acima. Nunca projeta nem estima nada — é só uma descrição do que foi medido.</div>
+    <div class="qai-sub">• <b>🔮 Previsão</b> (cartão "Alerta de previsão climática", no topo): é o único lugar da tela que olha pra FRENTE — usa a previsão do tempo (próximos dias) pra avisar quando o clima externo pode dificultar manter a grandeza dentro do limite que você já configurou. É uma estimativa de modelo meteorológico, nunca uma garantia, e quanto mais distante o dia, menos confiável ela é.</div>
+
+    <div class="qai-ajuda-titulo">Os cartões por grandeza (ex.: Temperatura)</div>
+    <div class="qai-sub">• <b>Valor grande no topo</b>: a média simples de todas as leituras válidas do período (não é ponderada pelo tempo entre leituras).</div>
+    <div class="qai-sub">• <b>Mín / máx</b>: o menor e o maior valor já registrado no período.</div>
+    <div class="qai-sub">• <b>Desvio-padrão</b>: o quanto as leituras variam em torno da média — quanto maior, mais instável foi a grandeza no período.</div>
+    <div class="qai-sub">• <b>Desvio da meta</b>: só aparece se uma meta foi configurada para a grandeza; é a diferença entre a média medida e essa meta — nunca um valor inventado (ex.: o meio dos limites).</div>
+    <div class="qai-sub">• <b>% fora do limite</b>: das leituras que tinham um limite de conformidade vigente no momento em que foram registradas, qual fração ficou fora dele.</div>
+
+    <div class="qai-ajuda-titulo">Período: 24h / diurno / noturno</div>
+    <div class="qai-sub">Diurno e noturno dependem da localização (latitude/longitude/fuso horário) configurada em ⚙ Configurações → Local. Sem essa configuração, só "24 horas" fica disponível — o sistema nunca adivinha o fuso horário do sensor.</div>
+
+    <div class="qai-ajuda-titulo">Comparação com o clima externo</div>
+    <div class="qai-sub">Compara as leituras do sensor com dados meteorológicos públicos (Open-Meteo) da mesma localização e horário. A <b>correlação</b> mede o quanto interno e externo acompanham um ao outro (de -1 a 1) — mas um valor baixo pode ser uma BOA notícia: pode indicar que a climatização está isolando bem o ambiente das variações externas, não um defeito. Os avisos fixos naquele card (causalidade, dependência temporal, umidade relativa) existem porque esse número é fácil de interpretar errado.</div>
+
+    <div class="qai-ajuda-titulo">🔮 Alerta de previsão climática</div>
+    <div class="qai-sub">Único cartão que de fato olha pros próximos dias. O gatilho é sempre um limite que você já configurou (⚙ Configurações → Limites) pra temperatura e/ou umidade — nunca um limiar genérico de "chuva forte" ou "calor extremo" inventado pelo sistema. Se a previsão do tempo indicar que a máxima/mínima externa prevista vai além do limite configurado, o dia aparece com um aviso. Sem nenhum limite configurado, o cartão explica isso e não mostra nenhum alerta — nunca um palpite sem base.</div>
+  `;
+  abrirModal('modal-ajuda-estatisticas');
 }
 
 // Reaproveita a MESMA infraestrutura de gráfico do dashboard/PDF
