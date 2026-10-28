@@ -625,6 +625,12 @@ function stripSyncedPhotos(plan) {
       : p);
   const clone = Object.assign({}, plan);
   delete clone._dirty;
+  // _batchEstab é só controle de tela (criação em lote/dedup local) — o
+  // próprio estabelecimento já vive em equipments[].estabelecimento, que
+  // planEstablishments() usa como fallback. Não está na whitelist do
+  // servidor (validate.js CAMPOS.preventiva) de propósito: continua em
+  // `plan` para uso local nesta sessão, só não é enviado pela rede.
+  delete clone._batchEstab;
   if (Array.isArray(plan.equipments))
     clone.equipments = plan.equipments.map(eq =>
       eq && Array.isArray(eq.photos) ? Object.assign({}, eq, { photos: lighten(eq.photos) }) : eq);
