@@ -776,6 +776,29 @@ console.log('── renderAlertaClima: dia com alerta mostra a grandeza, o valor
   assert('deixa claro que é "acima do máximo" (não um "abaixo" genérico)', html.toLowerCase().includes('acima do máximo'));
   assert('dia sem alerta (02/11) não aparece na lista de dias — só o que teve alerta (01/11) é listado', !html.includes('02/11') && html.includes('01/11'));
   assert('aviso fixo de que é estimativa de modelo, nunca garantia', html.toLowerCase().includes('nunca é uma medição') || html.toLowerCase().includes('nunca uma garantia'));
+  assert('atribuição CC BY 4.0 da Open-Meteo presente (item 4 da auditoria)', html.includes('Open-Meteo.com') && html.includes('CC BY 4.0') && html.includes('creativecommons.org/licenses/by/4.0'));
+}
+
+console.log('── renderAlertaClima: status 403 (modo avaliação, usuário sem acesso) ESCONDE o cartão inteiro — nunca mostra erro, nunca denuncia que a funcionalidade existe ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '<div class="card">conteúdo anterior que precisa sumir</div>';
+  sandbox.renderAlertaClima({ disponivel: false, motivo: 'Acesso negado', status: 403 });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('o cartão fica vazio — nenhum traço da funcionalidade na tela', html === '');
+}
+
+console.log('── renderAlertaClima: desatualizado:true (stale-on-error) mostra aviso explícito, sem esconder os dados antigos ──');
+{
+  elementoFalso('estat-alerta-clima').innerHTML = '';
+  const agora = Date.now();
+  sandbox.renderAlertaClima({
+    disponivel: true, semLimitesConfigurados: false, desatualizado: true, buscadoEm: agora - 2 * 3600000,
+    dias: [{ data: '2026-11-01', temperaturaMax: 24, temperaturaMin: 18, alertas: [] }],
+  });
+  const html = elementoFalso('estat-alerta-clima').innerHTML;
+  assert('ainda mostra os dados (não esconde por estar desatualizado)', html.includes('Nenhum dia dos próximos 1 foge'));
+  assert('avisa explicitamente que está desatualizado', html.toLowerCase().includes('desatualizada') || html.toLowerCase().includes('não respondeu agora'));
+  assert('atribuição CC BY 4.0 continua presente mesmo com dado desatualizado', html.includes('CC BY 4.0'));
 }
 
 console.log('── buscarEstatisticas: busca estatísticas, comparação e alerta de previsão em paralelo, repassando os três pro render ──');

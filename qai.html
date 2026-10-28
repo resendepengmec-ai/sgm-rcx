@@ -821,7 +821,10 @@ async function buscarEstatisticas() {
       // (olha pra FRENTE, não pro intervalo histórico filtrado) — mas
       // entra no mesmo Promise.all pra não atrasar a tela esperando uma
       // 3ª chamada sequencial; mesmo catch defensivo dos outros dois.
-      DB.getAlertaClimaQai(s.id).catch(e => ({ disponivel: false, motivo: e.message })),
+      // `status` é propagado de propósito (item 3 da auditoria): em modo
+      // avaliação, um usuário sem acesso recebe 403 do servidor — o
+      // card precisa SUMIR da tela pra esse caso, não mostrar um erro.
+      DB.getAlertaClimaQai(s.id).catch(e => ({ disponivel: false, motivo: e.message, status: e.status })),
     ]);
     if (minhaVez !== ESTAT_SEQ) return; // resposta de um filtro antigo — ignorada
     renderResultadoEstatisticas(s, r, comparacao, alertaClima);
@@ -918,9 +921,20 @@ function diaDaSemanaCurto(dataISO) {
     return new Date(dataISO + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
   } catch { return ''; }
 }
+// Atribuição exigida pela licença CC BY 4.0 da Open-Meteo — onde os
+// dados deles aparecem na tela, não só nos termos de uso (item 4 da
+// auditoria do Render).
+const ATRIBUICAO_OPEN_METEO = '<div class="qai-sub" style="margin-top:6px;font-size:11px">Dados meteorológicos: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>)</div>';
+
 function renderAlertaClima(a) {
   const cont = document.getElementById('estat-alerta-clima');
   if (!cont) return;
+  // Item 3 da auditoria: em modo avaliação (tier gratuito, uso não-
+  // comercial), o servidor recusa este endpoint com 403 pra quem não é
+  // admin master — a UI precisa ESCONDER o bloco inteiro pra esse caso,
+  // não mostrar um card de erro/indisponível (que ainda denunciaria a
+  // existência da funcionalidade pro usuário do cliente).
+  if (a.status === 403) { cont.innerHTML = ''; return; }
   if (!a.disponivel) {
     // Mesma política discreta da comparação: nunca aparenta erro grave
     // em cima de uma tela que já carregou com sucesso.
@@ -935,6 +949,9 @@ function renderAlertaClima(a) {
     return;
   }
   const diasComAlerta = a.dias.filter(d => d.alertas.length);
+  const avisoDesatualizado = a.desatualizado
+    ? `<div class="qai-sub" style="margin-top:6px;color:var(--warning)">⚠️ A Open-Meteo não respondeu agora — mostrando a última previsão obtida${a.buscadoEm ? ' (' + tempoRelativo(a.buscadoEm) + ')' : ''}, pode estar desatualizada.</div>`
+    : '';
   cont.innerHTML = `
     <div class="card qai-alerta-clima" style="margin-bottom:14px">
       <div class="card-title">⛅ Alerta de previsão climática <span class="badge previsao" style="margin-left:6px" title="Olha pra FRENTE — estimativa do modelo meteorológico pros próximos dias, nunca uma garantia.">🔮 previsão — próximos ${a.dias.length} dia(s)</span></div>
@@ -945,6 +962,8 @@ function renderAlertaClima(a) {
         </div>
       `).join('') : `<div class="qai-sub">✅ Nenhum dia dos próximos ${a.dias.length} foge dos limites configurados, segundo a previsão atual.</div>`}
       <div class="qai-sub" style="margin-top:8px">Previsão de modelo meteorológico (Open-Meteo) para a localização configurada — quanto mais distante o dia, menos confiável a estimativa. Nunca é uma medição do sensor.</div>
+      ${avisoDesatualizado}
+      ${ATRIBUICAO_OPEN_METEO}
     </div>`;
 }
 
@@ -1019,6 +1038,7 @@ function abrirAjudaEstatisticas() {
 
     <div class="qai-ajuda-titulo">🔮 Alerta de previsão climática</div>
     <div class="qai-sub">Único cartão que de fato olha pros próximos dias. O gatilho é sempre um limite que você já configurou (⚙ Configurações → Limites) pra temperatura e/ou umidade — nunca um limiar genérico de "chuva forte" ou "calor extremo" inventado pelo sistema. Se a previsão do tempo indicar que a máxima/mínima externa prevista vai além do limite configurado, o dia aparece com um aviso. Sem nenhum limite configurado, o cartão explica isso e não mostra nenhum alerta — nunca um palpite sem base.</div>
+    <div class="qai-sub">Hoje este cartão só aparece pra administração do sistema (uso interno de avaliação) — ainda não liberado pra todos os usuários enquanto a integração estiver no plano gratuito da Open-Meteo.</div>
   `;
   abrirModal('modal-ajuda-estatisticas');
 }
