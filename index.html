@@ -572,14 +572,27 @@ function renderDashboard(user) {
 // o cache por velocidade), e só re-renderiza se a tela ainda for esta.
 async function _refreshDashboardTiles(user) {
   try {
+    // Item 7 da auditoria do Render: antes, as 7 chamadas abaixo disparavam
+    // incondicionalmente pra QUALQUER papel logado — um solicitante (só
+    // enxerga 'chamados') gerava 403 em orcamentos/movimentacoes/whitelist/
+    // registros/contratos/preventiva a cada carregamento do dashboard,
+    // sempre. A mesma matriz que já esconde os cards (modulosEfetivos,
+    // usada em renderDashboard logo acima) agora também decide se vale a
+    // pena pedir o dado daquele card — nunca pede o que o papel não
+    // alcança. O backend continua sendo a proteção de verdade (nada muda
+    // lá); isto só evita o ruído de uma chamada cujo resultado o próprio
+    // front já sabe de antemão que vai ser rejeitado.
+    const modulosVisiveis = modulosEfetivos(user);
+    const seVisivel = (modulo, criarPromise) =>
+      modulosVisiveis.includes(modulo) ? criarPromise().catch(() => null) : Promise.resolve(null);
     const [chamados, registros, orcamentos, contratos, movs, plans, wl] = await Promise.all([
-      DB.getAll('chamados', '?resumo=1').catch(() => null),
-      DB.getAll('registros', '?resumo=1').catch(() => null),
-      DB.getAll('orcamentos', '?resumo=1').catch(() => null),
-      DB.getContratos('?resumo=1').catch(() => null),
-      DB.getMovimentacoes('?semFotos=1').catch(() => null),
-      DB.getAll('preventiva', '?resumo=1').catch(() => null),
-      DB.getWhitelist().catch(() => null),
+      seVisivel('chamados',   () => DB.getAll('chamados', '?resumo=1')),
+      seVisivel('registro',   () => DB.getAll('registros', '?resumo=1')),
+      seVisivel('orcamento',  () => DB.getAll('orcamentos', '?resumo=1')),
+      seVisivel('contratos',  () => DB.getContratos('?resumo=1')),
+      seVisivel('patrimonio', () => DB.getMovimentacoes('?semFotos=1')),
+      seVisivel('preventiva', () => DB.getAll('preventiva', '?resumo=1')),
+      seVisivel('admin',      () => DB.getWhitelist()),
     ]);
     if (chamados)   safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
     if (registros)  safeLocalStorageSetJSON('registro_records', registros, { stripBinaries: true });
