@@ -415,7 +415,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
 .auth-overlay{position:fixed;inset:0;background:#fff;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;}
 .auth-overlay .spinner{width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
-.auth-overlay p{font-size:14px;color:#94a3b8;}
+.auth-overlay p{font-size:14px;color:#64748b;}
 
 /* ── User menu ── */
 .user-menu{position:absolute;top:calc(100% + 8px);right:0;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.12);min-width:210px;z-index:200;overflow:hidden;}
@@ -427,3 +427,42 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
 .user-menu-item.danger{color:#dc2626;}
 .back-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;}
 .back-btn:active{background:rgba(255,255,255,.28);}
+
+/* ═══ Desktop (telas largas) ═══════════════════════════════════════
+   O app é mobile-first: sem isto, o conteúdo só estica em telas
+   grandes com a mesma fonte pensada pra celular — texto pequeno e
+   espaço maldistribuído. Aqui: limita a largura de leitura, dá
+   colunas pras listas de cartão (em vez de empilhar 1 por linha) e
+   aumenta um pouco a fonte (monitor é visto de mais longe que o
+   celular). Breakpoint 701px = o mesmo já usado pelo dashboard.html
+   pra "é celular", só que no sentido contrário. */
+@media (min-width: 701px) {
+  .screen, .container, .filter-bar, #qai-status-tabs { max-width: 920px; margin: 0 auto; }
+  #screen-new, #screen-form, #screen-settings, #screen-import { max-width: 640px; }
+
+  /* Listas de cartão: 1 coluna fixa -> várias, conforme a largura */
+  #chamados-list, #records-list, #quotes-list, #plans-list,
+  #mov-list, #contracts-list, #qai-lista {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 10px; align-items: start;
+  }
+  /* Cabeçalhos de agrupamento (ex.: mês) ocupam a linha inteira */
+  #chamados-list > div[style*="text-transform:uppercase"],
+  #records-list > div[style*="text-transform:uppercase"],
+  #quotes-list > div[style*="text-transform:uppercase"] { grid-column: 1 / -1; }
+
+  /* Modal: era bottom-sheet full-bleed; em tela larga isso fica
+     gigante e sem sentido — centraliza como diálogo. */
+  .modal-bg { align-items: center; justify-content: center; }
+  .modal { max-width: 560px; width: 100%; border-radius: var(--radius); max-height: 85vh; }
+
+  input, select, textarea, button { font-size: 16px; }
+  .app-header h1 { font-size: 19px; }
+  .card-title { font-size: 13px; }
+  .field label { font-size: 14px; }
+  .tab { font-size: 14px; }
+  .btn { font-size: 16px; }
+  .empty h3 { font-size: 18px; }
+  .empty p { font-size: 15px; }
+  .modal-title { font-size: 19px; }
+}
