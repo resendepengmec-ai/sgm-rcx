@@ -19,7 +19,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0369a1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Recebimento de Serviços — Sistema de Manutenção</title>
@@ -27,7 +27,7 @@
 <style>
 :root{
   --primary:#0369a1;--primary-dark:#075985;--primary-light:#e0f2fe;
-  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --text:#0f172a;--text-2:#475569;--text-3:#64748b;
   --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
   --radius:12px;--radius-sm:8px;
   --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
@@ -82,7 +82,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 
 <div class="card" id="rec-filtro">
   <div class="card-title">Filtro</div>
-  <select id="rec-contract" onchange="aplicarFiltroContrato()"><option value="">Todos os contratos</option></select>
+  <select id="rec-contract" aria-label="Filtrar por contrato" onchange="aplicarFiltroContrato()"><option value="">Todos os contratos</option></select>
 </div>
 
 <div class="card" id="rec-resumo">
@@ -102,7 +102,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   <div id="rec-lista" style="padding:14px">Carregando…</div>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
@@ -117,8 +117,8 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
   chip.innerHTML = `
-    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
-      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('umenu').classList.toggle('hidden')}">
+      ${user.picture ? `<img src="${user.picture}" alt="Foto de ${esc(user.name||user.email||'usuário')}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
@@ -378,7 +378,7 @@ async function abrirEnvioAssinatura(){
   const rotuloTipo={os:'O.S.', prev:'Preventiva'};
   const opts=Object.keys(grupos).map(k=>{ const g=grupos[k]; return `<option value="${esc(k)}">${esc(g.estab)} — Contrato ${esc(g.contract)} (${rotuloTipo[g.tipo]}, ${g.itens.length})</option>`; }).join('');
   _openAssinModal(`
-    <div class="field"><label>Estabelecimento</label>
+    <div class="field"><label for="asn-grupo">Estabelecimento</label>
       <select id="asn-grupo" onchange="_asnRenderItens()"><option value="">Selecione…</option>${opts}</select>
     </div>
     <div id="asn-oss" style="margin-top:10px"></div>
@@ -406,7 +406,7 @@ function _asnRenderItens(){
         </div></label>`;
     }).join('');
   respBox.style.display='';
-  respBox.innerHTML=`<div class="field"><label>Celular do tomador de serviço (WhatsApp)</label>
+  respBox.innerHTML=`<div class="field"><label for="asn-cel">Celular do tomador de serviço (WhatsApp)</label>
     <input id="asn-cel" inputmode="numeric" placeholder="Ex: 62999998888" oninput="this.value=this.value.replace(/[^0-9]/g,'');_asnBuscarResp()"></div>
     <div id="asn-resp-info" style="font-size:13px;margin-top:2px"></div>`;
   act.innerHTML=`<button id="asn-gerar" onclick="_asnGerar()" disabled style="width:100%;padding:13px;border:none;border-radius:10px;background:#0369a1;color:#fff;font-weight:700;font-size:15px;cursor:pointer;opacity:.5">Gerar link de assinatura</button>`;

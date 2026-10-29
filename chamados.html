@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#7c3aed">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Chamados — Sistema de Manutenção</title>
@@ -40,7 +40,7 @@
 <style>
 :root {
   --primary: #7c3aed; --primary-dark: #6d28d9; --primary-light: #f5f3ff;
-  --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+  --text: #0f172a; --text-2: #475569; --text-3: #64748b;
   --border: #e2e8f0; --bg: #f5f6fa; --surface: #fff;
   --radius: 12px; --radius-sm: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,.08); --shadow-md: 0 4px 16px rgba(0,0,0,.10);
@@ -156,10 +156,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <div id="screen-list" class="screen active">
   <div class="filter-bar">
     <div class="filter-row">
-      <select id="f-filter-month" onchange="applyFilters()">
+      <select id="f-filter-month" aria-label="Filtrar por mês" onchange="applyFilters()">
         <option value="">📅 Todos os meses</option>
       </select>
-      <select id="f-filter-contract" onchange="applyFilters()">
+      <select id="f-filter-contract" aria-label="Filtrar por contrato" onchange="applyFilters()">
         <option value="">📋 Todos os contratos</option>
         <option value="1020">Contrato 1020</option>
         <option value="1023">Contrato 1023</option>
@@ -167,10 +167,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       </select>
     </div>
     <div class="filter-row">
-      <select id="f-filter-estab" onchange="applyFilters()">
+      <select id="f-filter-estab" aria-label="Filtrar por estabelecimento" onchange="applyFilters()">
         <option value="">🏢 Todos os estabelecimentos</option>
       </select>
-      <select id="f-filter-status" onchange="applyFilters()">
+      <select id="f-filter-status" aria-label="Filtrar por status" onchange="applyFilters()">
         <option value="">🔖 Todos os status</option>
         <option value="aberto">Aberto</option>
         <option value="andamento">Em andamento</option>
@@ -202,15 +202,15 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="card-title">Novo chamado</div>
 
     <div class="field">
-      <label>Contrato *</label>
-      <select id="f-client">
+      <label for="f-client">Contrato *</label>
+      <select id="f-client" required>
         <option value="">Selecione um contrato…</option>
       </select>
     </div>
 
     <div class="field">
-      <label>TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()">
+      <label for="f-equip">TAG do equipamento *</label>
+      <input type="text" id="f-equip" required autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -226,12 +226,12 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Data</label>
+      <label for="f-date">Data</label>
       <input type="date" id="f-date">
     </div>
 
     <div class="field">
-      <label>Prioridade</label>
+      <label for="f-priority">Prioridade</label>
       <select id="f-priority">
         <option value="baixa">🟢 Baixa</option>
         <option value="normal" selected>🔵 Normal</option>
@@ -241,18 +241,18 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Solicitante</label>
+      <label for="f-requester">Solicitante</label>
       <input type="text" id="f-requester" placeholder="Nome de quem solicitou">
     </div>
 
     <div class="field">
-      <label>Descrição do problema *</label>
-      <textarea id="f-desc" rows="4" placeholder="Descreva o problema encontrado…"></textarea>
+      <label for="f-desc">Descrição do problema *</label>
+      <textarea id="f-desc" required rows="4" placeholder="Descreva o problema encontrado…"></textarea>
     </div>
 
     <div class="field">
       <label>Fotos <span id="photo-badge" style="display:none;background:var(--success);color:#fff;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;margin-left:6px">0</span> (até 3, comprimidas automaticamente)</label>
-      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()">
+      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('photo-input').click()}">
         <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
         <div style="font-size:24px">📷</div>
         <div style="font-size:12px;color:var(--text-3);margin-top:4px">Toque para adicionar fotos</div>
@@ -316,7 +316,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Bottom Nav
      O botão "Novo" foi REMOVIDO daqui. Ele era redundante com o botão
@@ -366,8 +366,8 @@ try { guardaDeModulo('chamados'); } catch (e) {}
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
   chip.innerHTML = `
-    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
-      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    <div style="cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('umenu').classList.toggle('hidden')}">
+      ${user.picture ? `<img src="${user.picture}" alt="Foto de ${esc(user.name||user.email||'usuário')}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
@@ -810,7 +810,7 @@ function renderList() {
     const thumb = c.photos&&c.photos[0]
       ? `<div class="cc-thumb"><img ${fotoAttrs(c.photos[0])} alt="foto"></div>`
       : `<div class="cc-thumb">📷</div>`;
-    return header + `<div class="chamado-card" onclick="openDetail('${esc(c.id)}')">
+    return header + `<div class="chamado-card" onclick="openDetail('${esc(c.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${esc(c.id)}')}">
       <div class="cc-bar ${p.bar}"></div>
       ${thumb}
       <div class="cc-info">
@@ -1007,7 +1007,7 @@ function renderPhotoGrid(){
   const badge=document.getElementById('photo-badge');
   if (badge) { badge.style.display=newPhotos.length?'':'none'; badge.textContent=newPhotos.length; }
   if (!grid) return;
-  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img ${fotoAttrs(p)} onclick="abrirLightboxDeImg(this,openLightbox)" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,.6);color:#fff;border:none;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:14px;line-height:1">×</button></div>`).join('');
+  grid.innerHTML=newPhotos.map((p,i)=>`<div class="photo-thumb" style="position:relative"><img ${fotoAttrs(p)} alt="Foto ${i+1} do chamado" onclick="abrirLightboxDeImg(this,openLightbox)" style="width:100%;height:80px;object-fit:cover;border-radius:6px;cursor:pointer"><button class="remove-photo" onclick="removePhoto(${i})" aria-label="Remover foto" style="position:absolute;top:0;right:0;background:rgba(0,0,0,.6);color:#fff;border:none;width:44px;height:44px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center">×</button></div>`).join('');
   hidratarFotosDOM(grid);
 }
 
@@ -1168,7 +1168,7 @@ function showTagSuggestions(q){
     const cap = m.capacidade ? ' · '+m.capacidade+' BTU' : '';
     const est = m.estabelecimento || '';
     const rec = m.recinto || '';
-    return `<div class="tag-sug-item" onclick="selectTag('${tag}')" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'">
+    return `<div class="tag-sug-item" onclick="selectTag('${tag}')" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='#fff'" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectTag('${tag}')}">
       <div style="font-weight:600;font-size:14px">TAG ${tag}</div>
       <div style="font-size:12px;color:var(--text-2)">${marca} ${tipo}${cap}${est?' · '+est:''}</div>
       ${rec?`<div style="font-size:12px;color:var(--text-3)">${rec}</div>`:''}
@@ -1214,7 +1214,7 @@ function openDetail(id){
     ? `<select onchange="updateStatus('${esc(c.id)}',this.value)" style="width:auto;font-size:12px;padding:6px 28px 6px 10px">${statusOpts}</select>`
     : '';
   const photos=c.photos&&c.photos.length
-    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map(ph=>`<img ${fotoAttrs(ph)} onclick="abrirLightboxDeImg(this,openLightbox)">`).join('')}</div></div>`:' ';
+    ?`<div style="margin-top:12px"><div style="font-size:12px;font-weight:600;color:var(--text-3);text-transform:uppercase;margin-bottom:8px">Fotos (${c.photos.length})</div><div class="photo-gallery">${c.photos.map((ph,i)=>`<img ${fotoAttrs(ph)} alt="Foto ${i+1} do chamado" onclick="abrirLightboxDeImg(this,openLightbox)">`).join('')}</div></div>`:' ';
 
   // O.S. vinculadas
   const osVinculadas=ordensCache.filter(o=>o.chamadoId===c.id);

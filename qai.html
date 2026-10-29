@@ -18,7 +18,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#7c3aed">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
@@ -32,7 +32,7 @@
 <script src="vendor/jspdf.umd.min.js"></script>
 <style>
 :root{--primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
---text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--text:#0f172a;--text-2:#475569;--text-3:#64748b;
 --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
 --radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
 --success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
@@ -134,7 +134,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 </header>
 
 <div class="filter-bar" style="flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px">
-  <select id="f-contrato" class="qai-contrato-select" onchange="aoTrocarContrato()">
+  <select id="f-contrato" class="qai-contrato-select" aria-label="Filtrar por contrato" onchange="aoTrocarContrato()">
     <option value="">Selecione o contrato…</option>
   </select>
   <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
@@ -156,12 +156,12 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     <div class="modal-handle"></div>
     <div class="modal-title">Novo sensor QAI</div>
     <div class="field">
-      <label>Estabelecimento</label>
+      <label for="novo-estabelecimento">Estabelecimento</label>
       <input type="text" id="novo-estabelecimento" list="dl-estab-novo" autocomplete="off" maxlength="160" placeholder="Digite ou escolha um local do contrato" oninput="atualizarDatalistRecinto('dl-recinto-novo', this.value)">
       <datalist id="dl-estab-novo"></datalist>
     </div>
     <div class="field">
-      <label>Recinto</label>
+      <label for="novo-recinto">Recinto</label>
       <input type="text" id="novo-recinto" list="dl-recinto-novo" autocomplete="off" maxlength="160" placeholder="Digite ou escolha um recinto">
       <datalist id="dl-recinto-novo"></datalist>
     </div>
@@ -205,7 +205,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   </div>
 </div>
 
-<div id="toast" class="toast"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
 // ══════════════════════════════════════════════════════════════════
@@ -404,15 +404,15 @@ function renderConfigLocal() {
     </div>
     <button type="button" class="btn btn-secondary btn-sm" style="width:100%;margin-bottom:10px" onclick="abrirGoogleMaps()">🗺️ Abrir no Google Maps</button>
     <div class="field">
-      <label>Latitude</label>
+      <label for="cfgl-lat">Latitude</label>
       <input type="number" id="cfgl-lat" step="0.000001" min="-90" max="90" value="${cfg.latitude ?? ''}" placeholder="ex.: -16.686891">
     </div>
     <div class="field">
-      <label>Longitude</label>
+      <label for="cfgl-lon">Longitude</label>
       <input type="number" id="cfgl-lon" step="0.000001" min="-180" max="180" value="${cfg.longitude ?? ''}" placeholder="ex.: -49.264794">
     </div>
     <div class="field">
-      <label>Fuso horário (IANA)</label>
+      <label for="cfgl-tz">Fuso horário (IANA)</label>
       <input type="text" id="cfgl-tz" list="dl-fusos" maxlength="60" value="${esc(cfg.timezone || 'America/Sao_Paulo')}" placeholder="ex.: America/Sao_Paulo">
       <datalist id="dl-fusos">
         <option value="America/Sao_Paulo"></option>
@@ -423,11 +423,11 @@ function renderConfigLocal() {
       </datalist>
     </div>
     <div class="field">
-      <label>Início do período diurno</label>
+      <label for="cfgl-diurno-inicio">Início do período diurno</label>
       <input type="time" id="cfgl-diurno-inicio" value="${cfg.diurnoInicio || '06:00'}">
     </div>
     <div class="field">
-      <label>Fim do período diurno</label>
+      <label for="cfgl-diurno-fim">Fim do período diurno</label>
       <input type="time" id="cfgl-diurno-fim" value="${cfg.diurnoFim || '18:00'}">
     </div>
     <div class="qai-sub">O período noturno é o complemento automático do diurno (ex.: diurno 06:00–18:00 → noturno 18:00–06:00 do dia seguinte).</div>
@@ -615,7 +615,7 @@ function renderCard(linha) {
     return `<span class="qai-valor">${esc(i.rotulo)}: ${fmtValor(valores[c], i.unidade)}</span>`;
   }).join('');
 
-  return `<div class="qai-card ${s.sensorAtivo ? 'ativo' : 'inativo'}" onclick="abrirSensor('${s.id}')">
+  return `<div class="qai-card ${s.sensorAtivo ? 'ativo' : 'inativo'}" onclick="abrirSensor('${s.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSensor('${s.id}')}">
     <div class="qai-card-top">
       <div>
         <div class="qai-card-titulo">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
@@ -751,11 +751,11 @@ function renderModalSensor() {
       </div>
       <div class="card">
         <div class="qai-grid2">
-          <div class="field"><label>Data inicial</label><input type="date" id="estat-inicio" value="${esc(ESTAT_INICIO)}" onchange="buscarEstatisticas()"></div>
-          <div class="field"><label>Data final</label><input type="date" id="estat-fim" value="${esc(ESTAT_FIM)}" onchange="buscarEstatisticas()"></div>
+          <div class="field"><label for="estat-inicio">Data inicial</label><input type="date" id="estat-inicio" value="${esc(ESTAT_INICIO)}" onchange="buscarEstatisticas()"></div>
+          <div class="field"><label for="estat-fim">Data final</label><input type="date" id="estat-fim" value="${esc(ESTAT_FIM)}" onchange="buscarEstatisticas()"></div>
         </div>
         <div class="field">
-          <label>Período</label>
+          <label for="estat-periodo">Período</label>
           <select id="estat-periodo" onchange="buscarEstatisticas()">
             <option value="24h" ${ESTAT_PERIODO === '24h' ? 'selected' : ''}>24 horas (dia completo)</option>
             <option value="diurno" ${ESTAT_PERIODO === 'diurno' ? 'selected' : ''}>Diurno</option>
@@ -1199,11 +1199,11 @@ function renderBasico(s) {
     <div class="card">
       <div class="card-title">Local</div>
       <div class="qai-grid2">
-        <div class="field"><label>Estabelecimento</label>
+        <div class="field"><label for="cfg-estabelecimento">Estabelecimento</label>
           <input type="text" id="cfg-estabelecimento" list="dl-estab-cfg" autocomplete="off" maxlength="160" value="${esc(s.estabelecimento)}" oninput="atualizarDatalistRecinto('dl-recinto-cfg', this.value)">
           <datalist id="dl-estab-cfg"></datalist>
         </div>
-        <div class="field"><label>Recinto</label>
+        <div class="field"><label for="cfg-recinto">Recinto</label>
           <input type="text" id="cfg-recinto" list="dl-recinto-cfg" autocomplete="off" maxlength="160" value="${esc(s.recinto)}">
           <datalist id="dl-recinto-cfg"></datalist>
         </div>
@@ -1231,12 +1231,12 @@ function renderCredenciais(s) {
       <div class="card-title">Credenciais Tuya</div>
       <div class="qai-sub">Por sensor, não por contrato — cada sensor pode estar em um projeto Tuya diferente.</div>
       <div class="qai-grid2">
-        <div class="field"><label>Client ID</label><input type="text" id="cfg-clientid" maxlength="100" value="${esc(c.clientId || '')}"></div>
-        <div class="field"><label>Device ID</label><input type="text" id="cfg-deviceid" maxlength="100" value="${esc(c.deviceId || '')}"></div>
-        <div class="field"><label>Região</label>
+        <div class="field"><label for="cfg-clientid">Client ID</label><input type="text" id="cfg-clientid" maxlength="100" value="${esc(c.clientId || '')}"></div>
+        <div class="field"><label for="cfg-deviceid">Device ID</label><input type="text" id="cfg-deviceid" maxlength="100" value="${esc(c.deviceId || '')}"></div>
+        <div class="field"><label for="cfg-regiao">Região</label>
           <select id="cfg-regiao">${Object.entries(REGIOES_TUYA).map(([k, l]) => `<option value="${k}" ${c.regiao === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         </div>
-        <div class="field"><label>Client Secret${c.temSegredo ? ' (já configurado — deixe em branco para manter)' : ''}</label>
+        <div class="field"><label for="cfg-clientsecret">Client Secret${c.temSegredo ? ' (já configurado — deixe em branco para manter)' : ''}</label>
           <input type="password" id="cfg-clientsecret" maxlength="200" placeholder="${c.temSegredo ? '••••••••' : 'Obrigatório'}">
         </div>
       </div>
@@ -1372,7 +1372,7 @@ function renderHorarios(s) {
         registrada formalmente.
       </div>
       <div class="field">
-        <label>Medições por dia</label>
+        <label for="horario-freq">Medições por dia</label>
         <select id="horario-freq" onchange="aoTrocarFrequencia()">
           ${FREQUENCIAS.map(f => `<option value="${f}" ${f === freqAtual ? 'selected' : ''}>${f === 0 ? 'Nenhuma (modo contínuo)' : f + 'x/dia'}</option>`).join('')}
         </select>
@@ -1899,8 +1899,8 @@ function abrirPainelPdf() {
     <div class="card">
       <div class="card-title">Gerar PDF</div>
       <div class="qai-grid2">
-        <div class="field"><label>De</label><input type="date" id="pdf-de" value="${esc(diaPadrao)}"></div>
-        <div class="field"><label>Até</label><input type="date" id="pdf-ate" value="${esc(diaPadrao)}"></div>
+        <div class="field"><label for="pdf-de">De</label><input type="date" id="pdf-de" value="${esc(diaPadrao)}"></div>
+        <div class="field"><label for="pdf-ate">Até</label><input type="date" id="pdf-ate" value="${esc(diaPadrao)}"></div>
       </div>
       <div class="qai-sub">Grandezas incluídas na avaliação</div>
       ${codigos.length

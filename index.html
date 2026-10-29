@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1e1b4b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Sistema de Manutenção</title>
@@ -40,7 +40,7 @@
 /* ── Variáveis — tema padrão ── */
 :root{
   --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
-  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --text:#0f172a;--text-2:#475569;--text-3:#64748b;
   --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
   --radius:12px;--shadow-md:0 4px 24px rgba(0,0,0,.10);
   --success:#16a34a;--success-bg:#f0fdf4;
@@ -262,7 +262,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </head>
 <body>
 <div id="app"></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Barra de acessibilidade -->
 <div class="a11y-bar" id="a11y-bar">
@@ -273,7 +273,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 
 <div id="app"></div>
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Barra de acessibilidade -->
 <div class="a11y-bar" id="a11y-bar">
@@ -499,7 +499,7 @@ function renderDashboard(user) {
         <div class="dash-user">
           ${user.picture
             ? `<img src="${user.picture}" class="user-avatar" onclick="toggleUserMenu()" alt="">`
-            : `<div class="user-avatar-ph" onclick="toggleUserMenu()">${role.icon||'👤'}</div>`}
+            : `<div class="user-avatar-ph" onclick="toggleUserMenu()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleUserMenu()}">${role.icon||'👤'}</div>`}
           <div class="user-menu hidden" id="user-menu">
             <div class="user-menu-header">
               <div class="uname">${esc(user.name)}</div>
@@ -537,7 +537,7 @@ function renderDashboard(user) {
       <div class="section-title">Módulos</div>
       <div class="module-grid">
         ${allModules.map(m=>`
-          <div class="module-card ${m.id}" onclick="${m.file?`window.location.href='${m.file}'`:`showAdminPanel()`}">
+          <div class="module-card ${m.id}" onclick="${m.file?`window.location.href='${m.file}'`:`showAdminPanel()`}" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${m.file?`window.location.href='${m.file}'`:`showAdminPanel()`}}">
             <div class="module-icon">${m.icon}</div>
             <div class="module-name">${m.name}</div>
             <div class="module-desc">${m.desc}</div>
@@ -546,7 +546,7 @@ function renderDashboard(user) {
       </div>
 
       ${activities.length ? `
-      <div class="section-title" onclick="toggleActivity()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none">
+      <div class="section-title" onclick="toggleActivity()" style="cursor:pointer;display:flex;align-items:center;justify-content:space-between;user-select:none" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleActivity()}">
         <span>Atividade recente</span>
         <span id="activity-chevron" style="font-size:12px;color:var(--text-3);transition:transform .15s">▸</span>
       </div>
@@ -779,7 +779,7 @@ async function renderResponsaveisTab(el) {
       Cadastre o tomador de serviço de cada estabelecimento — quem recebe/assina (nome, CPF, cargo, celular). Não dá acesso ao sistema — serve só para a coleta de assinatura do cliente. Aparece apenas para contratos com a opção "tomar assinatura do cliente" ligada.
     </p>
     ${habilitados.length ? `
-      <div class="field"><label>Contrato</label>
+      <div class="field"><label for="resp-contract">Contrato</label>
         <select id="resp-contract" onchange="renderRespEstabs()"><option value="">Selecione um contrato…</option>${opts}</select>
       </div>
       <div id="resp-estabs" style="margin-top:12px"></div>
@@ -844,12 +844,12 @@ function openRespModal(){
     <div style="padding:18px 18px 4px">
       <div style="font-weight:700;font-size:16px;margin-bottom:2px">${r.id?'Editar':'Novo'} tomador de serviço</div>
       <div style="font-size:12px;color:var(--text-3);margin-bottom:14px">🏢 ${esc(r.establishment||'')} · Contrato ${esc(r.contract||'')}</div>
-      <div class="field"><label>Nome *</label><input id="rf-nome" value="${esc(r.nome||'')}"></div>
-      <div class="field"><label>CPF *</label><input id="rf-cpf" inputmode="numeric" maxlength="14" value="${esc(_fmtCpf(r.cpf||''))}" placeholder="000.000.000-00" oninput="_maskCpfInput(this)">
+      <div class="field"><label for="rf-nome">Nome *</label><input id="rf-nome" required value="${esc(r.nome||'')}"></div>
+      <div class="field"><label for="rf-cpf">CPF *</label><input id="rf-cpf" required inputmode="numeric" maxlength="14" value="${esc(_fmtCpf(r.cpf||''))}" placeholder="000.000.000-00" oninput="_maskCpfInput(this)">
         <div id="rf-cpf-msg" style="font-size:12px;margin-top:4px;min-height:14px"></div>
       </div>
-      <div class="field"><label>Cargo *</label><input id="rf-cargo" value="${esc(r.cargo||'')}"></div>
-      <div class="field"><label>Celular (WhatsApp) *</label><input id="rf-celular" inputmode="numeric" maxlength="16" value="${esc(_fmtCel(r.celular||''))}" placeholder="(00) 00000-0000" oninput="_maskCelInput(this)">
+      <div class="field"><label for="rf-cargo">Cargo *</label><input id="rf-cargo" required value="${esc(r.cargo||'')}"></div>
+      <div class="field"><label for="rf-celular">Celular (WhatsApp) *</label><input id="rf-celular" required inputmode="numeric" maxlength="16" value="${esc(_fmtCel(r.celular||''))}" placeholder="(00) 00000-0000" oninput="_maskCelInput(this)">
         <div id="rf-celular-msg" style="font-size:12px;margin-top:4px;min-height:14px"></div>
       </div>
       <div class="field" style="margin-bottom:0">
@@ -1168,28 +1168,28 @@ function _renderWLContent(el, wl) {
       </div>
       <div class="field" style="margin:0 0 10px">
         <label style="font-size:11px">CNPJ da empresa <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="wl-cnpj" placeholder="00.000.000/0000-00" inputmode="numeric" maxlength="18" oninput="_maskCnpjInput(this); _consultarCnpjDebounced(this.value);">
+        <input type="text" id="wl-cnpj" required placeholder="00.000.000/0000-00" inputmode="numeric" maxlength="18" oninput="_maskCnpjInput(this); _consultarCnpjDebounced(this.value);">
         <div style="font-size:10px;color:var(--text-3);margin-top:2px">Identifica a empresa — não pode ser repetido em outro cadastro, nem depois de criada.</div>
         <div id="wl-cnpj-status" style="font-size:11px;margin-top:4px;min-height:14px"></div>
       </div>
       <div class="field" style="margin:0 0 10px">
-        <label style="font-size:11px">Razão social</label>
+        <label for="wl-razao-social" style="font-size:11px">Razão social</label>
         <input type="text" id="wl-razao-social" placeholder="preenchida automaticamente ao confirmar o CNPJ" maxlength="200">
         <div style="font-size:10px;color:var(--text-3);margin-top:2px">Nome oficial na Receita Federal (consulta à BrasilAPI) — confirma que o CNPJ é real. Editável se a consulta falhar ou vier incompleta.</div>
       </div>
       <div class="field" style="margin:0 0 10px">
         <label style="font-size:11px">Nome fantasia da empresa <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="wl-company" placeholder="ex.: Climatiza Serviços Ltda" maxlength="160">
+        <input type="text" id="wl-company" required placeholder="ex.: Climatiza Serviços Ltda" maxlength="160">
         <div style="font-size:10px;color:var(--text-3);margin-top:2px">Rótulo usado pra identificar e filtrar as empresas que contratam o SaaS — aparece aqui e pode ser editado depois em "Minha Empresa" pelo próprio Admin Cliente.</div>
       </div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <div class="field" style="flex:1;min-width:140px;margin:0">
           <label style="font-size:11px">Limite de contratos <span style="color:var(--danger)">*</span></label>
-          <input type="text" inputmode="numeric" id="wl-limite-contratos" placeholder="ex.: 3" oninput="_onlyDigitsInput(this)">
+          <input type="text" inputmode="numeric" id="wl-limite-contratos" required placeholder="ex.: 3" oninput="_onlyDigitsInput(this)">
         </div>
         <div class="field" style="flex:1;min-width:140px;margin:0">
           <label style="font-size:11px">Franquia de fotos/mês <span style="color:var(--danger)">*</span></label>
-          <input type="text" inputmode="numeric" id="wl-franquia-fotos" placeholder="ex.: 500" oninput="_onlyDigitsInput(this)">
+          <input type="text" inputmode="numeric" id="wl-franquia-fotos" required placeholder="ex.: 500" oninput="_onlyDigitsInput(this)">
         </div>
       </div>
     </div>` : `<p style="font-size:12px;color:var(--text-3);font-style:italic">Modo visualização — só o admin pode pré-autorizar novos usuários.</p>`}
@@ -1436,7 +1436,7 @@ async function editUserContracts(email) {
       <div style="font-size:12px;color:#64748b;margin-bottom:14px">${esc(user.name) || esc(user.email)}</div>
       <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
         ${_wlAllContracts.length === 0
-          ? '<span style="font-size:12px;color:#94a3b8">Nenhum contrato cadastrado</span>'
+          ? '<span style="font-size:12px;color:#64748b">Nenhum contrato cadastrado</span>'
           : _wlAllContracts.map(c => {
               const sel = current.includes(c.numero);
               return `<button type="button" data-num="${c.numero}" data-sel="${sel?'1':'0'}"
@@ -1507,7 +1507,7 @@ function _avisarDowngradePlano(select) {
 // a admin/admin_cliente (ver moduloBloqueadoPeloUsuario no backend).
 function _renderModulosPicker(papel, modulosCsv) {
   if (papel === 'admin' || papel === 'admin_cliente') {
-    return '<div style="font-size:12px;color:#94a3b8;padding:8px 0">Este papel nunca é restringido por módulo.</div>';
+    return '<div style="font-size:12px;color:#64748b;padding:8px 0">Este papel nunca é restringido por módulo.</div>';
   }
   const universo = ROLES[papel]?.modules || [];
   // null = sem override hoje = tudo marcado (comportamento de sempre).
@@ -1522,7 +1522,7 @@ function _renderModulosPicker(papel, modulosCsv) {
     </button>`;
   }).join('');
   return `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">${botoes}</div>
-    <div style="font-size:11px;color:#94a3b8;margin-top:4px">Tudo marcado = sem restrição extra (continua valendo o que o papel e o plano do contrato já liberam). Pelo menos 1 precisa ficar marcado.</div>`;
+    <div style="font-size:11px;color:#64748b;margin-top:4px">Tudo marcado = sem restrição extra (continua valendo o que o papel e o plano do contrato já liberam). Pelo menos 1 precisa ficar marcado.</div>`;
 }
 
 // Vigência/plano/franquia de UM Admin Cliente — extraída pra ser reaproveitada
@@ -1535,23 +1535,23 @@ function _renderCamposFranquiaAdminCliente(entry) {
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Vigência</label>
         <div style="display:flex;gap:10px">
           <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Início</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:2px">Início</div>
             <div style="font-size:13px;font-weight:600;padding:8px 0">${entry?.added_at ? new Date(entry.added_at).toLocaleDateString('pt-BR') : '—'}</div>
           </div>
           <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fim</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:2px">Fim</div>
             <input type="date" id="edit-ac-expires" value="${entry?.expires_at ? new Date(entry.expires_at).toISOString().slice(0,10) : ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
           </div>
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Sem data de fim = acesso sem prazo definido. Vencer a vigência congela o tenant, igual ao status inativo.</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Sem data de fim = acesso sem prazo definido. Vencer a vigência congela o tenant, igual ao status inativo.</div>
       </div>
 
       <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Plano de módulos</label>
+        <label for="edit-ac-plano" style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Plano de módulos</label>
         <select id="edit-ac-plano" data-plano-atual="${entry?.plano||'premium'}" onchange="_avisarDowngradePlano(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
           ${Object.entries(PLANOS).map(([k,v]) => `<option value="${k}" ${(entry?.plano||'premium')===k?'selected':''}>${v.label} — ${v.modulosTexto}</option>`).join('')}
         </select>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Vale pra este Admin Cliente E pra toda a equipe cadastrada sob ele — nunca amplia o que o papel de cada um já permite, só pode restringir.</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Vale pra este Admin Cliente E pra toda a equipe cadastrada sob ele — nunca amplia o que o papel de cada um já permite, só pode restringir.</div>
         <div id="edit-ac-plano-alerta"></div>
       </div>
 
@@ -1559,15 +1559,15 @@ function _renderCamposFranquiaAdminCliente(entry) {
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Franquia</label>
         <div style="display:flex;gap:10px">
           <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Nº de contratos</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:2px">Nº de contratos</div>
             <input type="text" inputmode="numeric" id="edit-ac-limite" oninput="_onlyDigitsInput(this)" value="${entry?.limite_contratos ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
           </div>
           <div style="flex:1">
-            <div style="font-size:11px;color:#94a3b8;margin-bottom:2px">Fotos/mês</div>
+            <div style="font-size:11px;color:#64748b;margin-bottom:2px">Fotos/mês</div>
             <input type="text" inputmode="numeric" id="edit-ac-franquia" oninput="_onlyDigitsInput(this)" value="${entry?.franquia_fotos_mes ?? ''}" style="width:100%;padding:7px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
           </div>
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+        <div style="font-size:11px;color:#64748b;margin-top:4px">
           Contratos cadastrados hoje: ${current.length}. Reduzir o limite não
           apaga nem trava os que já existem — só passa a impedir cadastrar um
           novo até caber dentro do limite.
@@ -1616,7 +1616,7 @@ async function editUser(userId, email) {
       <div style="font-size:12px;color:#64748b;margin-bottom:16px">${esc(acct.name) || esc(acct.email)}</div>
 
       <div class="field" style="margin-bottom:14px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Papel</label>
+        <label for="edit-user-role" style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Papel</label>
         <select id="edit-user-role" ${isSelf || acct.role === 'admin_cliente' ? 'disabled' : ''} style="width:100%"
           onchange="var p=document.getElementById('edit-modulos-picker'); if(p) p.innerHTML=_renderModulosPicker(this.value, null);">
           ${acct.role === 'admin_cliente'
@@ -1624,8 +1624,8 @@ async function editUser(userId, email) {
             : papeisSelecionaveis(getCurrentUser()?.role).filter(([k]) => k !== 'admin_cliente')
                 .map(([k,v])=>`<option value="${k}" ${acct.role===k?'selected':''}>${v.icon} ${v.label}</option>`).join('')}
         </select>
-        ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível alterar o próprio papel</div>' : ''}
-        ${!isSelf && acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Admin Cliente é um papel fixo — nunca é rebaixado nem promovido. Para encerrar o acesso, use o status abaixo.</div>' : ''}
+        ${isSelf ? '<div style="font-size:11px;color:#64748b;margin-top:4px">Não é possível alterar o próprio papel</div>' : ''}
+        ${!isSelf && acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#64748b;margin-top:4px">Admin Cliente é um papel fixo — nunca é rebaixado nem promovido. Para encerrar o acesso, use o status abaixo.</div>' : ''}
       </div>
 
       <div class="field" style="margin-bottom:16px">
@@ -1635,17 +1635,17 @@ async function editUser(userId, email) {
           style="padding:8px 16px;border-radius:8px;border:1px solid ${acct.active?'#bbf7d0':'#e2e8f0'};background:${acct.active?'#f0fdf4':'#f1f5f9'};color:${acct.active?'#15803d':'#64748b'};font-size:13px;font-weight:600;cursor:pointer">
           ${acct.active?'Ativo':'Inativo'}
         </button>
-        ${isSelf ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Não é possível desativar a própria conta</div>' : ''}
-        ${acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#94a3b8;margin-top:4px">Desativar congela o acesso de TODA a equipe sob este Admin Cliente — nenhum dado é apagado; reativar descongela na hora.</div>' : ''}
+        ${isSelf ? '<div style="font-size:11px;color:#64748b;margin-top:4px">Não é possível desativar a própria conta</div>' : ''}
+        ${acct.role === 'admin_cliente' ? '<div style="font-size:11px;color:#64748b;margin-top:4px">Desativar congela o acesso de TODA a equipe sob este Admin Cliente — nenhum dado é apagado; reativar descongela na hora.</div>' : ''}
       </div>
 
       ${acct.role === 'admin_cliente' && multiEmpresa ? `
       <div class="field" style="margin-bottom:16px">
-        <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Empresa</label>
+        <label for="edit-ac-empresa-select" style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Empresa</label>
         <select id="edit-ac-empresa-select" onchange="_onChangeEditAcEmpresa(this)" style="width:100%;padding:8px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px">
           ${empresasDoEmail.map(e => `<option value="${esc(e.cnpj)}">${esc(e.company || e.cnpj || '(sem nome)')}</option>`).join('')}
         </select>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Este e-mail é Admin Cliente de ${empresasDoEmail.length} empresas — escolha qual editar.</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Este e-mail é Admin Cliente de ${empresasDoEmail.length} empresas — escolha qual editar.</div>
       </div>
       <div id="edit-ac-empresa-fields">${_renderCamposFranquiaAdminCliente(empresasDoEmail[0])}</div>
       ` : acct.role === 'admin_cliente' ? _renderCamposFranquiaAdminCliente(wlEntry) : `
@@ -1653,7 +1653,7 @@ async function editUser(userId, email) {
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Contratos autorizados <span style="color:#dc2626">*</span></label>
         <div id="edit-contracts-picker" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px;border:1px solid #e2e8f0;border-radius:8px;min-height:40px">
           ${_wlAllContracts.length === 0
-            ? '<span style="font-size:12px;color:#94a3b8">Nenhum contrato cadastrado</span>'
+            ? '<span style="font-size:12px;color:#64748b">Nenhum contrato cadastrado</span>'
             : _wlAllContracts.map(c => {
                 const sel = current.includes(c.numero);
                 return `<button type="button" data-num="${c.numero}" data-sel="${sel?'1':'0'}"
@@ -1664,7 +1664,7 @@ async function editUser(userId, email) {
               }).join('')
           }
         </div>
-        <div style="font-size:11px;color:#94a3b8;margin-top:4px">Pelo menos 1 contrato é obrigatório</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Pelo menos 1 contrato é obrigatório</div>
       </div>
       <div class="field" style="margin-bottom:16px">
         <label style="font-size:12px;font-weight:600;color:#334155;display:block;margin-bottom:4px">Módulos permitidos</label>
@@ -1884,7 +1884,7 @@ function renderConfigTab(el) {
     </div>
 
     <div class="field">
-      <label>Google OAuth Client ID</label>
+      <label for="cfg-cid">Google OAuth Client ID</label>
       <input id="cfg-cid" type="text" value="${localStorage.getItem(CLIENT_ID_KEY)||''}"
         placeholder="xxxxx.apps.googleusercontent.com">
     </div>
@@ -1924,15 +1924,15 @@ function renderPrestadoraForm(box, cfg) {
       </div>
     </div>
     <div class="field">
-      <label>Nome da empresa</label>
+      <label for="cfg-company">Nome da empresa</label>
       <input id="cfg-company" type="text" value="${cfg.company||''}" placeholder="Ex: Manutenções ACME Ltda">
     </div>
     <div class="field">
-      <label>Endereço</label>
+      <label for="cfg-address">Endereço</label>
       <input id="cfg-address" type="text" value="${cfg.address||''}" placeholder="Rua, número, bairro, cidade — UF">
     </div>
     <div class="field">
-      <label>CNPJ</label>
+      <label for="cfg-companycnpj">CNPJ</label>
       <input id="cfg-companycnpj" type="text" value="${cfg.cnpj||''}" placeholder="00.000.000/0000-00">
     </div>
     <button class="btn btn-primary" onclick="savePrestadoraConfig(this)">💾 Salvar dados da prestadora</button>
@@ -2086,15 +2086,15 @@ function renderMinhaEmpresaForm(box, cfg) {
       </div>
     </div>
     <div class="field">
-      <label>Nome da empresa</label>
+      <label for="mye-company">Nome da empresa</label>
       <input id="mye-company" type="text" value="${esc(cfg.company||'')}" placeholder="Ex: Manutenções ACME Ltda">
     </div>
     <div class="field">
-      <label>Endereço</label>
+      <label for="mye-address">Endereço</label>
       <input id="mye-address" type="text" value="${esc(cfg.address||'')}" placeholder="Rua, número, bairro, cidade — UF">
     </div>
     <div class="field">
-      <label>CNPJ</label>
+      <label for="mye-cnpj">CNPJ</label>
       <input id="mye-cnpj" type="text" value="${esc(cfg.cnpj||'')}" placeholder="00.000.000/0000-00">
     </div>
     <button class="btn btn-primary" onclick="saveMinhaEmpresaConfig(this)">💾 Salvar dados da empresa</button>

@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="theme-color" content="#7c3aed">
 <title>Dashboard — SGM-RCX</title>
 <script src="vendor/chart.umd.js"></script>
@@ -439,7 +439,7 @@ function render() {
     <div class="chart-card">
       <div class="chart-title">Chamados abertos por prioridade</div>
       <table class="dash-table">
-        <thead><tr><th>TAG</th><th>Contrato</th><th>Prioridade</th><th>Dias aberto</th></tr></thead>
+        <thead><tr><th scope="col">TAG</th><th scope="col">Contrato</th><th scope="col">Prioridade</th><th scope="col">Dias aberto</th></tr></thead>
         <tbody>
           ${kpi.filtered.filter(c=>(c.status||'aberto')==='aberto').sort((a,b)=>{
             const po={urgente:0,alta:1,normal:2,baixa:3};

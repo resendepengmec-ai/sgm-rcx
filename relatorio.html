@@ -21,7 +21,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#1d4ed8">
 <title>Relatório Gerencial — Sistema de Manutenção</title>
 <!-- V12/V18: biblioteca AUTO-HOSPEDADA, como nas demais páginas. Vinha do
@@ -34,7 +34,7 @@
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#1d4ed8;--primary-dark:#1e3a8a;--primary-light:#eff6ff;
---text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--text:#0f172a;--text-2:#475569;--text-3:#64748b;
 --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
 --radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);
 --success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
@@ -91,22 +91,22 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   <div class="section-card" style="padding:12px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
       <div class="field" style="flex:1;min-width:140px;margin-bottom:0">
-        <label>Contrato</label>
+        <label for="f-contrato">Contrato</label>
         <select id="f-contrato" onchange="onContratoChangeRel()">
           <option value="">Todos os contratos</option>
         </select>
       </div>
       <div class="field" style="min-width:140px;margin-bottom:0">
-        <label>TAG (opcional)</label>
+        <label for="f-tag">TAG (opcional)</label>
         <input id="f-tag" list="f-tag-list" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Todas as TAGs" oninput="this.value=normalizarTagNumero(this.value);render()" style="width:100%">
         <datalist id="f-tag-list"></datalist>
       </div>
       <div class="field" style="margin-bottom:0">
-        <label>Período (início)</label>
+        <label for="f-periodo-ini">Período (início)</label>
         <input id="f-periodo-ini" type="month" onchange="render()">
       </div>
       <div class="field" style="margin-bottom:0">
-        <label>Período (fim)</label>
+        <label for="f-periodo-fim">Período (fim)</label>
         <input id="f-periodo-fim" type="month" onchange="render()">
       </div>
       <button class="btn btn-primary" style="padding:10px 16px" onclick="render()">🔍 Gerar</button>
@@ -201,7 +201,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
   window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
@@ -499,7 +499,7 @@ function renderResumoETelaCharts(resumo) {
 
   document.getElementById('resumo-table-wrap').innerHTML = `
     <table class="resumo-table">
-      <thead><tr><th>Módulo</th><th>Total</th><th>Por status</th></tr></thead>
+      <thead><tr><th scope="col">Módulo</th><th scope="col">Total</th><th scope="col">Por status</th></tr></thead>
       <tbody>${resumo.map(m=>`
         <tr>
           <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${m.cor};margin-right:6px"></span>${esc(m.label)}</td>
@@ -942,7 +942,7 @@ function photoCell(photos, photoCount) {
       : '<span style="color:var(--text-3)">—</span>';
   }
   const geo = photos[0].geo;
-  return `<img ${fotoAttrs(photos[0])} onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
+  return `<img ${fotoAttrs(photos[0])} alt="Foto do registro" onclick="showPhotoModal(this.src)" style="width:36px;height:36px;object-fit:cover;border-radius:4px;cursor:pointer;vertical-align:middle" title="Clique para ampliar">
     ${photos.length>1?`<span style="font-size:11px;color:var(--text-3);margin-left:3px">+${photos.length-1}</span>`:''}
     ${geo?`<a href="https://maps.google.com/?q=${geo.lat},${geo.lng}" target="_blank" style="font-size:11px;margin-left:3px;text-decoration:none" title="${geo.shortAddress||geo.address||'Ver localização'}">📍</a>`:''}`;
 }
@@ -961,7 +961,7 @@ function showPhotoModal(src) {
 function tableHTML(headers, rows) {
   if (!rows.length) return '<div style="font-size:13px;color:var(--text-3);padding:8px">Nenhum registro</div>';
   return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
-    <thead><tr>${headers.map(h=>`<th style="padding:7px 8px;text-align:left;font-weight:600;color:var(--text-3);border-bottom:1px solid var(--border)">${h}</th>`).join('')}</tr></thead>
+    <thead><tr>${headers.map(h=>`<th scope="col" style="padding:7px 8px;text-align:left;font-weight:600;color:var(--text-3);border-bottom:1px solid var(--border)">${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
       ${r.map(c=>`<td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c}</td>`).join('')}
     </tr>`).join('')}</tbody>

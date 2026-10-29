@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#2563eb">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Orçamentos — Sistema de Manutenção</title>
@@ -41,7 +41,7 @@
 <style>
 :root {
   --primary: #2563eb; --primary-dark: #1d4ed8; --primary-light: #eff6ff;
-  --text: #0f172a; --text-2: #475569; --text-3: #94a3b8;
+  --text: #0f172a; --text-2: #475569; --text-3: #64748b;
   --border: #e2e8f0; --bg: #f5f6fa; --surface: #fff;
   --radius: 12px; --radius-sm: 8px;
   --shadow: 0 1px 3px rgba(0,0,0,.08); --shadow-md: 0 4px 16px rgba(0,0,0,.10);
@@ -97,10 +97,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   <!-- Filter bar -->
   <div class="filter-bar">
     <div class="filter-row">
-      <select id="f-filter-month" onchange="applyFilters()">
+      <select id="f-filter-month" aria-label="Filtrar por mês" onchange="applyFilters()">
         <option value="">📅 Todos os meses</option>
       </select>
-      <select id="f-filter-contract" onchange="applyFilters()">
+      <select id="f-filter-contract" aria-label="Filtrar por contrato" onchange="applyFilters()">
         <option value="">📋 Todos os contratos</option>
         <option value="1020">Contrato 1020</option>
         <option value="1023">Contrato 1023</option>
@@ -108,7 +108,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       </select>
     </div>
     <div class="filter-row">
-      <select id="f-filter-estab" onchange="applyFilters()">
+      <select id="f-filter-estab" aria-label="Filtrar por estabelecimento" onchange="applyFilters()">
         <option value="">🏢 Todos os estabelecimentos</option>
       </select>
     </div>
@@ -136,8 +136,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="card-title">Novo orçamento</div>
 
     <div class="field">
-      <label>Contrato *</label>
-      <select id="f-client" onchange="onContratoChange()">
+      <label for="f-client">Contrato *</label>
+      <select id="f-client" required onchange="onContratoChange()">
         <option value="">Selecione um contrato…</option>
       </select>
     </div>
@@ -146,8 +146,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
          o PDF. Precisa ser único DENTRO do contrato: dois com o mesmo
          número gerariam arquivos de nome igual. -->
     <div class="field">
-      <label>Nº / nome do orçamento *</label>
-      <input type="text" id="f-numero" autocomplete="off" placeholder="Ex: 40"
+      <label for="f-numero">Nº / nome do orçamento *</label>
+      <input type="text" id="f-numero" required autocomplete="off" placeholder="Ex: 40"
              oninput="conferirNumero()">
       <div id="f-numero-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)">
         Escolha o contrato para ver a sugestão.
@@ -172,7 +172,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field" id="campo-estab" style="display:none;position:relative">
-      <label>Estabelecimento</label>
+      <label for="f-estab">Estabelecimento</label>
       <input type="text" id="f-estab" autocomplete="off"
              placeholder="Digite parte do nome…"
              oninput="onEstabInput(); conferirTagEstab()"
@@ -186,8 +186,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label id="lbl-equip">TAG do equipamento *</label>
-      <input type="text" id="f-equip" autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
+      <label for="f-equip" id="lbl-equip">TAG do equipamento *</label>
+      <input type="text" id="f-equip" required autocomplete="off" placeholder="Ex: FCU-01" oninput="onTagInput()">
       <!-- Aviso de TAG que não pertence ao estabelecimento informado. É a
            mesma conferência que a importação de PDF já fazia; faltava no
            lançamento manual. -->
@@ -204,7 +204,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Data</label>
+      <label for="f-date">Data</label>
       <input type="date" id="f-date">
     </div>
 
@@ -233,7 +233,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
 
     <div class="field">
-      <label>Observações / condições</label>
+      <label for="f-notes">Observações / condições</label>
       <textarea id="f-notes" rows="3" placeholder="Prazo, validade, condições…"></textarea>
     </div>
 
@@ -256,15 +256,15 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     <div class="card" id="imp-passo1">
       <div class="card-title">1. Contrato e arquivo</div>
       <div class="field">
-        <label>Contrato *</label>
-        <select id="imp-contrato"></select>
+        <label for="imp-contrato">Contrato *</label>
+        <select id="imp-contrato" required></select>
         <div style="font-size:11px;color:var(--text-2);margin-top:4px">
           Os serviços e os preços vêm do catálogo deste contrato.
         </div>
       </div>
       <div class="field">
-        <label>PDF do pedido *</label>
-        <input type="file" id="imp-arquivo" accept="application/pdf,.pdf" onchange="impArquivoEscolhido()">
+        <label for="imp-arquivo">PDF do pedido *</label>
+        <input type="file" id="imp-arquivo" required accept="application/pdf,.pdf" onchange="impArquivoEscolhido()">
         <div id="imp-arquivo-info" style="font-size:11px;color:var(--text-2);margin-top:4px"></div>
       </div>
       <button class="btn btn-primary" style="width:100%" id="imp-btn-ler" onclick="impLerPdf(this)">
@@ -292,8 +292,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <!-- O número vem do próprio pedido; fica editável porque o documento
            nem sempre o traz, e porque precisa ser único no contrato. -->
       <div class="field">
-        <label>Nº do orçamento *</label>
-        <input type="text" id="imp-numero" autocomplete="off" oninput="conferirNumeroImp()">
+        <label for="imp-numero">Nº do orçamento *</label>
+        <input type="text" id="imp-numero" required autocomplete="off" oninput="conferirNumeroImp()">
         <div id="imp-numero-aviso" style="font-size:11px;margin-top:4px;color:var(--text-2)"></div>
       </div>
       <div id="imp-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:10px"></div>
@@ -369,7 +369,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </div>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <!-- Bottom Nav -->
 <nav class="bottom-nav">
@@ -417,8 +417,8 @@ try { guardaDeModulo('orcamento'); } catch (e) {}
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
   chip.innerHTML = `
-    <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')">
-      ${user.picture ? `<img src="${user.picture}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
+    <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="document.getElementById('umenu').classList.toggle('hidden')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('umenu').classList.toggle('hidden')}">
+      ${user.picture ? `<img src="${user.picture}" alt="Foto de ${esc(user.name||user.email||'usuário')}" style="width:32px;height:32px;border-radius:50%;border:2px solid rgba(255,255,255,.4)">` : `<div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center">${r.icon||'👤'}</div>`}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
@@ -599,7 +599,7 @@ function mostrarEstabs() {
     <div onclick="selecionarEstab('${jsAttrOrc(e.nome)}')"
          style="padding:9px 14px;cursor:pointer;border-bottom:0.5px solid var(--border)"
          onmouseover="this.style.background='var(--primary-light)'"
-         onmouseout="this.style.background=''">
+         onmouseout="this.style.background=''" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selecionarEstab('${jsAttrOrc(e.nome)}')}">
       <div style="font-weight:600;font-size:13px">${esc(e.nome)}</div>
       <div style="font-size:11px;color:var(--text-2)">${e.qtd} equipamento(s)</div>
     </div>`).join('');
@@ -629,7 +629,7 @@ function showTagSuggestions(q) {
   const box = document.getElementById('tag-suggestions');
   if (!matches.length) { box.style.display = 'none'; return; }
   box.innerHTML = matches.map(m => `
-    <div onclick="selectTag('${esc(m.tag)}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''">
+    <div onclick="selectTag('${esc(m.tag)}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectTag('${esc(m.tag)}')}">
       <div style="font-weight:600;font-size:14px">TAG ${esc(m.tag)}</div>
       <div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo} ${m.capacidade ? m.capacidade+' BTU' : ''} · ${m.estabelecimento}</div>
       <div style="font-size:12px;color:var(--text-3)">${m.recinto}</div>
@@ -1064,11 +1064,12 @@ function marcarTodasTags(v) {
       <summary style="font-size:12px;font-weight:700;cursor:pointer">
         🔍 Conferência com o catálogo — ${conf.filter(c=>c.ok).length}/${conf.length} termos correspondidos
       </summary>
+      <div style="overflow-x:auto">
       <table style="width:100%;font-size:11px;margin-top:8px;border-collapse:collapse">
         <tr style="color:var(--text-2)">
-          <th style="text-align:left;padding:4px">Termo no pedido</th>
-          <th style="text-align:left;padding:4px">Serviço do contrato</th>
-          <th style="padding:4px">Un.</th>
+          <th scope="col" style="text-align:left;padding:4px">Termo no pedido</th>
+          <th scope="col" style="text-align:left;padding:4px">Serviço do contrato</th>
+          <th scope="col" style="padding:4px">Un.</th>
         </tr>
         ${conf.map(c => `
           <tr style="border-top:1px solid var(--border)">
@@ -1078,6 +1079,7 @@ function marcarTodasTags(v) {
             <td style="padding:4px;text-align:center">${esc(c.unit || '—')}</td>
           </tr>`).join('')}
       </table>
+      </div>
     </details>`;
 
   // ── (c) TAG × estabelecimento ─────────────────────────────────────
@@ -1363,7 +1365,7 @@ function renderQuoteList() {
     // Por isso vem primeiro e grande; o resto fica em corpo menor.
     const numero = numeroDoOrcamento(q);
     const unid = q.unidade || q.machine?.estabelecimento || '';
-    return header + `<div class="quote-card" onclick="openDetail('${q.id}')">
+    return header + `<div class="quote-card" onclick="openDetail('${q.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${q.id}')}">
       <div class="qi-info" style="flex:1;min-width:0">
         <div class="qc-numero">${numero ? esc(numero) : '<span style=\'color:var(--text-3);font-weight:400\'>sem número</span>'}</div>
         ${unid ? `<div class="qc-unidade">${esc(unid)}</div>` : ''}
@@ -1865,7 +1867,7 @@ function changeSvcQtyOrc(idx, delta) {
   }
 
   const span = document.getElementById('orc-qtyval-' + idx);
-  if (span) { span.textContent = next; span.style.color = next > 0 ? '#166534' : '#94a3b8'; }
+  if (span) { span.textContent = next; span.style.color = next > 0 ? '#166534' : '#64748b'; }
   const minus = document.getElementById('orc-minus-' + idx);
   if (minus) {
     minus.disabled = next <= 0;
@@ -1891,7 +1893,7 @@ function filterServices() {
       ? `<span style="background:#ede9fe;color:#5b21b6;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:700;margin-left:6px">CONTRATO</span>`
       : '';
     if (s.inviavel) {
-      return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${idx})">
+      return `<div class="service-item" style="border-color:#fca5a5;background:#fef2f2" onclick="addService(${idx})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();addService(${idx})}">
         <div class="svc-info">
           <div class="svc-name" style="color:#dc2626;font-weight:700">⚠️ Inviável — Equipamento condenado</div>
           <div class="svc-price" style="color:#dc2626;font-size:12px">Preenche observação automaticamente</div>
@@ -1925,7 +1927,7 @@ function filterServices() {
                  color:#64748b;font-size:20px;font-weight:700;line-height:1;
                  cursor:${_on ? 'pointer' : 'default'};opacity:${_on ? '1' : '.4'}">−</button>
         <span id="orc-qtyval-${idx}" style="min-width:22px;text-align:center;font-weight:700;
-              font-size:15px;color:${_on ? '#166534' : '#94a3b8'}">${_q}</span>
+              font-size:15px;color:${_on ? '#166534' : '#64748b'}">${_q}</span>
         <button type="button" onclick="changeSvcQtyOrc(${idx},1);event.stopPropagation()"
           style="width:32px;height:32px;border-radius:8px;border:1px solid var(--primary);background:#fff;
                  color:var(--primary);font-size:20px;font-weight:700;line-height:1;cursor:pointer">+</button>

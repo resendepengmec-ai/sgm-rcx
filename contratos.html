@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0f766e">
 <title>Contratos — Sistema de Manutenção</title>
 <script src="vendor/jspdf.umd.min.js"></script>
@@ -39,7 +39,7 @@
 <link rel="stylesheet" href="shared.css">
 <style>
 :root{--primary:#0f766e;--primary-dark:#0d6460;--primary-light:#f0fdfa;
---text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+--text:#0f172a;--text-2:#475569;--text-3:#64748b;
 --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
 --radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
 --success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
@@ -112,55 +112,55 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
         <div class="field" style="grid-column:1/-1">
-          <label>Número do contrato *</label>
-          <input id="f-numero" type="text" placeholder="Ex: 1020">
+          <label for="f-numero">Número do contrato *</label>
+          <input id="f-numero" type="text" required placeholder="Ex: 1020">
         </div>
         <div class="field" style="grid-column:1/-1">
-          <label>Razão social do contratante *</label>
-          <input id="f-razao" type="text" placeholder="Nome da empresa" oninput="checkExistingClient()">
+          <label for="f-razao">Razão social do contratante *</label>
+          <input id="f-razao" type="text" required placeholder="Nome da empresa" oninput="checkExistingClient()">
         </div>
         <div class="field">
-          <label>CNPJ</label>
+          <label for="f-cnpj">CNPJ</label>
           <input id="f-cnpj" type="text" placeholder="00.000.000/0000-00" oninput="checkExistingClient()">
         </div>
         <div class="field">
-          <label>Telefone</label>
+          <label for="f-tel">Telefone</label>
           <input id="f-tel" type="text" placeholder="(00) 00000-0000">
         </div>
         <div class="field" style="grid-column:1/-1">
-          <label>Endereço</label>
+          <label for="f-end">Endereço</label>
           <input id="f-end" type="text" placeholder="Endereço completo">
         </div>
         <div class="field">
-          <label>Responsável</label>
+          <label for="f-resp">Responsável</label>
           <input id="f-resp" type="text" placeholder="Nome do responsável">
         </div>
         <div class="field">
-          <label>E-mail</label>
+          <label for="f-email">E-mail</label>
           <input id="f-email" type="email" placeholder="email@empresa.com">
         </div>
         <div class="field">
-          <label>Início da vigência *</label>
-          <input id="f-inicio" type="date">
+          <label for="f-inicio">Início da vigência *</label>
+          <input id="f-inicio" type="date" required>
         </div>
         <div class="field">
-          <label>Fim da vigência *</label>
-          <input id="f-fim" type="date">
+          <label for="f-fim">Fim da vigência *</label>
+          <input id="f-fim" type="date" required>
         </div>
         <div class="field" style="grid-column:1/-1">
-          <label>Número da ART</label>
+          <label for="f-art">Número da ART</label>
           <input id="f-art" type="text" placeholder="Ex: 2024-000123">
         </div>
         <div class="field">
-          <label>Responsável técnico (laudos)</label>
+          <label for="f-resp-tec">Responsável técnico (laudos)</label>
           <input id="f-resp-tec" type="text" placeholder="Ex: Fulano de Tal">
         </div>
         <div class="field">
-          <label>CREA / registro profissional</label>
+          <label for="f-crea">CREA / registro profissional</label>
           <input id="f-crea" type="text" placeholder="Ex: Eng. Mecânico - CREA 0000000/D-GO">
         </div>
         <div class="field" style="grid-column:1/-1">
-          <label>Observações</label>
+          <label for="f-obs">Observações</label>
           <textarea id="f-obs" rows="3" placeholder="Informações adicionais…"></textarea>
         </div>
         <div class="field" style="grid-column:1/-1">
@@ -255,7 +255,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <!-- FAB -->
 <button class="fab hidden" id="fab" onclick="openNewContract()">+</button>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
@@ -371,7 +371,7 @@ function renderList() {
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <span class="tag-count">📊 ${equipCount} equipamentos</span>
         ${docs.map(d=>d.sha
-          ? `<span class="doc-chip" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" title="Baixar documento">📄 ${esc(d.name)}</span>`
+          ? `<span class="doc-chip" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)}" title="Baixar documento">📄 ${esc(d.name)}</span>`
           : `<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
         ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
       ${sigTrailHtml(c._signatures)}
@@ -959,7 +959,7 @@ async function viewEquipamentos(id) {
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--surface);color:var(--text-3)">
-              ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área'].map(h=>`<th style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
+              ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área'].map(h=>`<th scope="col" style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
             </tr></thead>
             <tbody>
               ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">

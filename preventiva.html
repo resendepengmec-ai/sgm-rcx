@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0369a1">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -43,7 +43,7 @@
 <style>
 :root{
   --primary:#0369a1;--primary-dark:#075985;--primary-light:#e0f2fe;
-  --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+  --text:#0f172a;--text-2:#475569;--text-3:#64748b;
   --border:#e2e8f0;--bg:#f5f6fa;--surface:#fff;
   --radius:12px;--radius-sm:8px;
   --shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
@@ -210,7 +210,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <!-- Auth overlay -->
 <div class="auth-overlay" id="auth-overlay">
   <div class="spinner"></div>
-  <p style="font-size:14px;color:#94a3b8">Verificando acesso…</p>
+  <p style="font-size:14px;color:#64748b">Verificando acesso…</p>
 </div>
 
 <header class="app-header">
@@ -223,19 +223,19 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <div id="screen-list" class="screen active">
   <div class="filter-bar">
     <div class="filter-row">
-      <select id="f-month" onchange="applyFilters()"><option value="">📅 Todos os meses</option></select>
-      <select id="f-contract" onchange="applyFilters()">
+      <select id="f-month" aria-label="Filtrar por mês" onchange="applyFilters()"><option value="">📅 Todos os meses</option></select>
+      <select id="f-contract" aria-label="Filtrar por contrato" onchange="applyFilters()">
         <option value="">📋 Todos os contratos</option>
       </select>
     </div>
     <div class="filter-row">
-      <select id="f-status" onchange="applyFilters()">
+      <select id="f-status" aria-label="Filtrar por status" onchange="applyFilters()">
         <option value="">🔖 Todos os status</option>
         <option value="pending">Pendente</option>
         <option value="partial">Em andamento</option>
         <option value="done">Concluída</option>
       </select>
-      <select id="f-level" onchange="applyFilters()">
+      <select id="f-level" aria-label="Filtrar por nível" onchange="applyFilters()">
         <option value="">📊 Todos os níveis</option>
         <option value="1">Nível 1 — Leve</option>
         <option value="2">Nível 2 — Intermediária</option>
@@ -265,24 +265,24 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   <div class="card">
     <div class="card-title">Plano de preventiva</div>
     <div class="field">
-      <label>Contrato *</label>
-      <select id="f-client" onchange="onContractChange()">
+      <label for="f-client">Contrato *</label>
+      <select id="f-client" required onchange="onContractChange()">
         <option value="">Selecione o contrato…</option>
       </select>
     </div>
     <div class="field">
-      <label>Período de referência *</label>
-      <input id="f-period" type="month">
+      <label for="f-period">Período de referência *</label>
+      <input id="f-period" type="month" required>
     </div>
     <div class="field">
-      <label>Técnico responsável *</label>
-      <select id="f-tech">
+      <label for="f-tech">Técnico responsável *</label>
+      <select id="f-tech" required>
         <option value="">Selecione um técnico…</option>
       </select>
       <div style="font-size:11px;color:var(--text-3);margin-top:4px">Técnico atribuído executará este plano</div>
     </div>
     <div class="field">
-      <label>Observações gerais</label>
+      <label for="f-obs">Observações gerais</label>
       <textarea id="f-obs" rows="2" placeholder="Informações gerais sobre esta rodada de preventiva…"></textarea>
     </div>
   </div>
@@ -346,7 +346,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </nav>
 
 <!-- Toast -->
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
@@ -456,7 +456,7 @@ function _photoSigLine(i, sig){
   if (!sig) return '';
   const roles = {admin:'Admin',diretor:'Diretor',supervisor:'Supervisor',gestor:'Gestor',tecnico:'Técnico',solicitante:'Solicitante'};
   const dt = new Date(sig.at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-  return `<div style="font-size:10px;color:#94a3b8;line-height:1.5">📷 Foto ${i+1} — por <strong>${esc(sig.by||'?')}</strong> · ${roles[sig.role]||esc(sig.role||'')} · ${dt} <code style="font-family:monospace;font-size:9px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${(sig.hash||'').slice(0,6)}]</code></div>`;
+  return `<div style="font-size:10px;color:#64748b;line-height:1.5">📷 Foto ${i+1} — por <strong>${esc(sig.by||'?')}</strong> · ${roles[sig.role]||esc(sig.role||'')} · ${dt} <code style="font-family:monospace;font-size:9px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#64748b">[${(sig.hash||'').slice(0,6)}]</code></div>`;
 }
 function drawPdfFooters(doc, cont) {
   const pageCount = doc.internal.getNumberOfPages();
@@ -748,8 +748,8 @@ try { guardaDeModulo('preventiva'); } catch (e) {}
   const chip = document.getElementById('user-chip');
   const r = ROLES[user.role] || {};
   chip.innerHTML = `
-    <div onclick="document.getElementById('umenu').classList.toggle('hidden')" style="cursor:pointer">
-      ${user.picture ? `<img src="${user.picture}" class="user-chip img" style="width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.4);object-fit:cover">` : `<div class="user-chip-ph">${r.icon||'👤'}</div>`}
+    <div onclick="document.getElementById('umenu').classList.toggle('hidden')" style="cursor:pointer" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('umenu').classList.toggle('hidden')}">
+      ${user.picture ? `<img src="${user.picture}" alt="Foto de ${esc(user.name||user.email||'usuário')}" class="user-chip img" style="width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.4);object-fit:cover">` : `<div class="user-chip-ph">${r.icon||'👤'}</div>`}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
@@ -900,7 +900,7 @@ function renderPlansList() {
     const pct = total ? Math.round(done/total*100) : 0;
     const _estabs = [...new Set((p.equipments||[]).map(e=>e.estabelecimento).filter(Boolean))];
     const estabLabel = _estabs.length===1 ? _estabs[0] : _estabs.length>1 ? `${_estabs.length} estabelecimentos` : '';
-    return `<div class="plan-card" onclick="openPlan('${p.id}')">
+    return `<div class="plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
       <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
       <div class="plan-info">
         <div class="plan-title">Contrato ${esc(p.client)} · ${fmtMonth(p.period)}</div>
@@ -968,7 +968,7 @@ function renderBatchPanel() {
   if (!panel) return;
   const contract = document.getElementById('f-client').value;
   if (!contract) {
-    panel.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:12px;text-align:center">Selecione um contrato primeiro</div>';
+    panel.innerHTML = '<div style="color:#64748b;font-size:12px;padding:12px;text-align:center">Selecione um contrato primeiro</div>';
     return;
   }
   const db = getEffDB();
@@ -981,7 +981,7 @@ function renderBatchPanel() {
   });
   const estabs = Object.keys(byEstab).sort();
   if (!estabs.length) {
-    panel.innerHTML = '<div style="color:#94a3b8;font-size:12px;padding:12px;text-align:center">Nenhum equipamento no contrato</div>';
+    panel.innerHTML = '<div style="color:#64748b;font-size:12px;padding:12px;text-align:center">Nenhum equipamento no contrato</div>';
     return;
   }
   panel.innerHTML = `
@@ -999,7 +999,7 @@ function renderBatchPanel() {
           ${[1,2,3].map(lv => `<button type="button" onclick="setBatchLevel('${est.replace(/'/g,"\\'")}',${lv})"
             style="padding:4px 10px;border-radius:6px;border:1px solid ${n===lv?'#7c3aed':'#cbd5e1'};background:${n===lv?'#ede9fe':'#fff'};color:${n===lv?'#5b21b6':'#334155'};font-size:11px;font-weight:600;cursor:pointer">N${lv}</button>`).join('')}
           <button type="button" onclick="setBatchLevel('${est.replace(/'/g,"\\'")}','')"
-            style="padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#94a3b8;font-size:11px;cursor:pointer" title="Não gerar plano">—</button>
+            style="padding:4px 8px;border-radius:6px;border:1px solid #cbd5e1;background:#fff;color:#64748b;font-size:11px;cursor:pointer" title="Não gerar plano">—</button>
         </div>
       </div>`;
     }).join('')}
@@ -1130,7 +1130,7 @@ function renderEquipList(filter='') {
   );
   list.innerHTML = orderedEquipments(items).map(({equip:e}) => `
     <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:.5px solid var(--border)">
-      <div onclick="toggleEquip('${esc(e.tag)}')" style="width:22px;height:22px;border:2px solid ${selectedEquip.has(e.tag)?'var(--primary)':'var(--border)'};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;background:${selectedEquip.has(e.tag)?'var(--primary)':'var(--surface)'}">
+      <div onclick="toggleEquip('${esc(e.tag)}')" style="width:22px;height:22px;border:2px solid ${selectedEquip.has(e.tag)?'var(--primary)':'var(--border)'};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;background:${selectedEquip.has(e.tag)?'var(--primary)':'var(--surface)'}" role="checkbox" aria-checked="${selectedEquip.has(e.tag)?'true':'false'}" aria-label="TAG ${esc(e.tag)}" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleEquip('${esc(e.tag)}')}">
         ${selectedEquip.has(e.tag)?'<span style="color:#fff;font-size:12px;font-weight:700">✓</span>':''}
       </div>
       <div style="flex:1;min-width:0">
@@ -1266,8 +1266,8 @@ function renderExecCardHtml(plan, ei) {
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0" id="exec-photos-${ei}">
       ${photos.map((p,pi)=>`<div style="width:90px;text-align:center">
         <div style="position:relative;width:56px;height:56px;margin:0 auto">
-        <img ${fotoAttrs(p)} style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="abrirLightboxDeImg(this,showPhotoZoom)">
-        <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:11px;cursor:pointer;line-height:1">×</button>
+        <img ${fotoAttrs(p)} alt="Foto ${pi+1} do equipamento" style="width:56px;height:56px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="abrirLightboxDeImg(this,showPhotoZoom)">
+        <button onclick="event.stopPropagation();removeEquipPhoto(${ei},${pi})" aria-label="Remover foto" style="position:absolute;top:-6px;right:-6px;width:28px;height:28px;border-radius:50%;background:var(--danger);color:#fff;border:none;font-size:13px;cursor:pointer;line-height:1;display:flex;align-items:center;justify-content:center">×</button>
         ${p.geo ? `<a href="https://maps.google.com/?q=${p.geo.lat},${p.geo.lng}" target="_blank" onclick="event.stopPropagation()" title="${p.geo.shortAddress||p.geo.address||''}" style="position:absolute;bottom:1px;left:1px;background:rgba(0,0,0,.6);color:#fff;font-size:9px;padding:1px 4px;border-radius:4px;text-decoration:none">📍</a>` : ''}
         </div>
         <div style="font-size:10px;line-height:1.3;margin-top:4px;overflow-wrap:anywhere;color:var(--text-3)">${photoSendLabel(p)}</div>
@@ -1275,7 +1275,7 @@ function renderExecCardHtml(plan, ei) {
     </div>${photos.some(p=>p&&p.sig)?`<div style="margin:-2px 0 10px;display:flex;flex-direction:column;gap:2px">${photos.map((p,pi)=>p&&p.sig?_photoSigLine(pi,p.sig):'').join('')}</div>`:''}` : '';
 
   return { done, html: `<div class="exec-card" id="exec-card-${ei}">
-      <div class="exec-header" onclick="toggleExecBody(${ei})">
+      <div class="exec-header" onclick="toggleExecBody(${ei})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleExecBody(${ei})}">
         <div class="exec-equip-name">
           <div class="exec-equip-tag">TAG ${esc(equip.tag)}</div>
           <div class="exec-equip-recinto">${esc(equip.recinto || 'Recinto não informado')}</div>
@@ -1684,7 +1684,7 @@ function renderHistory() {
     const equip = p.equipments || [];
     const total = equip.length;
     const done2 = equip.filter(e=>isEquipDone(e,p.level)).length;
-    return `<div class="plan-card" onclick="openPlan('${p.id}')">
+    return `<div class="plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
       <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
       <div class="plan-info">
         <div class="plan-title">Contrato ${esc(p.client)} · ${fmtMonth(p.period)}</div>
