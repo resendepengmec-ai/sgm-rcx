@@ -299,6 +299,15 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <datalist id="capacidade-sugestoes"></datalist>
       </div>
 
+      <!-- Nº Patrimônio: identificador patrimonial da empresa, diferente
+           da TAG técnica — só faz sentido na instalação (não em
+           "adicionar", que também usa este bloco), por isso tem
+           display próprio em vez de herdar o de fields-nova-tag. -->
+      <div id="field-num-patrimonio" class="field" style="display:none">
+        <label for="f-num-patrimonio">Nº Patrimônio <span style="font-weight:400;color:var(--text-2)">(opcional)</span></label>
+        <input id="f-num-patrimonio" type="text" autocomplete="off" maxlength="40" placeholder="Ex: PAT-00123">
+      </div>
+
       <!-- Fotos da instalação.
            NÃO vão para o banco de equipamentos — ficam na movimentação, e
            servem ao relatório de instalações. Guardar imagem no cadastro
@@ -987,6 +996,7 @@ async function gerarRelMovPDF() {
     if (m.tipo === 'instalar' || m.tipo === 'adicionar') {
       linhas.push([m.marca, m.tipoEquip, m.capacidade].filter(Boolean).join(' · ') || '—');
       linhas.push(`Local: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
+      if (m.numPatrimonio) linhas.push(`Nº Patrimônio: ${m.numPatrimonio}`);
     } else if (m.tipo === 'desmontar' || m.tipo === 'realocar') {
       linhas.push(`De: ${m.estabelecimentoOrigem || '—'}${m.recintoOrigem ? ' / ' + m.recintoOrigem : ''}`);
       linhas.push(`Para: ${m.estabelecimentoDestino || '—'}${m.recintoDestino ? ' / ' + m.recintoDestino : ''}`);
@@ -1179,6 +1189,9 @@ function renderList() {
         <div style="font-size:14px;font-weight:700;margin-bottom:4px">
           TAG: ${esc(m.tag||m.novaTag)||'—'} · Contrato ${esc(m.contrato)||'—'}
         </div>
+        ${m.numPatrimonio ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
+          Nº Patrimônio: ${esc(m.numPatrimonio)}
+        </div>` : ''}
         <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
           🏢 Estabelecimento: ${esc(local.estabelecimento)||'—'} · Recinto: ${esc(local.recinto)||'—'}
         </div>
@@ -1255,7 +1268,7 @@ function openNewMovimento() {
 function limparFormularioMovimento() {
   draftMovId = null;
   ['f-tipo', 'f-motivo', 'f-contrato', 'f-tag', 'f-nova-tag', 'f-marca',
-   'f-capacidade', 'f-estab-destino', 'f-recinto-destino']
+   'f-capacidade', 'f-estab-destino', 'f-recinto-destino', 'f-num-patrimonio']
     .forEach(id => {
       const el = document.getElementById(id);
       if (el) { el.value = ''; el.style.borderColor = ''; }
@@ -1612,6 +1625,10 @@ function updateFormByTipo() {
   // Instalação não pede motivo: o motivo é a própria instalação.
   const campoMotivo = document.getElementById('field-motivo');
   if (campoMotivo) campoMotivo.style.display = (tipo === 'instalar') ? 'none' : '';
+  // Nº Patrimônio só em instalação — "adicionar" também usa fields-nova-tag,
+  // mas não é instalação de verdade (reativa TAG que já existia).
+  const campoNumPatrimonio = document.getElementById('field-num-patrimonio');
+  if (campoNumPatrimonio) campoNumPatrimonio.style.display = (tipo === 'instalar') ? '' : 'none';
   renderMotivoSugestoes(tipo);
   conferirNovaTag();
 }
@@ -1806,6 +1823,7 @@ async function saveMovimento(btn) {
     capacidade:       document.getElementById('f-capacidade')?.value.trim()||'',
     estabelecimentoDestino: document.getElementById('f-estab-destino')?.value.trim()||'',
     recintoDestino:   document.getElementById('f-recinto-destino')?.value.trim()||'',
+    numPatrimonio:    tipo === 'instalar' ? (document.getElementById('f-num-patrimonio')?.value.trim()||'') : '',
     // Fotos ficam NA MOVIMENTAÇÃO, não no cadastro do equipamento: o
     // banco de equipamentos é lido a cada plano e a cada orçamento, e
     // carregar base64 ali penalizaria o sistema por um dado que só o
@@ -1895,6 +1913,7 @@ async function carregarMovimentoParaEdicao(id) {
   document.getElementById('f-capacidade').value = m.capacidade || '';
   document.getElementById('f-estab-destino').value = m.estabelecimentoDestino || '';
   document.getElementById('f-recinto-destino').value = m.recintoDestino || '';
+  document.getElementById('f-num-patrimonio').value = m.numPatrimonio || '';
   fotosInstal = ['instalar','adicionar'].includes(tipo) && Array.isArray(m.fotos)
     ? m.fotos.map(f => ({ ...f })) : [];
   updateFormByTipo();
@@ -1918,6 +1937,7 @@ function openReview(id, action) {
     <strong>Tipo:</strong> ${tipoLabel}<br>
     <strong>TAG:</strong> ${m.tag||m.novaTag||'—'}<br>
     ${m.estabelecimentoDestino ? `<strong>Destino:</strong> ${m.estabelecimentoDestino}${m.recintoDestino?' / '+m.recintoDestino:''}<br>` : ''}
+    ${m.numPatrimonio ? `<strong>Nº Patrimônio:</strong> ${esc(m.numPatrimonio)}<br>` : ''}
     ${m.motivo ? `<strong>Motivo:</strong> ${esc(m.motivo)}<br>` : ''}
     <strong>Solicitado por:</strong> ${esc(m.solicitanteNome)} (${esc(m.solicitantePerfil)})<br>
     <strong>Data:</strong> ${new Date(m.criadoEm).toLocaleDateString('pt-BR')}`;
