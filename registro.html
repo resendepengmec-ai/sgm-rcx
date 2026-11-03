@@ -152,6 +152,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         <div id="mi-estab"></div>
         <div id="mi-recinto"></div>
       </div>
+      <div id="recorrencia-mes-aviso" style="display:none;margin-top:8px"></div>
     </div>
 
     <!-- Descrição livre do equipamento (avulso) -->
@@ -169,7 +170,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label for="f-date">Data de execução</label>
-      <input type="date" id="f-date">
+      <input type="date" id="f-date" onchange="checarRecorrenciaMes()">
     </div>
 
     <div class="field">
@@ -1001,6 +1002,7 @@ function startNew() {
   document.getElementById('f-date-sol').value = today();
   document.getElementById('f-tech').value = settings.defaultTech || '';
   document.getElementById('f-notes').value = '';
+  esconderRecorrenciaMes();
   // Reset avulso
   const avulsoChk = document.getElementById('f-avulso');
   if (avulsoChk) {
@@ -1105,6 +1107,9 @@ function saveRecord(btn) {
     createdAt: records.find(x=>x.id===(editingId||pendingRecordId))?.createdAt || Date.now(),
     _version: editingId ? records.find(x=>x.id===editingId)?._version : undefined,
   };
+  // Calculado ANTES de mesclar r em records, senão o próprio registro
+  // que está sendo salvo se contaria como "outro registro no mês".
+  const recorrenciaMes = isAvulso ? [] : registrosDoMesParaTag(client, equip, (r.date||'').slice(0,7), r.id);
   const existingIndex = records.findIndex(x=>x.id===r.id);
   if (existingIndex >= 0) records[existingIndex] = r;
   else records.unshift(r);
@@ -1116,6 +1121,9 @@ function saveRecord(btn) {
   };
   persist(r,effects).then(() => {
     showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
+    if (recorrenciaMes.length) {
+      setTimeout(() => showToast(`⚠️ Esta TAG já tinha ${recorrenciaMes.length} registro(s) neste mês`, 6000), 600);
+    }
 
     if(effects.baixa)showToast('📋 Registro salvo e baixa solicitada — aguardando aprovação no Patrimônio');
     if (effects.osId) {
@@ -1150,6 +1158,7 @@ function editRecord(id) {
   document.getElementById('f-tech').value = r.tech || '';
   document.getElementById('f-notes').value = r.notes || '';
   if (r.machine) showMachineInfo(r.machine); else hideMachineInfo();
+  checarRecorrenciaMes();
   renderNewItems();
   onContractChange();   // mostra o checklist do contrato com os itens já marcados
   renderPhotoGrid();
@@ -1517,6 +1526,7 @@ function closeLightbox(){ document.getElementById('lightbox').classList.add('hid
 function onTagInput(){
   const val = normalizarTagNumero(document.getElementById('f-equip').value);
   clearTimeout(tagTimeout); hideMachineInfo();
+  checarRecorrenciaMes();
   if(!val){ document.getElementById('tag-suggestions').style.display='none'; return; }
   tagTimeout = setTimeout(()=>showTagSuggestions(val), 150);
 }
@@ -1552,6 +1562,53 @@ function selectTag(tag){
   document.getElementById('f-equip').value = normalizarTagNumero(tag);
   document.getElementById('tag-suggestions').style.display='none';
   showMachineInfo(m);
+  checarRecorrenciaMes();
+}
+
+// ── Aviso de recorrência no mês (não bloqueante) ───────────────────
+// Mesmo padrão visual do aviso de recorrência de chamados.html, mas
+// janela de mês calendário (não 90 dias rolantes) e casado por
+// TAG+contrato exatos — aqui o que importa é "já teve manutenção
+// NESTE mês", não reincidência de problema ao longo do tempo.
+function esconderRecorrenciaMes() {
+  const el = document.getElementById('recorrencia-mes-aviso');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+function registrosDoMesParaTag(contrato, tag, mes, ignorarId) {
+  if (!contrato || !tag || !mes) return [];
+  return (records || []).filter(r => {
+    const rContrato = r.client || r.contract || '';
+    const rTag = normalizarTagNumero(r.equip || r.tag || '');
+    const rMes = (r.date || '').slice(0, 7);
+    return String(rContrato) === String(contrato) && rTag === tag &&
+      rMes === mes && r.id !== ignorarId;
+  }).sort((a, b) => String(a.date||'').localeCompare(String(b.date||'')));
+}
+function checarRecorrenciaMes() {
+  const el = document.getElementById('recorrencia-mes-aviso');
+  if (!el) return;
+  const contrato = document.getElementById('f-client')?.value;
+  const tag = normalizarTagNumero(document.getElementById('f-equip')?.value || '');
+  const data = document.getElementById('f-date')?.value || '';
+  const mes = data.slice(0, 7);
+  const lista = registrosDoMesParaTag(contrato, tag, mes, editingId);
+  if (!lista.length) { esconderRecorrenciaMes(); return; }
+  const mesLabel = new Date(mes + '-02').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
+  const resumo = lista.slice(0, 4).map(r => {
+    const d = r.date ? r.date.split('-').reverse().join('/') : '—';
+    const serv = (Array.isArray(r.services) && r.services[0]) || (Array.isArray(r.items) && r.items[0] && (r.items[0].name||r.items[0].service)) || '';
+    return `${d}${serv ? ' (' + serv + ')' : ''}`;
+  }).join(', ');
+  el.innerHTML = `
+    <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;
+                border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5">
+      <div style="font-weight:700">⚠️ Esta TAG já tem ${lista.length} registro(s) em ${esc(mesLabel)}</div>
+      <div style="margin-top:2px">${esc(resumo)}</div>
+      <div style="margin-top:8px;font-size:11px;opacity:.75">
+        Este aviso não impede o salvamento — se a manutenção é legítima, siga normalmente.
+      </div>
+    </div>`;
+  el.style.display = 'block';
 }
 function showMachineInfo(m){
   document.getElementById('machine-info').style.display='block';
