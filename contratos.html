@@ -932,26 +932,75 @@ function renderDocsList() {
 function removeDoc(i) { pendingDocs.splice(i,1); renderDocsList(); }
 
 // ── Equipamentos viewer ───────────────────────────────────────────
+// Filtro 100% client-side sobre os dados já carregados (sem endpoint
+// novo): a barra de filtros é montada UMA VEZ em viewEquipamentos, e
+// só o corpo da lista (#equip-list-body) é reconstruído a cada troca
+// de filtro — não remonta os <select>, preserva seleção/scroll.
+let _equipAtuais = [];
+let _equipFiltroEstab = '';
+let _equipFiltroStatus = '';
+
+function _statusEquipLabel(eq) {
+  if (equipamentoOperante(eq)) return 'Operante';
+  return 'Inoperante — ' + (statusEquipamento(eq) === 'baixado/inoperante' ? 'baixado' : 'desmontado');
+}
+
 async function viewEquipamentos(id) {
   let c;
   try { c = await ensureContratoDetalhe(id); }
   catch (e) { showToast('Não foi possível carregar os equipamentos: ' + e.message); return; }
   if (!c) return;
-  const equip = c.equipamentos||[];
-  const detail= document.getElementById('detail-content');
-  const byEstab = {};
-  equip.forEach(e => {
-    const k = e.estabelecimento||e['estabelecimento']||'—';
-    if (!byEstab[k]) byEstab[k]=[];
-    byEstab[k].push(e);
-  });
+  _equipAtuais = c.equipamentos || [];
+  _equipFiltroEstab = '';
+  _equipFiltroStatus = '';
+  const detail = document.getElementById('detail-content');
+  const estabs = [...new Set(_equipAtuais.map(e => e.estabelecimento || '—'))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
   detail.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
       <button onclick="showScreen('list')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px">← Contratos</button>
       <h2 style="font-size:16px;font-weight:700">Equipamentos — Contrato ${esc(c.numero)}</h2>
-      <span class="tag-count">${equip.length} total</span>
+      <span class="tag-count">${_equipAtuais.length} total</span>
     </div>
-    ${Object.entries(byEstab).map(([estab,items])=>`
+    <div class="filter-bar" style="margin-bottom:10px">
+      <div class="filter-row">
+        <select id="equip-filtro-estab" aria-label="Filtrar por estabelecimento" onchange="_onEquipFiltroChange()">
+          <option value="">Todos os estabelecimentos</option>
+          ${estabs.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('')}
+        </select>
+        <select id="equip-filtro-status" aria-label="Filtrar por status" onchange="_onEquipFiltroChange()">
+          <option value="">Todos os status</option>
+          <option value="operante">Operante</option>
+          <option value="inoperante">Inoperante</option>
+        </select>
+      </div>
+      <div class="filter-summary"><span id="equip-filtro-contador"></span></div>
+    </div>
+    <div id="equip-list-body"></div>`;
+  renderEquipamentosFiltrados();
+  showScreen('detail');
+}
+
+function _onEquipFiltroChange() {
+  _equipFiltroEstab = document.getElementById('equip-filtro-estab').value;
+  _equipFiltroStatus = document.getElementById('equip-filtro-status').value;
+  renderEquipamentosFiltrados();
+}
+
+function renderEquipamentosFiltrados() {
+  const filtrados = _equipAtuais.filter(e => {
+    if (_equipFiltroEstab && (e.estabelecimento || '—') !== _equipFiltroEstab) return false;
+    if (_equipFiltroStatus === 'operante' && !equipamentoOperante(e)) return false;
+    if (_equipFiltroStatus === 'inoperante' && equipamentoOperante(e)) return false;
+    return true;
+  });
+  const byEstab = {};
+  filtrados.forEach(e => {
+    const k = e.estabelecimento || e['estabelecimento'] || '—';
+    if (!byEstab[k]) byEstab[k] = [];
+    byEstab[k].push(e);
+  });
+  document.getElementById('equip-list-body').innerHTML = Object.entries(byEstab).map(([estab, items]) => `
       <div style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:6px;padding:6px 10px;background:var(--bg);border-radius:6px">
           🏢 ${estab} (${items.length})
@@ -959,7 +1008,7 @@ async function viewEquipamentos(id) {
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--surface);color:var(--text-3)">
-              ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área'].map(h=>`<th scope="col" style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
+              ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área','Status'].map(h=>`<th scope="col" style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
             </tr></thead>
             <tbody>
               ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
@@ -970,12 +1019,14 @@ async function viewEquipamentos(id) {
                 <td style="padding:5px 8px">${esc(eq.capacidade||eq['capacidade'])||'—'}</td>
                 <td style="padding:5px 8px">${esc(eq.recinto||eq['recinto'])||'—'}</td>
                 <td style="padding:5px 8px">${esc(eq.area||eq['area'])||'—'}</td>
+                <td style="padding:5px 8px;font-weight:600;color:${equipamentoOperante(eq)?'var(--success)':'var(--danger)'}">${esc(_statusEquipLabel(eq))}</td>
               </tr>`).join('')}
             </tbody>
           </table>
         </div>
-      </div>`).join('')}`;
-  showScreen('detail');
+      </div>`).join('');
+  document.getElementById('equip-filtro-contador').textContent =
+    `${filtrados.length} de ${_equipAtuais.length} equipamentos`;
 }
 
 // ── Screen nav ────────────────────────────────────────────────────
