@@ -143,7 +143,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field" id="field-equip">
       <label for="f-equip">TAG do equipamento *</label>
-      <input type="text" id="f-equip" required autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()">
+      <input type="text" id="f-equip" required autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="Ex: 12, 325, 1450" oninput="this.value=normalizarTagNumero(this.value);onTagInput()" onchange="checarRecorrenciaMes()">
       <div id="tag-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
       <div id="machine-info" style="display:none;font-size:12px;color:var(--text-2);margin-top:6px;padding:8px;background:var(--primary-light);border-radius:6px">
         <div id="mi-marca"></div>
@@ -1002,7 +1002,7 @@ function startNew() {
   document.getElementById('f-date-sol').value = today();
   document.getElementById('f-tech').value = settings.defaultTech || '';
   document.getElementById('f-notes').value = '';
-  esconderRecorrenciaMes();
+  resetRecorrenciaMes();
   // Reset avulso
   const avulsoChk = document.getElementById('f-avulso');
   if (avulsoChk) {
@@ -1107,9 +1107,6 @@ function saveRecord(btn) {
     createdAt: records.find(x=>x.id===(editingId||pendingRecordId))?.createdAt || Date.now(),
     _version: editingId ? records.find(x=>x.id===editingId)?._version : undefined,
   };
-  // Calculado ANTES de mesclar r em records, senão o próprio registro
-  // que está sendo salvo se contaria como "outro registro no mês".
-  const recorrenciaMes = isAvulso ? [] : registrosDoMesParaTag(client, equip, (r.date||'').slice(0,7), r.id);
   const existingIndex = records.findIndex(x=>x.id===r.id);
   if (existingIndex >= 0) records[existingIndex] = r;
   else records.unshift(r);
@@ -1121,8 +1118,13 @@ function saveRecord(btn) {
   };
   persist(r,effects).then(() => {
     showToast(editingId ? 'Registro atualizado!' : 'Registro salvo!');
-    if (recorrenciaMes.length) {
-      setTimeout(() => showToast(`⚠️ Esta TAG já tinha ${recorrenciaMes.length} registro(s) neste mês`, 6000), 600);
+    // Consulta nova (não reaproveita o cache do aviso em tela, que pode
+    // estar atrasado pelo debounce) — o registro recém-salvo já se exclui
+    // via excluirId=r.id.
+    if (!isAvulso) {
+      DB.recorrenciaRegistro(client, equip, (r.date||'').slice(0,7), r.id).then(res => {
+        if (res?.count) setTimeout(() => showToast(`⚠️ Esta TAG já tinha ${res.count} registro(s) neste mês`, 6000), 600);
+      }).catch(e => console.warn('Não foi possível consultar recorrência do mês ao salvar:', e?.message));
     }
 
     if(effects.baixa)showToast('📋 Registro salvo e baixa solicitada — aguardando aprovação no Patrimônio');
@@ -1526,7 +1528,6 @@ function closeLightbox(){ document.getElementById('lightbox').classList.add('hid
 function onTagInput(){
   const val = normalizarTagNumero(document.getElementById('f-equip').value);
   clearTimeout(tagTimeout); hideMachineInfo();
-  checarRecorrenciaMes();
   if(!val){ document.getElementById('tag-suggestions').style.display='none'; return; }
   tagTimeout = setTimeout(()=>showTagSuggestions(val), 150);
 }
@@ -1574,35 +1575,55 @@ function esconderRecorrenciaMes() {
   const el = document.getElementById('recorrencia-mes-aviso');
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
-function registrosDoMesParaTag(contrato, tag, mes, ignorarId) {
-  if (!contrato || !tag || !mes) return [];
-  return (records || []).filter(r => {
-    const rContrato = r.client || r.contract || '';
-    const rTag = normalizarTagNumero(r.equip || r.tag || '');
-    const rMes = (r.date || '').slice(0, 7);
-    return String(rContrato) === String(contrato) && rTag === tag &&
-      rMes === mes && r.id !== ignorarId;
-  }).sort((a, b) => String(a.date||'').localeCompare(String(b.date||'')));
+function resetRecorrenciaMes() {
+  clearTimeout(recorrenciaTimeout);
+  recorrenciaAbortCtrl?.abort();
+  esconderRecorrenciaMes();
 }
+// Contagem feita pelo servidor (GET /registros/recorrencia), não mais
+// filtrando o cache local — evita baixar o histórico leve inteiro do
+// contrato só pra contar um mês. Debounce (a chamada é por rede, não
+// mais um filtro local) + cancelamento do pedido anterior, mesmo padrão
+// já usado em reverseGeocode() acima. O toast de salvar (saveRecord) faz
+// sua PRÓPRIA consulta, nova — não reaproveita o resultado daqui, que
+// pode estar atrasado pelo debounce em relação a um clique rápido em Salvar.
+let recorrenciaTimeout = null;
+let recorrenciaAbortCtrl = null;
 function checarRecorrenciaMes() {
-  const el = document.getElementById('recorrencia-mes-aviso');
-  if (!el) return;
+  clearTimeout(recorrenciaTimeout);
   const contrato = document.getElementById('f-client')?.value;
   const tag = normalizarTagNumero(document.getElementById('f-equip')?.value || '');
   const data = document.getElementById('f-date')?.value || '';
   const mes = data.slice(0, 7);
-  const lista = registrosDoMesParaTag(contrato, tag, mes, editingId);
-  if (!lista.length) { esconderRecorrenciaMes(); return; }
+  if (!contrato || !tag || !mes) { resetRecorrenciaMes(); return; }
+  recorrenciaTimeout = setTimeout(async () => {
+    recorrenciaAbortCtrl?.abort();
+    recorrenciaAbortCtrl = new AbortController();
+    try {
+      const resultado = await DB.recorrenciaRegistro(contrato, tag, mes, editingId, recorrenciaAbortCtrl.signal);
+      renderRecorrenciaMes(resultado, mes);
+    } catch (e) {
+      // Aviso auxiliar: falha de rede, 403 ou cold start nunca aparecem
+      // ao usuário nem impedem o lançamento — só esconde o aviso.
+      console.warn('Não foi possível consultar recorrência do mês:', e?.message);
+      esconderRecorrenciaMes();
+    }
+  }, 400);
+}
+function renderRecorrenciaMes(resultado, mes) {
+  const el = document.getElementById('recorrencia-mes-aviso');
+  if (!el) return;
+  if (!resultado?.count) { esconderRecorrenciaMes(); return; }
   const mesLabel = new Date(mes + '-02').toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
-  const resumo = lista.slice(0, 4).map(r => {
-    const d = r.date ? r.date.split('-').reverse().join('/') : '—';
-    const serv = (Array.isArray(r.services) && r.services[0]) || (Array.isArray(r.items) && r.items[0] && (r.items[0].name||r.items[0].service)) || '';
+  const resumo = (resultado.itens || []).slice(0, 4).map(r => {
+    const d = r.data ? r.data.split('-').reverse().join('/') : '—';
+    const serv = Array.isArray(r.servicos) && r.servicos[0] || '';
     return `${d}${serv ? ' (' + serv + ')' : ''}`;
   }).join(', ');
   el.innerHTML = `
     <div style="background:#fffbeb;border:1px solid #fde68a;color:#92400e;
                 border-radius:8px;padding:10px 12px;font-size:12px;line-height:1.5">
-      <div style="font-weight:700">⚠️ Esta TAG já tem ${lista.length} registro(s) em ${esc(mesLabel)}</div>
+      <div style="font-weight:700">⚠️ Esta TAG já tem ${resultado.count} registro(s) em ${esc(mesLabel)}</div>
       <div style="margin-top:2px">${esc(resumo)}</div>
       <div style="margin-top:8px;font-size:11px;opacity:.75">
         Este aviso não impede o salvamento — se a manutenção é legítima, siga normalmente.

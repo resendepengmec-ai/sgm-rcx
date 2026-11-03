@@ -1103,6 +1103,14 @@ const DB = {
   updateMovStatus:    (id, status, motivoRejeicao) =>
                               reliableWrite('PATCH',`/movimentacoes/${id}/status`, { status, motivoRejeicao },'movimentacoes:'+id),
 
+  // Contagem de recorrência de manutenção no mês, por TAG+contrato (aviso
+  // não bloqueante em registro.html). Chama `_call` direto, não `API.get`,
+  // pra poder repassar `signal` e permitir cancelar a consulta anterior.
+  recorrenciaRegistro: (contrato, tag, mes, excluirId, signal) => _call('GET',
+    `/registros/recorrencia?contrato=${encodeURIComponent(contrato)}&tag=${encodeURIComponent(tag)}&mes=${encodeURIComponent(mes)}`
+    + (excluirId ? `&excluirId=${encodeURIComponent(excluirId)}` : ''),
+    undefined, { signal }),
+
   // Ordens de serviço
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),
