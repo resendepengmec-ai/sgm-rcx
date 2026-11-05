@@ -204,6 +204,24 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         Estes serviços aparecerão automaticamente nos <strong>Registros de manutenção</strong> e <strong>Orçamentos</strong>.
       </p>
 
+      <!-- Parâmetros de custo do contrato (só visível a quem vê preço) -->
+      <div id="parametros-custo-section" style="display:none;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">💰 Parâmetros de custo do contrato</div>
+        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Percentuais incidem sobre o preço de venda de cada serviço. "Destinação" (ex. fundo de reserva) não entra no custo operacional, só no resultado após reserva.</p>
+        <div id="parametros-custo-list" style="margin-bottom:8px"></div>
+        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="text" id="pc-nome" placeholder="Nome (ex: Impostos)" style="flex:2;min-width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <input type="number" id="pc-pct" placeholder="% sobre a venda" step="0.01" style="width:130px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <select id="pc-tipo" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+              <option value="custo">Custo</option>
+              <option value="destinacao">Destinação</option>
+            </select>
+            <button onclick="addParametroCusto()" style="padding:8px 16px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Adicionar</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Lista de serviços -->
       <div id="servicos-list" style="margin-bottom:12px"></div>
 
@@ -223,6 +241,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">📥 Importar em lote (CSV/XLSX)</div>
         <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Colunas esperadas: <code>nome</code>, <code>unidade</code>, <code>preco</code></p>
         <input type="file" accept=".csv,.xlsx,.xls" onchange="handleServicoFile(event)" style="font-size:12px">
+      </div>
+
+      <!-- Importar ficha de custos (layout transposto) -->
+      <div id="import-ficha-custo-section" style="display:none;margin-top:14px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
+        <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:8px">💰 Importar ficha de custos (XLSX)</div>
+        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Planilha com os serviços nas COLUNAS (linha 1), percentuais e insumos nas linhas abaixo. O preço continua vindo sempre do contrato — a planilha só alimenta custo.</p>
+        <input type="file" accept=".xlsx,.xls" onchange="handleFichaCustoFile(event)" style="font-size:12px">
       </div>
     </div>
 
@@ -256,6 +281,46 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <button class="fab hidden" id="fab" onclick="openNewContract()">+</button>
 
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<!-- Ficha de custo de um serviço -->
+<div class="modal-bg hidden" id="ficha-custo-modal">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Ficha de custo — <span id="fc-nome-servico"></span></div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text-2);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="fc-por-metro"> Cobrança por metro (em vez de por unidade)
+      </label>
+    </div>
+    <div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px">Insumos (R$)</div>
+    <div id="fc-insumos-list" style="margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <input type="text" id="fc-insumo-nome" placeholder="Insumo" style="flex:2;min-width:0;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+      <input type="number" id="fc-insumo-valor" placeholder="R$" step="0.01" style="width:90px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+      <button onclick="addInsumoFicha()" style="padding:8px 14px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer">+</button>
+    </div>
+    <div id="fc-totais" style="background:#f8fafc;border-radius:8px;padding:10px;font-size:12px;line-height:1.7;margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="fecharFichaCusto()">Fechar</button>
+      <button class="btn btn-primary" onclick="salvarFichaCusto()">Salvar ficha</button>
+    </div>
+  </div>
+</div>
+
+<!-- Prévia da importação da ficha de custos -->
+<div class="modal-bg hidden" id="import-ficha-custo-modal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Prévia da importação de custos</div>
+    <p style="font-size:12px;color:var(--text-2);margin-bottom:10px">Confira o casamento de cada coluna com um serviço do contrato antes de gravar. O preço nunca vem da planilha.</p>
+    <div id="import-ficha-custo-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:8px"></div>
+    <div id="import-ficha-custo-tabela" style="margin-bottom:14px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary" onclick="fecharImportFichaCusto()">Cancelar</button>
+      <button class="btn btn-primary" onclick="gravarImportFichaCusto()">Gravar</button>
+    </div>
+  </div>
+</div>
 
 <script src="config.js"></script>
 <script src="api-client.js?v=20261005.1"></script>
@@ -560,28 +625,46 @@ function switchFormTab(tab) {
     if (el) el.style.display = t===tab ? '' : 'none';
   });
   selectTab('#form-tabs', tab);
-  if (tab === 'servicos') renderServicosList();
+  if (tab === 'servicos') { renderServicosList(); renderParametrosCustoList(); }
 }
 
 // ── Serviços por contrato ────────────────────────────────────────
 let pendingServicos = [];
+let pendingParametrosCusto = [];
 
+function _margemBadgeHtml(servico) {
+  if (!servico?.fichaCusto) return '';
+  const r = custoUnitarioClient(servico, pendingParametrosCusto, servico.price);
+  const semPreco = !(servico.price > 0);
+  const pct = semPreco ? 0 : (r.margemOperacional / servico.price * 100);
+  const cor = r.margemOperacional < 0 ? 'var(--danger)' : (pct < 15 ? '#92400e' : 'var(--success)');
+  const bg  = r.margemOperacional < 0 ? 'var(--danger-bg)' : (pct < 15 ? '#fffbeb' : 'var(--success-bg)');
+  // Sem preço de venda, % não tem sentido (divisão por zero evitada) — o
+  // custo/insumos ainda pode ser negativo, então a cor continua avisando.
+  const texto = semPreco ? 'sem preço' : `margem ${pct.toFixed(0)}%`;
+  return `<span style="background:${bg};color:${cor};font-size:10px;font-weight:700;padding:2px 7px;border-radius:99px;margin-left:6px">${texto}</span>`;
+}
 function renderServicosList() {
   const list = document.getElementById('servicos-list');
   if (!list) return;
+  const canPrice = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
+  const secParam = document.getElementById('parametros-custo-section');
+  const secImport = document.getElementById('import-ficha-custo-section');
+  if (secParam) secParam.style.display = canPrice ? '' : 'none';
+  if (secImport) secImport.style.display = canPrice ? '' : 'none';
   if (!pendingServicos.length) {
     list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;font-size:13px">Nenhum serviço cadastrado ainda</div>';
     return;
   }
-  const canPrice = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
   list.innerHTML = pendingServicos.map((s,i) => `
     <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
       <div style="flex:1">
-        <div style="font-size:13px;font-weight:600">${esc(s.name)}</div>
+        <div style="font-size:13px;font-weight:600">${esc(s.name)}${canPrice?_margemBadgeHtml(s):''}</div>
         <div style="font-size:11px;color:var(--text-3)">
           ${esc(s.unit||'un')}${canPrice&&s.price?` · <strong style="color:var(--primary)">R$ ${Number(s.price).toFixed(2)}</strong>`:''}
         </div>
       </div>
+      ${canPrice?`<button onclick="abrirFichaCusto(${i})" style="background:none;border:1.5px solid var(--border);color:var(--text-2);border-radius:6px;cursor:pointer;font-size:12px;padding:5px 10px">💰 Custo</button>`:''}
       <button onclick="removeServico(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px">✕</button>
     </div>
   `).join('') +
@@ -604,6 +687,118 @@ function addServico() {
 function removeServico(i) {
   pendingServicos.splice(i, 1);
   renderServicosList();
+}
+
+// ── Parâmetros de custo do contrato ───────────────────────────────
+function renderParametrosCustoList() {
+  const list = document.getElementById('parametros-custo-list');
+  if (!list) return;
+  if (!pendingParametrosCusto.length) {
+    list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:12px;font-size:12px">Nenhum parâmetro cadastrado ainda</div>';
+    return;
+  }
+  list.innerHTML = pendingParametrosCusto.map((p,i) => `
+    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
+      <div style="flex:1;font-size:13px">
+        ${esc(p.nome)} — <strong>${Number(p.pct).toFixed(2)}%</strong>
+        <span style="font-size:10px;color:var(--text-3);margin-left:4px">(${p.tipo === 'destinacao' ? 'destinação' : 'custo'})</span>
+      </div>
+      <button onclick="removeParametroCusto(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px">✕</button>
+    </div>
+  `).join('');
+}
+function addParametroCusto() {
+  const nome = document.getElementById('pc-nome').value.trim();
+  const pct = parseFloat(document.getElementById('pc-pct').value);
+  const tipo = document.getElementById('pc-tipo').value;
+  if (!nome) { showToast('Informe o nome do parâmetro'); return; }
+  if (!Number.isFinite(pct)) { showToast('Informe o percentual'); return; }
+  pendingParametrosCusto.push({ nome, pct, tipo });
+  document.getElementById('pc-nome').value = '';
+  document.getElementById('pc-pct').value = '';
+  renderParametrosCustoList();
+  renderServicosList(); // badges de margem dependem dos parâmetros
+  showToast('Parâmetro adicionado');
+}
+function removeParametroCusto(i) {
+  pendingParametrosCusto.splice(i, 1);
+  renderParametrosCustoList();
+  renderServicosList();
+}
+
+// ── Modal: ficha de custo de um serviço ───────────────────────────
+// Edita uma CÓPIA dos insumos; só grava em pendingServicos[i].fichaCusto
+// ao clicar "Salvar ficha" — "Fechar" descarta. A persistência de
+// verdade só acontece quando o contrato inteiro é salvo (saveContract),
+// igual equipamentos/documentos.
+let _fichaCustoIdx = null;
+let _fichaCustoInsumos = [];
+
+function abrirFichaCusto(i) {
+  const s = pendingServicos[i];
+  if (!s) return;
+  _fichaCustoIdx = i;
+  _fichaCustoInsumos = (s.fichaCusto?.insumos || []).map(ins => ({ ...ins }));
+  document.getElementById('fc-nome-servico').textContent = s.name;
+  document.getElementById('fc-por-metro').checked = s.fichaCusto?.porMetro === true;
+  document.getElementById('fc-insumo-nome').value = '';
+  document.getElementById('fc-insumo-valor').value = '';
+  renderFichaCustoModal();
+  document.getElementById('ficha-custo-modal').classList.remove('hidden');
+}
+function fecharFichaCusto() {
+  document.getElementById('ficha-custo-modal').classList.add('hidden');
+  _fichaCustoIdx = null;
+}
+function addInsumoFicha() {
+  const nome = document.getElementById('fc-insumo-nome').value.trim();
+  const valor = parseFloat(document.getElementById('fc-insumo-valor').value);
+  if (!nome) { showToast('Informe o nome do insumo'); return; }
+  if (!Number.isFinite(valor)) { showToast('Informe o valor'); return; }
+  _fichaCustoInsumos.push({ nome, valor });
+  document.getElementById('fc-insumo-nome').value = '';
+  document.getElementById('fc-insumo-valor').value = '';
+  renderFichaCustoModal();
+}
+function removeInsumoFicha(i) {
+  _fichaCustoInsumos.splice(i, 1);
+  renderFichaCustoModal();
+}
+function renderFichaCustoModal() {
+  const list = document.getElementById('fc-insumos-list');
+  list.innerHTML = _fichaCustoInsumos.length
+    ? _fichaCustoInsumos.map((ins,i) => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;font-size:12px">
+          <div style="flex:1">${esc(ins.nome)}</div>
+          <div style="font-weight:600">R$ ${Number(ins.valor).toFixed(2)}</div>
+          <button onclick="removeInsumoFicha(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:14px">✕</button>
+        </div>`).join('')
+    : '<div style="text-align:center;color:var(--text-3);padding:8px;font-size:12px">Nenhum insumo</div>';
+
+  const s = pendingServicos[_fichaCustoIdx];
+  const servicoTmp = { fichaCusto: { insumos: _fichaCustoInsumos } };
+  const preco = Number(s?.price) || 0;
+  const r = custoUnitarioClient(servicoTmp, pendingParametrosCusto, preco);
+  const pct = preco > 0 ? (r.margemOperacional / preco * 100) : 0;
+  const cor = r.margemOperacional < 0 ? 'var(--danger)' : (pct < 15 ? '#92400e' : 'var(--success)');
+  document.getElementById('fc-totais').innerHTML = `
+    <div>Preço de venda: <strong>R$ ${preco.toFixed(2)}</strong></div>
+    <div>Custo operacional: <strong>R$ ${r.custoOperacional.toFixed(2)}</strong></div>
+    <div>Destinação: R$ ${r.destinacao.toFixed(2)}</div>
+    <div style="color:${cor}">Margem operacional: <strong>R$ ${r.margemOperacional.toFixed(2)} (${pct.toFixed(1)}%)</strong></div>
+    <div>Resultado após reserva: <strong>R$ ${r.resultadoAposReserva.toFixed(2)}</strong></div>
+  `;
+}
+function salvarFichaCusto() {
+  const s = pendingServicos[_fichaCustoIdx];
+  if (!s) return;
+  s.fichaCusto = {
+    porMetro: document.getElementById('fc-por-metro').checked,
+    insumos: _fichaCustoInsumos.map(ins => ({ ...ins })),
+  };
+  fecharFichaCusto();
+  renderServicosList();
+  showToast('Ficha de custo salva — salve o contrato para gravar de verdade');
 }
 
 function handleServicoFile(e) {
@@ -663,10 +858,160 @@ function handleServicoFile(e) {
   e.target.value = '';
 }
 
+// ── Importação da ficha de custos (layout transposto) ─────────────
+// Linha 1 = nomes de serviço, a partir da coluna C (índice 2 — A/B são
+// rótulo). Cada linha seguinte é classificada pelo próprio valor: se os
+// valores (nas colunas de serviço) forem predominantemente < 1, é
+// percentual (fração da venda — ex. 0,25 = 25%), aplicado ao CONTRATO
+// inteiro (mesma linha, mesmo valor pra todo serviço no arquivo real);
+// "venda"/"total"/"sinapi" nunca gravam nada (venda só vira divergência
+// informativa; total e sinapi são só referência da planilha); o resto é
+// insumo. Preço sempre vem do contrato, nunca da planilha.
+let _importFichaCustoPendente = null;
+
+function normalizarNomeServico(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/^TROCA D[AEO]\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseFichaCustoTransposta(rowsArr) {
+  const linhaServicos = rowsArr[0] || [];
+  const colIdxs = [];
+  for (let c = 2; c < linhaServicos.length; c++) {
+    if (String(linhaServicos[c] || '').trim()) colIdxs.push(c);
+  }
+  const colunas = colIdxs.map(c => ({ indice: c, nomePlanilha: String(linhaServicos[c]).trim(), insumos: [], venda: null }));
+  const parametros = [];
+  for (let r = 1; r < rowsArr.length; r++) {
+    const linha = rowsArr[r] || [];
+    const rotulo = String(linha[0] || linha[1] || '').trim();
+    if (!rotulo) continue;
+    if (/total|sinapi/i.test(rotulo)) continue; // só referência da planilha, nunca grava nada
+    const valores = colIdxs.map(c => Number(linha[c]));
+    const valoresValidos = valores.filter(v => Number.isFinite(v));
+    if (!valoresValidos.length) continue;
+    if (/venda/i.test(rotulo)) {
+      colunas.forEach((col, i) => { col.venda = Number.isFinite(valores[i]) ? valores[i] : null; });
+      continue;
+    }
+    const comoFracao = valoresValidos.filter(v => v >= 0 && v < 1).length >= Math.ceil(valoresValidos.length * 0.6);
+    if (comoFracao) {
+      const media = valoresValidos.reduce((s,v) => s+v, 0) / valoresValidos.length;
+      parametros.push({
+        nome: rotulo,
+        pct: Math.round(media * 100 * 100) / 100,
+        tipo: /reserva|destina/i.test(rotulo) ? 'destinacao' : 'custo',
+      });
+      continue;
+    }
+    colunas.forEach((col, i) => {
+      if (Number.isFinite(valores[i])) col.insumos.push({ nome: rotulo, valor: Math.round(valores[i] * 100) / 100 });
+    });
+  }
+  colunas.forEach(col => {
+    col.servicoCasado = pendingServicos.find(s => normalizarNomeServico(s.name) === normalizarNomeServico(col.nomePlanilha)) || null;
+  });
+  return { colunas, parametros };
+}
+
+function handleFichaCustoFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  if (typeof XLSX === 'undefined') { showToast('Biblioteca Excel não carregou'); e.target.value=''; return; }
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const data = new Uint8Array(ev.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      const resultado = parseFichaCustoTransposta(rowsArr);
+      if (!resultado.colunas.length) { showToast('Nenhum serviço encontrado na linha 1 (a partir da coluna C)'); return; }
+      abrirImportFichaCustoPreview(resultado);
+    } catch(err) { showToast('Erro: ' + err.message); }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+}
+
+function abrirImportFichaCustoPreview(resultado) {
+  _importFichaCustoPendente = resultado;
+  document.getElementById('import-ficha-custo-resumo').innerHTML = `
+    <div>${resultado.colunas.length} coluna(s) de serviço</div>
+    <div style="margin-top:4px">
+      <strong>Parâmetros detectados</strong> (substituem os do contrato se você gravar; confira antes):
+      ${resultado.parametros.length ? resultado.parametros.map(p =>
+        `<div>• ${esc(p.nome)} — ${Number(p.pct).toFixed(2)}% (${p.tipo === 'destinacao' ? 'destinação' : 'custo'})</div>`
+      ).join('') : '<div>nenhum — os parâmetros já cadastrados no contrato NÃO serão alterados</div>'}
+    </div>`;
+  renderImportFichaCustoTabela();
+  document.getElementById('import-ficha-custo-modal').classList.remove('hidden');
+}
+function renderImportFichaCustoTabela() {
+  const el = document.getElementById('import-ficha-custo-tabela');
+  el.innerHTML = `
+    <table style="width:100%;font-size:12px;border-collapse:collapse">
+      <thead><tr style="text-align:left;color:var(--text-2)">
+        <th style="padding:4px">Serviço (planilha)</th><th style="padding:4px">Casado com</th>
+        <th style="padding:4px">Venda planilha</th><th style="padding:4px">Preço contrato</th>
+        <th style="padding:4px">Insumos</th>
+      </tr></thead>
+      <tbody>
+        ${_importFichaCustoPendente.colunas.map((col,i) => {
+          const divergente = col.servicoCasado && col.venda != null && Math.abs(col.venda - Number(col.servicoCasado.price)) > 0.01;
+          return `<tr style="border-top:1px solid var(--border)">
+            <td style="padding:4px">${esc(col.nomePlanilha)}</td>
+            <td style="padding:4px">
+              <select onchange="_importFichaCustoEscolher(${i}, this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px">
+                <option value="">Ignorar</option>
+                ${pendingServicos.map(s => `<option value="${esc(s.name)}" ${col.servicoCasado && col.servicoCasado.name===s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+              </select>
+            </td>
+            <td style="padding:4px${divergente ? ';color:#92400e;font-weight:600' : ''}">${col.venda != null ? 'R$ ' + col.venda.toFixed(2) : '—'}</td>
+            <td style="padding:4px">${col.servicoCasado ? 'R$ ' + Number(col.servicoCasado.price).toFixed(2) : '—'}</td>
+            <td style="padding:4px">${col.insumos.length}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+function _importFichaCustoEscolher(i, nome) {
+  _importFichaCustoPendente.colunas[i].servicoCasado = nome ? pendingServicos.find(s => s.name === nome) : null;
+  renderImportFichaCustoTabela();
+}
+function fecharImportFichaCusto() {
+  document.getElementById('import-ficha-custo-modal').classList.add('hidden');
+  _importFichaCustoPendente = null;
+}
+function gravarImportFichaCusto() {
+  if (!_importFichaCustoPendente) return;
+  let aplicados = 0;
+  _importFichaCustoPendente.colunas.forEach(col => {
+    if (!col.servicoCasado) return;
+    const idx = pendingServicos.indexOf(col.servicoCasado);
+    if (idx < 0) return;
+    pendingServicos[idx].fichaCusto = {
+      porMetro: pendingServicos[idx].fichaCusto?.porMetro === true, // preserva o que já existia; import nunca liga isso
+      insumos: col.insumos.map(ins => ({ ...ins })),
+    };
+    aplicados++;
+  });
+  if (_importFichaCustoPendente.parametros.length) {
+    pendingParametrosCusto = _importFichaCustoPendente.parametros.map(p => ({ ...p }));
+  }
+  fecharImportFichaCusto();
+  renderServicosList();
+  renderParametrosCustoList();
+  showToast(`${aplicados} ficha(s) de custo aplicada(s) — salve o contrato para gravar de verdade`);
+}
+
 function openNewContract() {
   const u = getCurrentUser();
   if (!u || !['admin','admin_cliente','diretor','supervisor'].includes(u.role)) { showToast('Apenas admin, diretor ou supervisor pode criar contratos'); return; }
-  editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = [];
+  editId = null; pendingEquip = []; pendingDocs = []; pendingServicos = []; pendingParametrosCusto = [];
   document.getElementById('form-title').textContent = 'Novo contrato';
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs','resp-tec','crea']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
@@ -686,7 +1031,7 @@ async function openEdit(id) {
   try { c = await ensureContratoDetalhe(id); }
   catch (e) { showToast('Não foi possível carregar o contrato: ' + e.message); return; }
   if (!c) return;
-  editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[]; pendingServicos = c.servicos||[];
+  editId = id; pendingEquip = c.equipamentos||[]; pendingDocs = c.documentos||[]; pendingServicos = c.servicos||[]; pendingParametrosCusto = c.parametrosCusto||[];
   document.getElementById('form-title').textContent = 'Editar contrato';
   document.getElementById('f-numero').value = c.numero||'';
   document.getElementById('f-razao').value  = c.razao||'';
@@ -738,6 +1083,7 @@ async function saveContract(btn) {
     equipamentos: pendingEquip || [],
     documentos:   pendingDocs  || [],
     servicos:     pendingServicos || [],
+    parametrosCusto: pendingParametrosCusto || [],
     updatedAt:   Date.now(),
   };
   if (!editId) c.createdAt = Date.now();

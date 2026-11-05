@@ -1256,6 +1256,32 @@ window.statusEquipamento = statusEquipamento;
 window.equipamentoOperante = equipamentoOperante;
 window.encontrarEquipamento = encontrarEquipamento;
 window.textoStatusEquipamento = textoStatusEquipamento;
+// ── Custo de serviço do contrato ──────────────────────────────────
+// Espelho de custoUnitario em smm-backend-main/src/custo.js — mesma
+// fórmula, só pra mostrar a conta na tela sem ir ao servidor. O servidor
+// é quem valida e grava de verdade; isto aqui é só exibição.
+function round2Custo(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+function custoUnitarioClient(servico, parametros, preco) {
+  const precoNum = Number(preco) || 0;
+  const insumos = round2Custo((servico?.fichaCusto?.insumos || [])
+    .reduce((soma, i) => soma + (Number(i?.valor) || 0), 0));
+  const percentuais = (Array.isArray(parametros) ? parametros : []).map(p => ({
+    nome: p?.nome || '',
+    pct: Number(p?.pct) || 0,
+    tipo: p?.tipo === 'destinacao' ? 'destinacao' : 'custo',
+    valor: round2Custo(precoNum * (Number(p?.pct) || 0) / 100),
+  }));
+  const destinacao = round2Custo(percentuais.filter(p => p.tipo === 'destinacao').reduce((s, p) => s + p.valor, 0));
+  const custoOperacional = round2Custo(insumos + percentuais.filter(p => p.tipo === 'custo').reduce((s, p) => s + p.valor, 0));
+  const margemOperacional = round2Custo(precoNum - custoOperacional);
+  const resultadoAposReserva = round2Custo(margemOperacional - destinacao);
+  return {
+    insumos, percentuais, destinacao, custoOperacional,
+    total: round2Custo(custoOperacional + destinacao),
+    margemOperacional, resultadoAposReserva,
+  };
+}
+window.custoUnitarioClient = custoUnitarioClient;
 // ── Assinaturas digitais ──────────────────────────────────────────
 const SIG_ICONS = {
   criado:    '✅',
