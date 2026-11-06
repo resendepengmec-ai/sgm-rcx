@@ -44,6 +44,9 @@
      o pdf.js instancia o worker via URL.createObjectURL internamente. -->
 <script src="vendor/jszip.min.js"></script>
 <script src="vendor/pdf.min.js"></script>
+<!-- Etapa 7: aba Indicadores. Mesma lib já aprovada e usada em
+     dashboard.html/qai.html/relatorio.html — só faltava carregar aqui. -->
+<script src="vendor/chart.umd.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -74,6 +77,33 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 .badge-partial { background:#fef3c7; color:#92400e; }
 .item-aprovado { background:#f0fdf4; }
 .item-recusado { opacity:.5; text-decoration:line-through; }
+
+/* Etapa 7 (indicadores) — mesmas classes de dashboard.html (que também
+   as mantém no <style> local da própria página, não em shared.css):
+   .kpi/.chart-card/.status-pill. Reaproveita o visual já estabelecido
+   no sistema, sem inventar um padrão novo. */
+.ind-grid { display:grid; gap:14px; }
+.ind-row-4 { grid-template-columns: repeat(4,1fr); }
+.ind-row-2 { grid-template-columns: repeat(2,1fr); }
+@media (max-width:860px) { .ind-row-4 { grid-template-columns: repeat(2,1fr); } }
+@media (max-width:540px) { .ind-row-4, .ind-row-2 { grid-template-columns: 1fr; } }
+.kpi { background:var(--surface); border-radius:var(--radius); padding:16px;
+       border:1px solid var(--border); box-shadow:var(--shadow); position:relative; overflow:hidden; }
+.kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent,var(--primary)); }
+.kpi-label { font-size:11px; color:var(--text-2); text-transform:uppercase; letter-spacing:.08em; margin-bottom:8px; }
+.kpi-val { font-size:28px; font-weight:700; line-height:1; color:var(--accent,var(--text)); }
+.kpi-sub { font-size:11px; color:var(--text-2); margin-top:6px; }
+.kpi-alerta { font-size:11px; color:#92400e; margin-top:6px; }
+.chart-card { background:var(--surface); border-radius:var(--radius); padding:16px;
+              border:1px solid var(--border); box-shadow:var(--shadow); overflow-x:auto; }
+.chart-title { font-size:13px; font-weight:600; margin-bottom:12px; color:var(--text-2); }
+.chart-wrap { position:relative; min-width:0; height:220px; }
+.chart-wrap canvas { display:block; max-width:100%; }
+.ind-table { width:100%; min-width:360px; border-collapse:collapse; font-size:12px; }
+.ind-table th { padding:8px 10px; text-align:left; color:var(--text-2); font-weight:600;
+                text-transform:uppercase; font-size:10px; letter-spacing:.06em; border-bottom:1px solid var(--border); }
+.ind-table td { padding:8px 10px; border-bottom:1px solid var(--border); }
+.ind-table tr:last-child td { border-bottom:none; }
 </style>
 </head>
 <body>
@@ -373,6 +403,39 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   </div>
 </div>
 
+<!-- Etapa 7 (orçamentos v2): aba Indicadores. Visível pra todo papel com
+     o módulo orçamento (nenhuma restrição de papel pra VER a aba —
+     confirmado no Passo 0); custo/margem só aparecem se vierem no
+     payload (o backend já filtra por PODE_VER_PRECO, Etapa 6). -->
+<div id="screen-indicadores" class="screen">
+  <div style="padding:12px">
+    <div class="card">
+      <div class="card-title">Filtros</div>
+      <div class="field">
+        <label for="ind-contrato">Contrato *</label>
+        <select id="ind-contrato" required onchange="renderIndicadores()"></select>
+      </div>
+      <div class="field">
+        <label for="ind-estabelecimento">Estabelecimento</label>
+        <input type="text" id="ind-estabelecimento" placeholder="Deixe vazio pra ver todos" onchange="renderIndicadores()">
+      </div>
+      <div style="display:flex;gap:8px">
+        <div class="field" style="flex:1">
+          <label for="ind-de">De</label>
+          <input type="month" id="ind-de" onchange="renderIndicadores()">
+        </div>
+        <div class="field" style="flex:1">
+          <label for="ind-ate">Até</label>
+          <input type="month" id="ind-ate" onchange="renderIndicadores()">
+        </div>
+      </div>
+    </div>
+
+    <div id="ind-status" style="font-size:12px;color:var(--text-2);margin:8px 0"></div>
+    <div id="ind-conteudo"></div>
+  </div>
+</div>
+
 <!-- FAB -->
 <button class="fab" id="fab" onclick="startNew()" title="Novo orçamento">+</button>
 
@@ -445,6 +508,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('import')" id="nav-import">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg>
     Importar PDF
+  </button>
+  <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('indicadores')" id="nav-indicadores">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    Indicadores
   </button>
 </nav>
 
@@ -895,6 +962,7 @@ function switchTab(tab) {
   document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
   if (tab === 'quotes') renderQuoteList();
   if (tab === 'import') impPrepararTela();
+  if (tab === 'indicadores') indPrepararTela();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -2141,6 +2209,208 @@ async function lerarqDesfazerLote(loteId) {
     showToast(`Desfeito: ${r.removidos} removido(s), ${r.mantidos} mantido(s) (editados depois da importação).`);
     lerarqListarImportacoes();
   } catch (e) { showToast('Erro ao desfazer: ' + e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// INDICADORES — Etapa 7 do orçamentos v2
+// ══════════════════════════════════════════════════════════════════
+// Consome GET /orcamentos/indicadores (Etapa 6). Custo/margem só
+// aparecem no HTML se vierem no payload (o backend já filtra por
+// PODE_VER_PRECO — nenhum `if (role===...)` aqui).
+const charts = {}; // mesmo padrão de dashboard.html: um Chart por id lógico, nunca o id do canvas
+function destroyChart(id) { if (charts[id]) { charts[id].destroy(); delete charts[id]; } }
+
+// Mesmos rótulos já usados em renderQuoteList (duplicado de propósito —
+// é um objeto local de 7 linhas, mesmo padrão já repetido nesta página
+// mais de uma vez; não vale abstrair pra um módulo só por isto).
+const IND_STATUS_LABEL = {
+  pending: 'Pendente', sent: 'Enviado', approved: 'Aprovado', approved_partial: 'Aprovado parcial',
+  rejected: 'Reprovado', executed: 'Executado', executed_partial: 'Executado parcial',
+};
+
+function indPrepararTela() {
+  const sel = document.getElementById('ind-contrato');
+  if (!sel) return;
+  const contratos = safeLocalStorageGetJSON('smm_contracts', []);
+  const atual = sel.value;
+  sel.innerHTML = '<option value="">Selecione…</option>' +
+    contratos.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao || '')}</option>`).join('');
+  if (atual) sel.value = atual;
+  renderIndicadores();
+}
+
+async function renderIndicadores() {
+  const contrato = document.getElementById('ind-contrato')?.value;
+  const conteudo = document.getElementById('ind-conteudo');
+  const status = document.getElementById('ind-status');
+  if (!contrato) { conteudo.innerHTML = ''; if (status) status.textContent = 'Selecione um contrato.'; return; }
+
+  const estabelecimento = document.getElementById('ind-estabelecimento')?.value || '';
+  const de = document.getElementById('ind-de')?.value || '';
+  const ate = document.getElementById('ind-ate')?.value || '';
+
+  if (status) status.textContent = 'Carregando…';
+  let d;
+  try {
+    d = await DB.getIndicadoresOrcamentos(contrato, estabelecimento, de, ate);
+  } catch (e) {
+    if (status) status.textContent = '';
+    conteudo.innerHTML = `<div style="color:var(--danger);font-size:12px">${esc(e.message)}</div>`;
+    return;
+  }
+  if (status) status.textContent = '';
+
+  const temCusto = d.custoTotal !== undefined;
+  const moeda = n => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const pct = n => ((Number(n) || 0) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+  const coberturaBaixa = temCusto && d.coberturaCusto < 0.7;
+
+  const emAbertoQtd = ['pending', 'sent', 'approved', 'approved_partial', 'executed_partial']
+    .reduce((s, st) => s + (d.porStatus[st] || 0), 0);
+
+  conteudo.innerHTML = `
+    <div class="ind-grid ind-row-4" style="margin-bottom:14px">
+      <div class="kpi" style="--accent:#eab308">
+        <div class="kpi-label">Em aberto</div>
+        <div class="kpi-val">${moeda(d.valorEmAberto)}</div>
+        <div class="kpi-sub">${emAbertoQtd} orçamento(s)</div>
+      </div>
+      <div class="kpi" style="--accent:#3b82f6">
+        <div class="kpi-label">Aprovado</div>
+        <div class="kpi-val">${moeda(d.valorAprovado)}</div>
+      </div>
+      <div class="kpi" style="--accent:#16a34a">
+        <div class="kpi-label">Executado</div>
+        <div class="kpi-val">${moeda(d.valorExecutado)}</div>
+      </div>
+      <div class="kpi" style="--accent:#64748b">
+        <div class="kpi-label">Taxa de conversão</div>
+        <div class="kpi-val">${pct(d.taxaConversaoValor)}</div>
+        <div class="kpi-sub">${pct(d.taxaConversaoQtd)} em quantidade</div>
+      </div>
+    </div>
+    ${temCusto ? `
+    <div class="ind-grid ind-row-4" style="margin-bottom:14px">
+      <div class="kpi" style="--accent:#7c3aed">
+        <div class="kpi-label">Custo</div>
+        <div class="kpi-val">${moeda(d.custoTotal)}</div>
+      </div>
+      <div class="kpi" style="--accent:#059669">
+        <div class="kpi-label">Margem operacional</div>
+        <div class="kpi-val">${moeda(d.margemOperacional)}</div>
+        <div class="kpi-sub">${d.custoInformado ? pct(d.margemOperacional / d.custoInformado) : '—'}</div>
+      </div>
+      <div class="kpi" style="--accent:#0891b2">
+        <div class="kpi-label">Resultado após reserva</div>
+        <div class="kpi-val">${moeda(d.resultadoAposReserva)}</div>
+      </div>
+      <div class="kpi" style="--accent:${coberturaBaixa ? '#dc2626' : '#16a34a'}">
+        <div class="kpi-label">Cobertura de custo</div>
+        <div class="kpi-val">${pct(d.coberturaCusto)}</div>
+        ${coberturaBaixa ? `<div class="kpi-alerta">⚠️ margem calculada sobre ${pct(d.coberturaCusto)} do valor</div>` : ''}
+      </div>
+    </div>` : ''}
+    <div class="ind-grid ind-row-2" style="margin-bottom:14px">
+      <div class="chart-card">
+        <div class="chart-title">Valor por status</div>
+        <div class="chart-wrap"><canvas id="ind-chart-status"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Evolução mensal — executado × ainda não executado</div>
+        <div class="chart-wrap"><canvas id="ind-chart-evolucao"></canvas></div>
+      </div>
+    </div>
+    ${temCusto && d.margemPorServico.length ? `
+    <div class="chart-card" style="margin-bottom:14px">
+      <div class="chart-title">Margem por serviço (10 piores)</div>
+      <div class="chart-wrap"><canvas id="ind-chart-margem-servico"></canvas></div>
+    </div>` : ''}
+    <div class="chart-card">
+      <div class="chart-title">Por estabelecimento</div>
+      <table class="ind-table">
+        <thead><tr><th>Estabelecimento</th><th>Valor total</th></tr></thead>
+        <tbody>${(d.porEstabelecimento || []).map(e => `<tr><td>${esc(e.estabelecimento)}</td><td>${moeda(e.valorTotal)}</td></tr>`).join('')}</tbody>
+      </table>
+    </div>
+  `;
+
+  requestAnimationFrame(() => {
+    renderIndStatusChart(d.porStatus);
+    renderIndEvolucaoChart(d.porMes || []);
+    if (temCusto && d.margemPorServico.length) renderIndMargemServicoChart(d.margemPorServico);
+  });
+}
+
+function renderIndStatusChart(porStatus) {
+  destroyChart('ind-status');
+  const ctx = document.getElementById('ind-chart-status');
+  if (!ctx) return;
+  const statuses = Object.keys(porStatus);
+  charts['ind-status'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: statuses.map(s => IND_STATUS_LABEL[s] || s),
+      datasets: [{ label: 'Orçamentos', data: statuses.map(s => porStatus[s]),
+        backgroundColor: '#3b82f6cc', borderRadius: 4 }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' } },
+        y: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderIndEvolucaoChart(porMes) {
+  destroyChart('ind-evolucao');
+  const ctx = document.getElementById('ind-chart-evolucao');
+  if (!ctx) return;
+  charts['ind-evolucao'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: porMes.map(m => m.mes),
+      datasets: [
+        { label: 'Executado', data: porMes.map(m => m.valorExecutado), backgroundColor: 'rgba(34,197,94,.7)', borderRadius: 4 },
+        // "Ainda não executado" = valorTotal-valorExecutado do MÊS, não o
+        // mesmo bucket do card "Em aberto" (que exclui recusado/executado
+        // por orçamento) — ver decisão no plano desta etapa.
+        { label: 'Ainda não executado', data: porMes.map(m => m.valorTotal - m.valorExecutado), backgroundColor: 'rgba(234,179,8,.7)', borderRadius: 4 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#475569', font: { size: 11 } } } },
+      scales: {
+        x: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' } },
+        y: { ticks: { color: '#475569', font: { size: 10 } }, grid: { color: '#e2e8f0' }, beginAtZero: true },
+      },
+    },
+  });
+}
+
+function renderIndMargemServicoChart(margemPorServico) {
+  destroyChart('ind-margem-servico');
+  const ctx = document.getElementById('ind-chart-margem-servico');
+  if (!ctx) return;
+  charts['ind-margem-servico'] = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: margemPorServico.map(s => s.servico),
+      datasets: [{ label: 'Margem %', data: margemPorServico.map(s => s.margemPct * 100),
+        backgroundColor: margemPorServico.map(s => s.margemPct < 0 ? 'rgba(220,38,38,.7)' : 'rgba(124,58,237,.7)'), borderRadius: 4 }],
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#475569', font: { size: 10 }, callback: v => v + '%' }, grid: { color: '#e2e8f0' } },
+        y: { ticks: { color: '#475569', font: { size: 11 } }, grid: { display: false } },
+      },
+    },
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════

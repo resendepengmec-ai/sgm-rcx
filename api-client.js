@@ -1063,6 +1063,11 @@ const DB = {
   cancelarImportacao: (loteId) => API.post('/orcamentos/importar/cancelar', { loteId }),
   listarImportacoes: (contrato) => API.get(`/orcamentos/importar?contrato=${encodeURIComponent(contrato)}`),
   desfazerImportacao: (loteId) => API.delete(`/orcamentos/importar/${encodeURIComponent(loteId)}`),
+  getIndicadoresOrcamentos: (contrato, estabelecimento, de, ate) =>
+    API.get(`/orcamentos/indicadores?contrato=${encodeURIComponent(contrato)}`
+      + (estabelecimento ? `&estabelecimento=${encodeURIComponent(estabelecimento)}` : '')
+      + (de ? `&de=${encodeURIComponent(de)}` : '')
+      + (ate ? `&ate=${encodeURIComponent(ate)}` : '')),
 
   // Equivalências de termo → serviço(s) do catálogo, por contrato.
   // Gravam a decisão do usuário para a IA não repetir a pergunta.
