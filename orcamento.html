@@ -300,6 +300,16 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
                onchange="lerarqArquivosEscolhidos(this)">
       </div>
       <div id="lerarq-status" style="font-size:12px;color:var(--text-2);margin:8px 0"></div>
+
+      <!-- Etapa 5: oferece retomar um lote interrompido (fechou a aba, caiu
+           a conexão) ANTES de mostrar a grade — só aparece se houver um
+           progresso salvo no navegador pro contrato selecionado. -->
+      <div id="lerarq-retomar-banner" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px">
+        <div id="lerarq-retomar-texto" style="color:#92400e;margin-bottom:6px"></div>
+        <button class="btn btn-secondary" style="width:48%;margin-right:4%" onclick="lerarqDescartarRetomada()">Descartar</button>
+        <button class="btn btn-primary" style="width:48%" onclick="lerarqRetomarDoInicio()">Retomar importação</button>
+      </div>
+
       <div id="lerarq-grade"></div>
       <div id="lerarq-acoes" style="display:none;margin-top:10px">
         <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="lerarqBaixarPlanilha()">
@@ -309,13 +319,19 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
           <label for="lerarq-status-xlsx">Aplicar status de planilha (.xlsx com colunas Orçamento/Situação)</label>
           <input type="file" id="lerarq-status-xlsx" accept=".xlsx" onchange="lerarqAplicarStatusPlanilha(this)">
         </div>
-        <!-- A Etapa 5 (importação em lote de verdade) ainda não existe —
-             fica desabilitado em vez de fingir uma ação que não grava nada. -->
-        <button class="btn btn-primary" style="width:100%" disabled
-                title="A importação em lote chega numa etapa futura (Etapa 5)">
-          📤 Enviar para importação (em breve)
+        <button class="btn btn-primary" style="width:100%" id="lerarq-btn-enviar" onclick="lerarqEnviarImportacao()">
+          📤 Enviar para importação
         </button>
+        <div id="lerarq-import-progresso" style="display:none;margin-top:8px">
+          <div id="lerarq-import-status" style="font-size:12px;color:var(--text-2);margin-bottom:6px"></div>
+          <button class="btn btn-secondary" style="width:32%;margin-right:2%" id="lerarq-btn-pausar" onclick="lerarqPausarOuRetomarImportacao()">Pausar</button>
+          <button class="btn btn-secondary" style="width:32%;margin-right:2%" onclick="lerarqCancelarImportacao()">Cancelar</button>
+        </div>
       </div>
+
+      <!-- Importações: lotes já iniciados neste contrato (Etapa 5). -->
+      <div class="card-title" style="margin-top:16px;font-size:13px">Importações deste contrato</div>
+      <div id="lerarq-lotes" style="font-size:12px"></div>
     </div>
 
     <!-- Passo 2: dúvidas -->
@@ -912,6 +928,8 @@ function impPrepararTela() {
   sel.innerHTML = '<option value="">Selecione…</option>' +
     contratos.map(c => `<option value="${esc(c.numero)}">${esc(c.numero)} — ${esc(c.razao || '')}</option>`).join('');
   if (atual) sel.value = atual;
+  sel.onchange = () => { lerarqChecarRetomada(); lerarqListarImportacoes(); };
+  if (podeMudarStatus() && typeof lerarqChecarRetomada === 'function') { lerarqChecarRetomada(); lerarqListarImportacoes(); }
 }
 
 function impArquivoEscolhido() {
@@ -1648,10 +1666,8 @@ async function lerarqArquivosEscolhidos(input) {
   }
 
   lerarqDeduplicarPorNumero();
-  status.textContent = 'Extraindo por IA o que não foi reconhecido…';
   lerarqRenderGrade();
-  await lerarqExtrairPorIaOndeNecessario();
-  status.textContent = '';
+  await lerarqExtrairPorIaOndeNecessario(); // gerencia o próprio texto de status (progresso/Cancelar/tokens usados)
   lerarqRenderGrade();
 }
 
@@ -1686,13 +1702,29 @@ function lerarqDeduplicarPorNumero() {
 }
 
 // ── 4.3: extração assistida por IA, só pro que o parser não pegou ──
+let lerarqIaCancelada = false;
+function lerarqCancelarExtracaoIa() { lerarqIaCancelada = true; }
+
+// Um arquivo por vez (concorrência 1, mesma política do envio de blocos),
+// pausa de 1s entre arquivos, retry com espera crescente (lerarqEnviarComRetry,
+// definida mais abaixo — reaproveitada aqui também, não duplicada) e
+// Cancelar. Soma `tokensUsados` de cada extração pra mostrar o total ao
+// final (pedido explícito).
 async function lerarqExtrairPorIaOndeNecessario() {
   const contrato = document.getElementById('imp-contrato')?.value;
-  for (const doc of lerarqGrade) {
-    if (doc.fonte !== 'pendente-ia') continue;
+  const status = document.getElementById('lerarq-status');
+  lerarqIaCancelada = false;
+  const pendentes = lerarqGrade.filter(d => d.fonte === 'pendente-ia');
+  if (!pendentes.length) { if (status) status.textContent = ''; return; }
+  let tokensTotais = 0, feitos = 0;
+  for (const doc of pendentes) {
+    if (lerarqIaCancelada) { doc.motivo = 'extração por IA cancelada'; continue; }
     if (!contrato) { doc.selo = '⚠️'; doc.motivo = 'selecione o contrato (Passo 1) pra extrair por IA'; continue; }
+    if (status) status.innerHTML = `Extraindo por IA: ${feitos + 1}/${pendentes.length} (${esc(doc.arquivo)})… ` +
+      `<a href="#" onclick="lerarqCancelarExtracaoIa();return false" style="color:var(--danger)">Cancelar</a>`;
     try {
-      const r = await DB.extrairOrcamentoTexto(contrato, doc.arquivo, doc.texto);
+      const r = await lerarqEnviarComRetry(() => DB.extrairOrcamentoTexto(contrato, doc.arquivo, doc.texto));
+      tokensTotais += r.tokensUsados || 0;
       doc.numero = r.numero || doc.numero;
       doc.data = r.data || doc.data;
       doc.estabelecimentos = (r.estabelecimentos && r.estabelecimentos.length) ? r.estabelecimentos : doc.estabelecimentos;
@@ -1711,7 +1743,11 @@ async function lerarqExtrairPorIaOndeNecessario() {
       doc.selo = '⚠️';
       doc.motivo = 'extração por IA falhou: ' + e.message;
     }
+    feitos++;
+    if (feitos < pendentes.length && !lerarqIaCancelada) await new Promise(r => setTimeout(r, 1000));
   }
+  if (status) status.textContent = lerarqIaCancelada ? 'Extração por IA cancelada.'
+    : (tokensTotais > 0 ? `Extração por IA concluída — ${tokensTotais} tokens usados.` : '');
 }
 
 // ── 4.4: grade de revisão ──────────────────────────────────────────
@@ -1860,6 +1896,251 @@ function lerarqAplicarStatusPlanilha(input) {
     input.value = '';
   };
   reader.readAsArrayBuffer(f);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// IMPORTAÇÃO EM BLOCOS — Etapa 5 (revisada) do orçamentos v2
+// ══════════════════════════════════════════════════════════════════
+// Grava de verdade os orçamentos da grade da Etapa 4, em blocos pequenos
+// (nunca um orçamento inteiro dividido entre blocos), com progresso,
+// pausa, retomada (sobrevive a fechar a aba) e cancelamento. O servidor
+// valida os mesmos limites de novo — o do cliente é só UX, nunca garantia.
+const LERARQ_IMPORT_CHAVE_LS = 'lerarq_importacao_em_andamento';
+const LERARQ_BLOCO_MAX_ORC = 10, LERARQ_BLOCO_MAX_ITENS = 80, LERARQ_BLOCO_MAX_KB = 60, LERARQ_ORC_MAX_ITENS = 300;
+
+// Retry genérico com espera crescente (2s/5s/15s). `_call` (api-client.js)
+// já devolve e.status/e.transient/e.retryAfter prontos — 503/429/408 são
+// `transient` (espera e tenta de novo, respeitando Retry-After se vier
+// maior que a espera padrão); 409 (lock) sobe direto pra quem chamou
+// decidir o que mostrar; qualquer outro 4xx também para na hora.
+async function lerarqEnviarComRetry(fn) {
+  const esperas = [2000, 5000, 15000];
+  for (let tentativa = 0; ; tentativa++) {
+    try { return await fn(); }
+    catch (e) {
+      if (e.status === 409 || !e.transient || tentativa >= esperas.length - 1) throw e;
+      const espera = Math.max(esperas[tentativa], e.retryAfter || 0);
+      await new Promise(r => setTimeout(r, espera));
+    }
+  }
+}
+
+function lerarqParaFormatoDeEnvio(doc) {
+  return {
+    numero: doc.numero, revisao: doc.revisao || '', data: doc.data || '',
+    estabelecimentos: doc.estabelecimentos || [], totalDocumento: doc.totalDocumento,
+    arquivoOrigem: doc.arquivo,
+    itens: (doc.itens || []).map(it => ({
+      tag: it.tag, patrimonio: it.patrimonio, local: it.local, estabelecimento: it.estabelecimento,
+      servicoTexto: it.servicoTexto, name: it._servicoSugerido || '',
+      quantidade: it.quantidade, unidade: it.unidade, qtdExecutada: it.qtdExecutada || 0,
+      agregado: !!it.agregado,
+    })),
+  };
+}
+
+function lerarqTamanhoKb(valor) { return new TextEncoder().encode(JSON.stringify(valor)).length / 1024; }
+
+// Bloco = orçamentos INTEIROS, nunca dividido. Limites (o primeiro que
+// bater): 10 orçamentos OU 80 itens OU 60KB. Um orçamento com mais de 80
+// itens (até o teto de 300) vai sozinho no próprio bloco.
+function lerarqMontarBlocos(grade) {
+  const validos = grade.filter(d => d.numero && d.itens && d.itens.length);
+  const estourado = validos.find(d => d.itens.length > LERARQ_ORC_MAX_ITENS);
+  if (estourado) throw new Error(`Orçamento ${estourado.numero} tem ${estourado.itens.length} itens — o limite por orçamento é ${LERARQ_ORC_MAX_ITENS}.`);
+
+  const blocos = [];
+  let atual = [], itensAtual = 0;
+  validos.forEach(doc => {
+    const wire = lerarqParaFormatoDeEnvio(doc);
+    if (doc.itens.length > LERARQ_BLOCO_MAX_ITENS) {
+      if (atual.length) { blocos.push(atual); atual = []; itensAtual = 0; }
+      blocos.push([wire]);
+      return;
+    }
+    const candidato = [...atual, wire];
+    const excedeu = atual.length > 0 && (candidato.length > LERARQ_BLOCO_MAX_ORC ||
+      itensAtual + doc.itens.length > LERARQ_BLOCO_MAX_ITENS || lerarqTamanhoKb(candidato) > LERARQ_BLOCO_MAX_KB);
+    if (excedeu) { blocos.push(atual); atual = [wire]; itensAtual = doc.itens.length; }
+    else { atual = candidato; itensAtual += doc.itens.length; }
+  });
+  if (atual.length) blocos.push(atual);
+  return blocos;
+}
+
+let lerarqEnvioEstado = null; // {loteId, blocos, indiceAtual, pausado, cancelado, contrato}
+
+function lerarqSalvarProgresso(loteId, contrato, indiceConfirmado) {
+  try { localStorage.setItem(LERARQ_IMPORT_CHAVE_LS, JSON.stringify({ loteId, contrato, indiceConfirmado })); } catch (e) { /* localStorage indisponível — só perde a retomada, não a importação */ }
+}
+function lerarqLimparProgresso() {
+  try { localStorage.removeItem(LERARQ_IMPORT_CHAVE_LS); } catch (e) { /* ver comentário acima */ }
+}
+function lerarqLerProgressoSalvo() {
+  try { return JSON.parse(localStorage.getItem(LERARQ_IMPORT_CHAVE_LS) || 'null'); } catch (e) { return null; }
+}
+
+// Chamado ao preparar a tela (impPrepararTela) e ao trocar de contrato —
+// só mostra o banner se o progresso salvo for do MESMO contrato
+// selecionado (retomar com o contrato errado gravaria no lugar errado).
+function lerarqChecarRetomada() {
+  const banner = document.getElementById('lerarq-retomar-banner');
+  if (!banner) return;
+  const contrato = document.getElementById('imp-contrato')?.value;
+  const salvo = lerarqLerProgressoSalvo();
+  if (!salvo || !contrato || salvo.contrato !== contrato) { banner.style.display = 'none'; return; }
+  document.getElementById('lerarq-retomar-texto').textContent =
+    `Há uma importação interrompida neste contrato (bloco ${salvo.indiceConfirmado + 1} confirmado). ` +
+    'Escolha os MESMOS arquivos de novo pra reconstruir a grade antes de retomar.';
+  banner.style.display = 'block';
+}
+function lerarqDescartarRetomada() {
+  lerarqLimparProgresso();
+  document.getElementById('lerarq-retomar-banner').style.display = 'none';
+}
+function lerarqRetomarDoInicio() { lerarqEnviarImportacao(true); }
+
+async function lerarqEnviarImportacao(retomar) {
+  // Desabilita JÁ, antes de qualquer `await` — clique duplo (ou duplo
+  // toque em celular) entre o clique e a primeira pausa assíncrona
+  // disparava DUAS chamadas a /iniciar concorrentes (a segunda levava
+  // 409 do lock, mas com uma UX confusa; em tela lenta dava pra também
+  // pisar o `lerarqEnvioEstado` da primeira). Reabilitado em todo
+  // caminho de saída antecipada abaixo.
+  const btnEnviar = document.getElementById('lerarq-btn-enviar');
+  if (lerarqEnvioEstado || (btnEnviar && btnEnviar.disabled)) return; // já tem um envio em andamento
+  if (btnEnviar) btnEnviar.disabled = true;
+
+  const contrato = document.getElementById('imp-contrato')?.value;
+  if (!contrato) { showToast('Selecione o contrato'); if (btnEnviar) btnEnviar.disabled = false; return; }
+  if (!lerarqGrade.length) { showToast('Nada pra importar'); if (btnEnviar) btnEnviar.disabled = false; return; }
+
+  let blocos;
+  try { blocos = lerarqMontarBlocos(lerarqGrade); }
+  catch (e) { showToast(e.message); if (btnEnviar) btnEnviar.disabled = false; return; }
+  if (!blocos.length) { showToast('Nenhum orçamento reconhecido pra importar'); if (btnEnviar) btnEnviar.disabled = false; return; }
+
+  const salvo = retomar ? lerarqLerProgressoSalvo() : null;
+  let loteId, indiceInicial = 0;
+  if (salvo && salvo.contrato === contrato) {
+    loteId = salvo.loteId; indiceInicial = salvo.indiceConfirmado + 1;
+  } else {
+    const totalItens = lerarqGrade.reduce((s, d) => s + (d.itens ? d.itens.length : 0), 0);
+    try {
+      const r = await lerarqEnviarComRetry(() => DB.iniciarImportacao(contrato, lerarqGrade.length, totalItens, 'leitor-docx-pdf'));
+      loteId = r.loteId;
+    } catch (e) {
+      showToast('Não foi possível iniciar a importação: ' + e.message);
+      if (btnEnviar) btnEnviar.disabled = false;
+      return;
+    }
+  }
+
+  document.getElementById('lerarq-retomar-banner').style.display = 'none';
+  lerarqEnvioEstado = { loteId, blocos, indiceAtual: indiceInicial, pausado: false, cancelado: false, contrato };
+  document.getElementById('lerarq-import-progresso').style.display = 'block';
+  document.getElementById('lerarq-btn-pausar').textContent = 'Pausar';
+  await lerarqProcessarBlocos();
+}
+
+async function lerarqProcessarBlocos() {
+  const estado = lerarqEnvioEstado;
+  if (!estado) return;
+  const status = document.getElementById('lerarq-import-status');
+  const totalOrc = estado.blocos.reduce((s, b) => s + b.length, 0);
+  const totalItens = estado.blocos.reduce((s, b) => s + b.reduce((s2, o) => s2 + o.itens.length, 0), 0);
+
+  for (; estado.indiceAtual < estado.blocos.length; estado.indiceAtual++) {
+    if (estado.cancelado) break;
+    while (estado.pausado && !estado.cancelado) await new Promise(r => setTimeout(r, 300));
+    if (estado.cancelado) break;
+
+    const i = estado.indiceAtual;
+    const bloco = estado.blocos[i];
+    const orcFeitos = estado.blocos.slice(0, i).reduce((s, b) => s + b.length, 0);
+    const itensFeitos = estado.blocos.slice(0, i).reduce((s, b) => s + b.reduce((s2, o) => s2 + o.itens.length, 0), 0);
+    if (status) status.textContent = `Bloco ${i + 1} de ${estado.blocos.length} · ${orcFeitos}/${totalOrc} orçamentos · ${itensFeitos}/${totalItens} itens`;
+
+    try {
+      await lerarqEnviarComRetry(() => DB.enviarBlocoImportacao(estado.loteId, i, 'gravar', bloco));
+    } catch (e) {
+      if (status) status.textContent = `Interrompido no bloco ${i + 1}: ${e.message}`;
+      showToast('Importação interrompida: ' + e.message);
+      document.getElementById('lerarq-btn-enviar').disabled = false;
+      // Sem isto, lerarqEnvioEstado continuaria setado pra sempre e o
+      // guard do início de lerarqEnviarImportacao bloquearia qualquer
+      // nova tentativa (inclusive Retomar) depois de uma interrupção.
+      lerarqEnvioEstado = null;
+      return; // progresso já salvo até o bloco anterior — dá pra retomar
+    }
+    lerarqSalvarProgresso(estado.loteId, estado.contrato, i);
+    await new Promise(r => setTimeout(r, 300)); // pausa entre blocos
+  }
+
+  if (estado.cancelado) {
+    try { await DB.cancelarImportacao(estado.loteId); } catch (e) { /* já cancelado ou lote não existe mais — segue */ }
+    if (status) status.textContent = 'Cancelado.';
+  } else {
+    try { await DB.concluirImportacao(estado.loteId); } catch (e) { /* conclusão é só o status final — não desfaz o que já foi gravado */ }
+    if (status) status.textContent = `✅ Importação concluída — ${totalOrc} orçamentos.`;
+    showToast('✅ Importação concluída');
+  }
+  lerarqLimparProgresso();
+  document.getElementById('lerarq-btn-enviar').disabled = false;
+  lerarqEnvioEstado = null;
+  lerarqListarImportacoes();
+}
+
+function lerarqPausarOuRetomarImportacao() {
+  if (!lerarqEnvioEstado) return;
+  lerarqEnvioEstado.pausado = !lerarqEnvioEstado.pausado;
+  document.getElementById('lerarq-btn-pausar').textContent = lerarqEnvioEstado.pausado ? 'Retomar' : 'Pausar';
+}
+function lerarqCancelarImportacao() {
+  if (lerarqEnvioEstado) lerarqEnvioEstado.cancelado = true; // o loop já em andamento termina e chama /cancelar
+}
+
+// Desfazer exige supervisor+ no servidor (DELETE /orcamentos/importar/:id)
+// — mais restrito que podeMudarStatus() (gestor+), então não reaproveito
+// aquela função aqui: mostrar o botão pra quem receberia 403 ao clicar
+// não é "conveniência", é confuso. Mesmo conjunto de papéis de canPrice
+// em contratos.html (Etapa 2) — supervisor+ já é o vocabulário usado
+// nesta base pra "quem vê/edita custo e decisões mais sensíveis".
+function lerarqPodeDesfazer() {
+  return ['admin', 'admin_cliente', 'diretor', 'supervisor'].includes(getCurrentUser()?.role);
+}
+
+// ── Tela "Importações deste contrato" ──────────────────────────────
+async function lerarqListarImportacoes() {
+  const el = document.getElementById('lerarq-lotes');
+  const contrato = document.getElementById('imp-contrato')?.value;
+  if (!el || !contrato) return;
+  let lotes;
+  try { lotes = await DB.listarImportacoes(contrato); } catch (e) { el.innerHTML = ''; return; }
+  if (!lotes || !lotes.length) { el.innerHTML = '<div style="color:var(--text-2)">Nenhuma importação neste contrato ainda.</div>'; return; }
+  const ROTULO_STATUS = { em_andamento: 'Em andamento', concluido: 'Concluído', cancelado: 'Cancelado',
+    interrompido: 'Interrompido', desfeito: 'Desfeito', desfeito_parcial: 'Desfeito (parcial)' };
+  el.innerHTML = lotes.map(l => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:6px">
+      <div><strong>${esc(ROTULO_STATUS[l.status] || l.status)}</strong> · ${esc(new Date(l.iniciadoEm).toLocaleString('pt-BR'))}</div>
+      <div style="color:var(--text-2)">${l.totalGravados || 0} gravados · ${l.totalDuplicados || 0} duplicados · origem: ${esc(l.origem || '')}</div>
+      ${l.status === 'interrompido' ? `<button class="btn btn-secondary" style="margin-top:4px" onclick="lerarqRetomarLote('${esc(l.id)}')">Retomar</button>` : ''}
+      ${(l.status === 'concluido' || l.status === 'interrompido') && lerarqPodeDesfazer() ? `<button class="btn btn-secondary" style="margin-top:4px" onclick="lerarqDesfazerLote('${esc(l.id)}')">Desfazer</button>` : ''}
+    </div>`).join('');
+}
+function lerarqRetomarLote(loteId) {
+  lerarqSalvarProgresso(loteId, document.getElementById('imp-contrato')?.value, -1);
+  lerarqChecarRetomada();
+  showToast('Escolha os mesmos arquivos de novo e clique em "Retomar importação" acima.');
+}
+async function lerarqDesfazerLote(loteId) {
+  const total = (await DB.listarImportacoes(document.getElementById('imp-contrato')?.value) || []).find(l => l.id === loteId);
+  if (!confirm(`Desfazer esta importação? Orçamentos já editados depois dela são mantidos. Até ${total?.totalGravados || 0} serão removidos.`)) return;
+  try {
+    const r = await DB.desfazerImportacao(loteId);
+    showToast(`Desfeito: ${r.removidos} removido(s), ${r.mantidos} mantido(s) (editados depois da importação).`);
+    lerarqListarImportacoes();
+  } catch (e) { showToast('Erro ao desfazer: ' + e.message); }
 }
 
 // ══════════════════════════════════════════════════════════════════

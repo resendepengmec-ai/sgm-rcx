@@ -1053,6 +1053,17 @@ const DB = {
   updateOrcamentoStatus: (id, status, itensAprovados) =>
     API.patch(`/orcamentos/${id}/status`, { status, itensAprovados }),
 
+  // Etapa 5 (orçamentos v2): importação em blocos. Nenhuma delas manda o
+  // arquivo — só os orçamentos já lidos/revisados na grade da Etapa 4.
+  iniciarImportacao: (contratoId, totalOrcamentos, totalItens, origem) =>
+    API.post('/orcamentos/importar/iniciar', { contratoId, totalOrcamentos, totalItens, origem }),
+  enviarBlocoImportacao: (loteId, indice, modo, orcamentos) =>
+    API.post('/orcamentos/importar/bloco', { loteId, indice, modo, orcamentos }),
+  concluirImportacao: (loteId) => API.post('/orcamentos/importar/concluir', { loteId }),
+  cancelarImportacao: (loteId) => API.post('/orcamentos/importar/cancelar', { loteId }),
+  listarImportacoes: (contrato) => API.get(`/orcamentos/importar?contrato=${encodeURIComponent(contrato)}`),
+  desfazerImportacao: (loteId) => API.delete(`/orcamentos/importar/${encodeURIComponent(loteId)}`),
+
   // Equivalências de termo → serviço(s) do catálogo, por contrato.
   // Gravam a decisão do usuário para a IA não repetir a pergunta.
   getEquivalencias:    (c)      => API.get(`/contratos/${encodeURIComponent(c)}/equivalencias`),
