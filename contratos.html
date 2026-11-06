@@ -760,7 +760,7 @@ function renderFichaCustoModal() {
   document.getElementById('fc-totais').innerHTML = `
     <div>Preço de venda: <strong>R$ ${preco.toFixed(2)}</strong></div>
     <div>Custo operacional: <strong>R$ ${r.custoOperacional.toFixed(2)}</strong></div>
-    <div style="color:${cor}">Margem operacional: <strong>R$ ${r.margemOperacional.toFixed(2)} (${pct.toFixed(1)}%)</strong></div>
+    <div style="color:${cor}">Margem líquida: <strong>R$ ${r.margemOperacional.toFixed(2)} (${pct.toFixed(1)}%)</strong></div>
   `;
 }
 function salvarFichaCusto() {

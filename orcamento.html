@@ -2334,7 +2334,7 @@ async function renderIndicadores() {
         <div class="kpi-val">${moeda(d.custoTotal)}</div>
       </div>
       <div class="kpi" style="--accent:#059669">
-        <div class="kpi-label">Margem operacional</div>
+        <div class="kpi-label">Margem líquida</div>
         <div class="kpi-val">${moeda(d.margemOperacional)}</div>
         <div class="kpi-sub">${d.custoInformado ? pct(d.margemOperacional / d.custoInformado) : '—'}</div>
       </div>
@@ -2356,7 +2356,7 @@ async function renderIndicadores() {
     </div>
     ${temCusto && d.margemPorServico.length ? `
     <div class="chart-card" style="margin-bottom:14px">
-      <div class="chart-title">Margem por serviço (10 piores)</div>
+      <div class="chart-title">Margem líquida por serviço (10 piores)</div>
       <div class="chart-wrap"><canvas id="ind-chart-margem-servico"></canvas></div>
     </div>` : ''}
     <div class="chart-card">
@@ -2433,7 +2433,7 @@ function renderIndMargemServicoChart(margemPorServico) {
     type: 'bar',
     data: {
       labels: margemPorServico.map(s => s.servico),
-      datasets: [{ label: 'Margem %', data: margemPorServico.map(s => s.margemPct * 100),
+      datasets: [{ label: 'Margem líquida %', data: margemPorServico.map(s => s.margemPct * 100),
         backgroundColor: margemPorServico.map(s => s.margemPct < 0 ? 'rgba(220,38,38,.7)' : 'rgba(124,58,237,.7)'), borderRadius: 4 }],
     },
     options: {
