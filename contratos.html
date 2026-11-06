@@ -864,9 +864,12 @@ function handleServicoFile(e) {
 // valores (nas colunas de serviço) forem predominantemente < 1, é
 // percentual (fração da venda — ex. 0,25 = 25%), aplicado ao CONTRATO
 // inteiro (mesma linha, mesmo valor pra todo serviço no arquivo real);
-// "venda"/"total"/"sinapi" nunca gravam nada (venda só vira divergência
-// informativa; total e sinapi são só referência da planilha); o resto é
-// insumo. Preço sempre vem do contrato, nunca da planilha.
+// "venda"/"total"/"sinapi"/"lucro"/"margem"/"resultado" nunca gravam
+// nada (venda só vira divergência informativa; as demais são resultado
+// já calculado PELA PRÓPRIA PLANILHA — se não forem ignoradas, viram
+// insumo ou percentual de custo e somam o lucro em cima do lucro,
+// produzindo margem negativa). O resto é insumo. Preço sempre vem do
+// contrato, nunca da planilha.
 let _importFichaCustoPendente = null;
 
 // normalizarNomeServico agora vive em api-client.js (window.normalizarNomeServico)
@@ -885,7 +888,7 @@ function parseFichaCustoTransposta(rowsArr) {
     const linha = rowsArr[r] || [];
     const rotulo = String(linha[0] || linha[1] || '').trim();
     if (!rotulo) continue;
-    if (/total|sinapi/i.test(rotulo)) continue; // só referência da planilha, nunca grava nada
+    if (/total|sinapi|lucro|margem|resultado/i.test(rotulo)) continue; // resultado já calculado pela planilha, nunca grava nada
     const valores = colIdxs.map(c => Number(linha[c]));
     const valoresValidos = valores.filter(v => Number.isFinite(v));
     if (!valoresValidos.length) continue;
