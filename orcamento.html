@@ -78,6 +78,12 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 .item-aprovado { background:#f0fdf4; }
 .item-recusado { opacity:.5; text-decoration:line-through; }
 
+/* Barra de progresso da importação em blocos — mesmo padrão já usado em
+   preventiva.html (.exec-progress-bar/.exec-progress-fill), só renomeado
+   pra não colidir. */
+.lerarq-progress-bar { height:6px; background:var(--border); border-radius:99px; margin-bottom:8px; overflow:hidden; }
+.lerarq-progress-fill { height:100%; background:var(--primary); border-radius:99px; transition:width .3s; }
+
 /* Etapa 7 (indicadores) — mesmas classes de dashboard.html (que também
    as mantém no <style> local da própria página, não em shared.css):
    .kpi/.chart-card/.status-pill. Reaproveita o visual já estabelecido
@@ -353,6 +359,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
           📤 Enviar para importação
         </button>
         <div id="lerarq-import-progresso" style="display:none;margin-top:8px">
+          <div class="lerarq-progress-bar"><div class="lerarq-progress-fill" id="lerarq-progress-fill" style="width:0%"></div></div>
           <div id="lerarq-import-status" style="font-size:12px;color:var(--text-2);margin-bottom:6px"></div>
           <button class="btn btn-secondary" style="width:32%;margin-right:2%" id="lerarq-btn-pausar" onclick="lerarqPausarOuRetomarImportacao()">Pausar</button>
           <button class="btn btn-secondary" style="width:32%;margin-right:2%" onclick="lerarqCancelarImportacao()">Cancelar</button>
@@ -954,13 +961,31 @@ function getFilteredQuotes() {
     .sort((a,b) => (a.date||'').localeCompare(b.date||'') || b.createdAt - a.createdAt);
 }
 
-function switchTab(tab) {
+// Setada quando uma importação em blocos termina (lerarqProcessarBlocos)
+// — a lista de orçamentos só busca do servidor uma vez, no carregamento
+// da página (auth guard acima), então sem isto ela ficaria mostrando o
+// cache antigo até um F5.
+let lerarqPrecisaRecarregarQuotes = false;
+
+async function switchTab(tab) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => setTabSelected(b, false));
   document.getElementById('screen-' + tab).classList.add('active');
   setTabSelected(document.getElementById('nav-' + tab), true);
   document.getElementById('fab').classList.toggle('hidden', tab !== 'quotes');
-  if (tab === 'quotes') renderQuoteList();
+  if (tab === 'quotes') {
+    if (lerarqPrecisaRecarregarQuotes) {
+      lerarqPrecisaRecarregarQuotes = false;
+      try {
+        const data = await DB.getAll('orcamentos');
+        if (Array.isArray(data)) {
+          quotes = data;
+          safeLocalStorageSetJSON('orcamento_quotes', data, { stripBinaries: true });
+        }
+      } catch (e) { /* rede falhou — segue com o cache que já tinha */ }
+    }
+    renderQuoteList();
+  }
   if (tab === 'import') impPrepararTela();
   if (tab === 'indicadores') indPrepararTela();
 }
@@ -2108,6 +2133,8 @@ async function lerarqEnviarImportacao(retomar) {
   lerarqEnvioEstado = { loteId, blocos, indiceAtual: indiceInicial, pausado: false, cancelado: false, contrato };
   document.getElementById('lerarq-import-progresso').style.display = 'block';
   document.getElementById('lerarq-btn-pausar').textContent = 'Pausar';
+  const fillInicial = document.getElementById('lerarq-progress-fill');
+  if (fillInicial) fillInicial.style.width = '0%';
   await lerarqProcessarBlocos();
 }
 
@@ -2115,6 +2142,7 @@ async function lerarqProcessarBlocos() {
   const estado = lerarqEnvioEstado;
   if (!estado) return;
   const status = document.getElementById('lerarq-import-status');
+  const fill = document.getElementById('lerarq-progress-fill');
   const totalOrc = estado.blocos.reduce((s, b) => s + b.length, 0);
   const totalItens = estado.blocos.reduce((s, b) => s + b.reduce((s2, o) => s2 + o.itens.length, 0), 0);
 
@@ -2128,6 +2156,7 @@ async function lerarqProcessarBlocos() {
     const orcFeitos = estado.blocos.slice(0, i).reduce((s, b) => s + b.length, 0);
     const itensFeitos = estado.blocos.slice(0, i).reduce((s, b) => s + b.reduce((s2, o) => s2 + o.itens.length, 0), 0);
     if (status) status.textContent = `Bloco ${i + 1} de ${estado.blocos.length} · ${orcFeitos}/${totalOrc} orçamentos · ${itensFeitos}/${totalItens} itens`;
+    if (fill) fill.style.width = (totalOrc ? Math.round(orcFeitos / totalOrc * 100) : 0) + '%';
 
     try {
       await lerarqEnviarComRetry(() => DB.enviarBlocoImportacao(estado.loteId, i, 'gravar', bloco));
@@ -2145,11 +2174,19 @@ async function lerarqProcessarBlocos() {
     await new Promise(r => setTimeout(r, 300)); // pausa entre blocos
   }
 
+  // Cada bloco já commita no servidor assim que é gravado (Etapa 5) —
+  // então mesmo um cancelamento no meio do caminho pode ter deixado
+  // orçamentos novos no banco (os blocos já confirmados antes do
+  // cancelar). Por isso a flag de recarregar vale pros dois desfechos,
+  // não só pra conclusão total.
+  if (estado.indiceAtual > 0) lerarqPrecisaRecarregarQuotes = true;
+
   if (estado.cancelado) {
     try { await DB.cancelarImportacao(estado.loteId); } catch (e) { /* já cancelado ou lote não existe mais — segue */ }
     if (status) status.textContent = 'Cancelado.';
   } else {
     try { await DB.concluirImportacao(estado.loteId); } catch (e) { /* conclusão é só o status final — não desfaz o que já foi gravado */ }
+    if (fill) fill.style.width = '100%';
     if (status) status.textContent = `✅ Importação concluída — ${totalOrc} orçamentos.`;
     showToast('✅ Importação concluída');
   }
