@@ -236,18 +236,17 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
         </div>
       </div>
 
-      <!-- Upload em lote -->
+      <!-- Upload em lote: serviço + custo, tudo numa linha por serviço -->
       <div style="margin-top:14px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px">
         <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">📥 Importar em lote (CSV/XLSX)</div>
-        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Colunas esperadas: <code>nome</code>, <code>unidade</code>, <code>preco</code></p>
+        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">
+          Primeira linha = cabeçalho. Uma linha por serviço. Colunas esperadas:
+          <code>nome</code>, <code>unidade</code>, <code>preco</code> (valor de venda),
+          <code>impostos</code>, <code>engenharia</code>, <code>fundo de reserva</code>, <code>mo</code>
+          (percentual sobre o preço de venda — ex. 25 ou 0,25 = 25%; valem pro contrato inteiro, uso a
+          primeira linha), <code>insumos</code> (valor único em R$ por serviço).
+        </p>
         <input type="file" accept=".csv,.xlsx,.xls" onchange="handleServicoFile(event)" style="font-size:12px">
-      </div>
-
-      <!-- Importar ficha de custos (layout transposto) -->
-      <div id="import-ficha-custo-section" style="display:none;margin-top:14px;padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
-        <div style="font-size:12px;font-weight:600;color:#166534;margin-bottom:8px">💰 Importar ficha de custos (XLSX)</div>
-        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Planilha com os serviços nas COLUNAS (linha 1), percentuais e insumos nas linhas abaixo. O preço continua vindo sempre do contrato — a planilha só alimenta custo.</p>
-        <input type="file" accept=".xlsx,.xls" onchange="handleFichaCustoFile(event)" style="font-size:12px">
       </div>
     </div>
 
@@ -303,21 +302,6 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-secondary" onclick="fecharFichaCusto()">Fechar</button>
       <button class="btn btn-primary" onclick="salvarFichaCusto()">Salvar ficha</button>
-    </div>
-  </div>
-</div>
-
-<!-- Prévia da importação da ficha de custos -->
-<div class="modal-bg hidden" id="import-ficha-custo-modal">
-  <div class="modal" style="max-width:720px">
-    <div class="modal-handle"></div>
-    <div class="modal-title">Prévia da importação de custos</div>
-    <p style="font-size:12px;color:var(--text-2);margin-bottom:10px">Confira o casamento de cada coluna com um serviço do contrato antes de gravar. O preço nunca vem da planilha.</p>
-    <div id="import-ficha-custo-resumo" style="font-size:12px;color:var(--text-2);margin-bottom:8px"></div>
-    <div id="import-ficha-custo-tabela" style="margin-bottom:14px"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn btn-secondary" onclick="fecharImportFichaCusto()">Cancelar</button>
-      <button class="btn btn-primary" onclick="gravarImportFichaCusto()">Gravar</button>
     </div>
   </div>
 </div>
@@ -649,9 +633,7 @@ function renderServicosList() {
   if (!list) return;
   const canPrice = ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
   const secParam = document.getElementById('parametros-custo-section');
-  const secImport = document.getElementById('import-ficha-custo-section');
   if (secParam) secParam.style.display = canPrice ? '' : 'none';
-  if (secImport) secImport.style.display = canPrice ? '' : 'none';
   if (!pendingServicos.length) {
     list.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;font-size:13px">Nenhum serviço cadastrado ainda</div>';
     return;
@@ -801,22 +783,75 @@ function salvarFichaCusto() {
   showToast('Ficha de custo salva — salve o contrato para gravar de verdade');
 }
 
+// Importação unificada: uma linha por serviço, cabeçalho na linha 1.
+// Colunas (por nome, não por posição — qualquer ordem serve): nome,
+// unidade, preco/venda, impostos, engenharia, "fundo de reserva"/reserva,
+// mo, insumos. As 4 percentuais (impostos/engenharia/fundo de
+// reserva/mo) são parâmetro do CONTRATO inteiro (mesmo valor pra todo
+// serviço, igual confirmado na planilha real do usuário) — uso os da
+// PRIMEIRA linha que trouxer algum; "insumos" é um valor único em R$
+// por serviço (não itemizado). Linha com nome repetido ATUALIZA o
+// serviço já pendente (mesma identidade por nome normalizado), em vez
+// de duplicar — permite reimportar a mesma planilha depois de ajustá-la.
+function _pctOuNull(v) {
+  const n = parseFloat(v);
+  if (!Number.isFinite(n)) return null;
+  return n <= 1 ? Math.round(n * 100 * 100) / 100 : Math.round(n * 100) / 100; // 0,25 e 25 == 25%
+}
+function _normHeaderKey(h) {
+  return String(h || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
 function handleServicoFile(e) {
   const file = e.target.files[0]; if (!file) return;
   const ext = file.name.split('.').pop().toLowerCase();
 
   const processar = (rows) => {
-    let added = 0;
+    let criados = 0, atualizados = 0;
+    const paramsPorLinha = [];
     rows.forEach(r => {
-      const name = String(r.nome || r.name || '').trim();
+      const name = String(r.nome || r.name || r.nomedoservico || '').trim();
       if (!name) return;
-      const unit = String(r.unidade || r.unit || 'un').trim();
-      const price = parseFloat(r.preco || r.price || 0) || 0;
-      pendingServicos.push({ name, unit, price });
-      added++;
+      const idx = pendingServicos.findIndex(s => normalizarNomeServico(s.name) === normalizarNomeServico(name));
+      const existente = idx >= 0 ? pendingServicos[idx] : null;
+      // Em reimportação parcial (só pra ajustar custo, por ex.), célula
+      // vazia em unidade/preço preserva o valor já cadastrado em vez de
+      // zerar — só um valor novo explícito sobrescreve.
+      const unitBruta = String(r.unidade || r.unit || '').trim();
+      const unit = unitBruta || existente?.unit || 'un';
+      const precoBruto = parseFloat(r.preco ?? r.venda ?? r.valordevenda ?? r.price);
+      const price = Number.isFinite(precoBruto) ? precoBruto : (existente?.price || 0);
+      const impostos = _pctOuNull(r.impostos ?? r.imposto);
+      const engenharia = _pctOuNull(r.engenharia ?? r.engenheiro);
+      const fundoReserva = _pctOuNull(r.fundodereserva ?? r.reserva ?? r.fundoreserva);
+      const mo = _pctOuNull(r.mo ?? r.maodeobra);
+      const insumos = parseFloat(r.insumos ?? r.insumo) || 0;
+      paramsPorLinha.push({ impostos, engenharia, fundoReserva, mo });
+
+      const fichaCustoExistente = existente?.fichaCusto;
+      const fichaCusto = insumos > 0
+        ? { porMetro: fichaCustoExistente?.porMetro === true, insumos: [{ nome: 'Insumos', valor: Math.round(insumos * 100) / 100 }] }
+        : fichaCustoExistente;
+      const servico = { name, unit, price, ...(fichaCusto ? { fichaCusto } : {}) };
+      if (idx >= 0) { pendingServicos[idx] = servico; atualizados++; }
+      else { pendingServicos.push(servico); criados++; }
     });
+
+    const primeira = paramsPorLinha.find(p => p.impostos != null || p.engenharia != null || p.fundoReserva != null || p.mo != null);
+    let avisoDivergencia = '';
+    if (primeira) {
+      const novos = [];
+      if (primeira.impostos != null) novos.push({ nome: 'Impostos', pct: primeira.impostos, tipo: 'custo' });
+      if (primeira.engenharia != null) novos.push({ nome: 'Engenharia', pct: primeira.engenharia, tipo: 'custo' });
+      if (primeira.fundoReserva != null) novos.push({ nome: 'Fundo de Reserva', pct: primeira.fundoReserva, tipo: 'destinacao' });
+      if (primeira.mo != null) novos.push({ nome: 'M.O.', pct: primeira.mo, tipo: 'custo' });
+      pendingParametrosCusto = novos;
+      renderParametrosCustoList();
+      const divergente = paramsPorLinha.some(p => ['impostos','engenharia','fundoReserva','mo'].some(k => p[k] != null && p[k] !== primeira[k]));
+      if (divergente) avisoDivergencia = ' — atenção: as colunas de percentual variam entre linhas, usei a primeira que veio preenchida';
+    }
     renderServicosList();
-    showToast(`${added} serviço(s) importado(s)`);
+    showToast(`${criados} serviço(s) criado(s), ${atualizados} atualizado(s)${avisoDivergencia}`);
   };
 
   if (ext === 'csv') {
@@ -824,7 +859,7 @@ function handleServicoFile(e) {
     reader.onload = ev => {
       const lines = ev.target.result.split('\n').filter(l => l.trim());
       if (!lines.length) return;
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const headers = lines[0].split(',').map(_normHeaderKey);
       const rows = lines.slice(1).map(line => {
         const cols = line.split(',');
         const obj = {};
@@ -844,10 +879,10 @@ function handleServicoFile(e) {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
         if (!rowsArr.length) return;
-        const headers = rowsArr[0].map(h => String(h||'').trim().toLowerCase());
+        const headers = rowsArr[0].map(_normHeaderKey);
         const rows = rowsArr.slice(1).map(row => {
           const obj = {};
-          headers.forEach((h,i) => obj[h] = row[i] != null ? String(row[i]).trim() : '');
+          headers.forEach((h,i) => obj[h] = row[i] != null ? row[i] : '');
           return obj;
         });
         processar(rows);
@@ -856,158 +891,6 @@ function handleServicoFile(e) {
     reader.readAsArrayBuffer(file);
   }
   e.target.value = '';
-}
-
-// ── Importação da ficha de custos (layout transposto) ─────────────
-// Linha 1 = nomes de serviço, a partir da coluna C (índice 2 — A/B são
-// rótulo). Cada linha seguinte é classificada pelo próprio valor: se os
-// valores (nas colunas de serviço) forem predominantemente < 1, é
-// percentual (fração da venda — ex. 0,25 = 25%), aplicado ao CONTRATO
-// inteiro (mesma linha, mesmo valor pra todo serviço no arquivo real);
-// "venda"/"total"/"sinapi"/"lucro"/"margem"/"resultado" nunca gravam
-// nada (venda só vira divergência informativa; as demais são resultado
-// já calculado PELA PRÓPRIA PLANILHA — se não forem ignoradas, viram
-// insumo ou percentual de custo e somam o lucro em cima do lucro,
-// produzindo margem negativa). O resto é insumo. Preço sempre vem do
-// contrato, nunca da planilha.
-let _importFichaCustoPendente = null;
-
-// normalizarNomeServico agora vive em api-client.js (window.normalizarNomeServico)
-// — a Etapa 4 (leitor de orçamentos prontos) passou a precisar do mesmo
-// casamento de nome, então deixou de ser exclusivo desta tela.
-
-function parseFichaCustoTransposta(rowsArr) {
-  const linhaServicos = rowsArr[0] || [];
-  const colIdxs = [];
-  for (let c = 2; c < linhaServicos.length; c++) {
-    if (String(linhaServicos[c] || '').trim()) colIdxs.push(c);
-  }
-  const colunas = colIdxs.map(c => ({ indice: c, nomePlanilha: String(linhaServicos[c]).trim(), insumos: [], venda: null }));
-  const parametros = [];
-  for (let r = 1; r < rowsArr.length; r++) {
-    const linha = rowsArr[r] || [];
-    const rotulo = String(linha[0] || linha[1] || '').trim();
-    if (!rotulo) continue;
-    const valores = colIdxs.map(c => Number(linha[c]));
-    const valoresValidos = valores.filter(v => Number.isFinite(v));
-    // "venda" checado ANTES do ignore genérico: o rótulo real da planilha
-    // é "Valor de Venda (SINAPI - 10%)" — também bate em /sinapi/i, e se
-    // o ignore rodasse primeiro essa linha nunca viraria divergência
-    // informativa (bug real, achado testando com o cabeçalho completo).
-    if (/venda/i.test(rotulo)) {
-      colunas.forEach((col, i) => { col.venda = Number.isFinite(valores[i]) ? valores[i] : null; });
-      continue;
-    }
-    if (/total|sinapi|lucro|margem|resultado/i.test(rotulo)) continue; // resultado já calculado pela planilha, nunca grava nada
-    if (!valoresValidos.length) continue;
-    const comoFracao = valoresValidos.filter(v => v >= 0 && v < 1).length >= Math.ceil(valoresValidos.length * 0.6);
-    if (comoFracao) {
-      const media = valoresValidos.reduce((s,v) => s+v, 0) / valoresValidos.length;
-      parametros.push({
-        nome: rotulo,
-        pct: Math.round(media * 100 * 100) / 100,
-        tipo: /reserva|destina/i.test(rotulo) ? 'destinacao' : 'custo',
-      });
-      continue;
-    }
-    colunas.forEach((col, i) => {
-      if (Number.isFinite(valores[i])) col.insumos.push({ nome: rotulo, valor: Math.round(valores[i] * 100) / 100 });
-    });
-  }
-  colunas.forEach(col => {
-    col.servicoCasado = pendingServicos.find(s => normalizarNomeServico(s.name) === normalizarNomeServico(col.nomePlanilha)) || null;
-  });
-  return { colunas, parametros };
-}
-
-function handleFichaCustoFile(e) {
-  const file = e.target.files[0]; if (!file) return;
-  if (typeof XLSX === 'undefined') { showToast('Biblioteca Excel não carregou'); e.target.value=''; return; }
-  const reader = new FileReader();
-  reader.onload = ev => {
-    try {
-      const data = new Uint8Array(ev.target.result);
-      const wb = XLSX.read(data, {type:'array'});
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-      const resultado = parseFichaCustoTransposta(rowsArr);
-      if (!resultado.colunas.length) { showToast('Nenhum serviço encontrado na linha 1 (a partir da coluna C)'); return; }
-      abrirImportFichaCustoPreview(resultado);
-    } catch(err) { showToast('Erro: ' + err.message); }
-  };
-  reader.readAsArrayBuffer(file);
-  e.target.value = '';
-}
-
-function abrirImportFichaCustoPreview(resultado) {
-  _importFichaCustoPendente = resultado;
-  document.getElementById('import-ficha-custo-resumo').innerHTML = `
-    <div>${resultado.colunas.length} coluna(s) de serviço</div>
-    <div style="margin-top:4px">
-      <strong>Parâmetros detectados</strong> (substituem os do contrato se você gravar; confira antes):
-      ${resultado.parametros.length ? resultado.parametros.map(p =>
-        `<div>• ${esc(p.nome)} — ${Number(p.pct).toFixed(2)}% (${p.tipo === 'destinacao' ? 'destinação' : 'custo'})</div>`
-      ).join('') : '<div>nenhum — os parâmetros já cadastrados no contrato NÃO serão alterados</div>'}
-    </div>`;
-  renderImportFichaCustoTabela();
-  document.getElementById('import-ficha-custo-modal').classList.remove('hidden');
-}
-function renderImportFichaCustoTabela() {
-  const el = document.getElementById('import-ficha-custo-tabela');
-  el.innerHTML = `
-    <table style="width:100%;font-size:12px;border-collapse:collapse">
-      <thead><tr style="text-align:left;color:var(--text-2)">
-        <th style="padding:4px">Serviço (planilha)</th><th style="padding:4px">Casado com</th>
-        <th style="padding:4px">Venda planilha</th><th style="padding:4px">Preço contrato</th>
-        <th style="padding:4px">Insumos</th>
-      </tr></thead>
-      <tbody>
-        ${_importFichaCustoPendente.colunas.map((col,i) => {
-          const divergente = col.servicoCasado && col.venda != null && Math.abs(col.venda - Number(col.servicoCasado.price)) > 0.01;
-          return `<tr style="border-top:1px solid var(--border)">
-            <td style="padding:4px">${esc(col.nomePlanilha)}</td>
-            <td style="padding:4px">
-              <select onchange="_importFichaCustoEscolher(${i}, this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:4px">
-                <option value="">Ignorar</option>
-                ${pendingServicos.map(s => `<option value="${esc(s.name)}" ${col.servicoCasado && col.servicoCasado.name===s.name ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-              </select>
-            </td>
-            <td style="padding:4px${divergente ? ';color:#92400e;font-weight:600' : ''}">${col.venda != null ? 'R$ ' + col.venda.toFixed(2) : '—'}</td>
-            <td style="padding:4px">${col.servicoCasado ? 'R$ ' + Number(col.servicoCasado.price).toFixed(2) : '—'}</td>
-            <td style="padding:4px">${col.insumos.length}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
-}
-function _importFichaCustoEscolher(i, nome) {
-  _importFichaCustoPendente.colunas[i].servicoCasado = nome ? pendingServicos.find(s => s.name === nome) : null;
-  renderImportFichaCustoTabela();
-}
-function fecharImportFichaCusto() {
-  document.getElementById('import-ficha-custo-modal').classList.add('hidden');
-  _importFichaCustoPendente = null;
-}
-function gravarImportFichaCusto() {
-  if (!_importFichaCustoPendente) return;
-  let aplicados = 0;
-  _importFichaCustoPendente.colunas.forEach(col => {
-    if (!col.servicoCasado) return;
-    const idx = pendingServicos.indexOf(col.servicoCasado);
-    if (idx < 0) return;
-    pendingServicos[idx].fichaCusto = {
-      porMetro: pendingServicos[idx].fichaCusto?.porMetro === true, // preserva o que já existia; import nunca liga isso
-      insumos: col.insumos.map(ins => ({ ...ins })),
-    };
-    aplicados++;
-  });
-  if (_importFichaCustoPendente.parametros.length) {
-    pendingParametrosCusto = _importFichaCustoPendente.parametros.map(p => ({ ...p }));
-  }
-  fecharImportFichaCusto();
-  renderServicosList();
-  renderParametrosCustoList();
-  showToast(`${aplicados} ficha(s) de custo aplicada(s) — salve o contrato para gravar de verdade`);
 }
 
 function openNewContract() {
