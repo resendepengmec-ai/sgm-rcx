@@ -1042,6 +1042,11 @@ const DB = {
   // é gravado nesta chamada.
   importarPedidoPdf: (contrato, pdf, respostas) =>
     API.post('/orcamentos/importar-pdf', { contrato, pdf, respostas }),
+  // Etapa 4 (orçamentos v2): leitor de orçamentos PRONTOS. O TEXTO já foi
+  // extraído no navegador (nunca o arquivo) — só chamado quando o parser
+  // determinístico não reconheceu o documento.
+  extrairOrcamentoTexto: (contratoId, nomeArquivo, texto) =>
+    API.post('/orcamentos/extrair', { contratoId, nomeArquivo, texto }),
   // `itensAprovados` são os ÍNDICES dos itens aprovados, usados apenas na
   // aprovação parcial. Quem marca quais itens ficaram aprovados é o
   // servidor, a partir desses índices.
@@ -1282,6 +1287,20 @@ function custoUnitarioClient(servico, parametros, preco) {
   };
 }
 window.custoUnitarioClient = custoUnitarioClient;
+// ── Casamento de serviço por nome normalizado ──────────────────────
+// Criada na Etapa 2 (importação de ficha de custo em contratos.html) pra
+// casar coluna de planilha com serviço do catálogo; a Etapa 4 (leitor de
+// orçamentos prontos em orcamento.html) precisa do mesmo casamento — em
+// vez de duplicar, fica aqui como utilitário compartilhado.
+function normalizarNomeServico(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/^TROCA D[AEO]\s+/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+window.normalizarNomeServico = normalizarNomeServico;
 // ── Assinaturas digitais ──────────────────────────────────────────
 const SIG_ICONS = {
   criado:    '✅',

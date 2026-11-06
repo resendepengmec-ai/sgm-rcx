@@ -869,14 +869,9 @@ function handleServicoFile(e) {
 // insumo. Preço sempre vem do contrato, nunca da planilha.
 let _importFichaCustoPendente = null;
 
-function normalizarNomeServico(s) {
-  return String(s || '')
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toUpperCase()
-    .replace(/^TROCA D[AEO]\s+/i, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// normalizarNomeServico agora vive em api-client.js (window.normalizarNomeServico)
+// — a Etapa 4 (leitor de orçamentos prontos) passou a precisar do mesmo
+// casamento de nome, então deixou de ser exclusivo desta tela.
 
 function parseFichaCustoTransposta(rowsArr) {
   const linhaServicos = rowsArr[0] || [];

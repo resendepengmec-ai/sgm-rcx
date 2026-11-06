@@ -24,6 +24,7 @@
     img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.googleusercontent.com;
     connect-src 'self' https://smm-backend-a8a4.onrender.com https://nominatim.openstreetmap.org https://oauth2.googleapis.com https://www.googleapis.com;
     font-src 'self' data:;
+    worker-src 'self' blob:;
     frame-ancestors 'none';
     base-uri 'none';
     form-action 'none';
@@ -37,6 +38,12 @@
 <title>Orçamentos — Sistema de Manutenção</title>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="vendor/docx.iife.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<!-- Etapa 4 (orçamentos v2): leitura de DOCX/PDF no navegador — ver
+     lerarq* no script inline abaixo. worker-src ganhou blob: acima porque
+     o pdf.js instancia o worker via URL.createObjectURL internamente. -->
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/pdf.min.js"></script>
 <link rel="stylesheet" href="shared.css">
 <style>
 :root {
@@ -271,6 +278,44 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
         ✨ Extrair informações
       </button>
       <div id="imp-status" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Leitor de orçamentos PRONTOS (DOCX/PDF) — Etapa 4 do orçamentos v2.
+         Fluxo paralelo ao Passo 1 acima (que lê um PEDIDO em PDF pra montar
+         um orçamento novo): este lê um orçamento JÁ PRONTO, sem mandar o
+         arquivo pro servidor — extração de texto 100% no navegador, parser
+         determinístico primeiro, IA só no que sobrar. Visível só pra
+         gestor+ (reaproveita podeMudarStatus(), já usada nesta tela). -->
+    <div class="card" id="lerarq-card" style="display:none">
+      <div class="card-title">Ler orçamentos prontos (DOCX/PDF)</div>
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:10px">
+        O arquivo NÃO é enviado ao servidor — só o texto extraído aqui no
+        navegador. Documentos reconhecidos automaticamente não usam IA; os
+        demais são extraídos por IA (gestor+) e sempre pedem revisão.
+      </div>
+      <div class="field">
+        <label for="lerarq-arquivos">Arquivos (.docx, .pdf) — até 50, 10 MB cada</label>
+        <input type="file" id="lerarq-arquivos" multiple
+               accept=".docx,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+               onchange="lerarqArquivosEscolhidos(this)">
+      </div>
+      <div id="lerarq-status" style="font-size:12px;color:var(--text-2);margin:8px 0"></div>
+      <div id="lerarq-grade"></div>
+      <div id="lerarq-acoes" style="display:none;margin-top:10px">
+        <button class="btn btn-secondary" style="width:100%;margin-bottom:8px" onclick="lerarqBaixarPlanilha()">
+          ⬇️ Baixar planilha normalizada (XLSX)
+        </button>
+        <div class="field">
+          <label for="lerarq-status-xlsx">Aplicar status de planilha (.xlsx com colunas Orçamento/Situação)</label>
+          <input type="file" id="lerarq-status-xlsx" accept=".xlsx" onchange="lerarqAplicarStatusPlanilha(this)">
+        </div>
+        <!-- A Etapa 5 (importação em lote de verdade) ainda não existe —
+             fica desabilitado em vez de fingir uma ação que não grava nada. -->
+        <button class="btn btn-primary" style="width:100%" disabled
+                title="A importação em lote chega numa etapa futura (Etapa 5)">
+          📤 Enviar para importação (em breve)
+        </button>
+      </div>
     </div>
 
     <!-- Passo 2: dúvidas -->
@@ -858,6 +903,8 @@ let impPdf     = null;   // dataUrl do arquivo escolhido
 let impRespostas = {};   // dúvidas respondidas
 
 function impPrepararTela() {
+  const cardLerArq = document.getElementById('lerarq-card');
+  if (cardLerArq) cardLerArq.style.display = podeMudarStatus() ? 'block' : 'none';
   const sel = document.getElementById('imp-contrato');
   if (!sel) return;
   const contratos = safeLocalStorageGetJSON('smm_contracts', []);
@@ -1427,6 +1474,392 @@ function conferirNumero() {
 function podeMudarStatus() {
   return ['superadmin','admin','diretor','supervisor','gestor']
     .includes(getCurrentUser()?.role);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// LEITOR DE ORÇAMENTOS PRONTOS (DOCX/PDF) — Etapa 4 do orçamentos v2
+// ══════════════════════════════════════════════════════════════════
+// Extração de texto 100% no navegador — o arquivo NUNCA é enviado ao
+// servidor. Parser determinístico primeiro (sem IA); só o que ele não
+// reconhece passa por /orcamentos/extrair (gestor+), com o TEXTO já
+// extraído (nunca o arquivo). Nada aqui é gravado como orçamento real —
+// é uma grade de revisão em memória (lerarqGrade); uma etapa futura
+// (Etapa 5, importação em lote) é quem vai, de fato, gravar.
+
+let lerarqGrade = []; // um item por DOCUMENTO: {arquivo, tipo, texto, selo, motivo?, numero, revisao, data, estabelecimentos, totalDocumento, itens[], fonte}
+
+function lerarqRound2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
+// Não existe hoje (nem front nem back) um parser de moeda pt-BR — "R$
+// 1.234,56" precisa virar 1234.56 antes de qualquer conta.
+function parseMoedaBR(s) {
+  const limpo = String(s ?? '').replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.');
+  const n = parseFloat(limpo);
+  return Number.isFinite(n) ? n : null;
+}
+
+const LERARQ_MESES_PT = { janeiro:1, fevereiro:2, 'março':3, marco:3, abril:4, maio:5, junho:6,
+  julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12 };
+
+// Parser determinístico (4.2), sem IA. "Reconhecido" exige pelo menos um
+// item e soma dos itens = total do documento (tolerância R$ 0,05);
+// senão, quem chama decide mandar pra IA (4.3).
+function lerarqParseDeterministico(texto) {
+  let numero = '', revisao = '';
+  const mNum = texto.match(/ORÇAMENTO\s*(?:N[ºo°]\s*)?(\d{1,4})([a-z]?)/i);
+  if (mNum) { numero = mNum[1]; revisao = mNum[2] || ''; }
+
+  let estabelecimento = '';
+  const mEstab = texto.match(/(?:Estabelecimento|UNIDADE ESCOLAR)\s*:\s*([^\n|]+)/i);
+  if (mEstab) estabelecimento = mEstab[1].trim();
+
+  let data = '';
+  const mData1 = texto.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+  if (mData1) data = `${mData1[3]}-${mData1[2]}-${mData1[1]}`;
+  else {
+    const mData2 = texto.match(/(\d{1,2})\s+de\s+([a-zçÇ]+)\s+de\s+(\d{4})/i);
+    const mes = mData2 && LERARQ_MESES_PT[mData2[2].toLowerCase()];
+    if (mes) data = `${mData2[3]}-${String(mes).padStart(2,'0')}-${mData2[1].padStart(2,'0')}`;
+  }
+
+  // TAG (3-4 díg) + patrimônio opcional (5-7 díg) + serviço + "R$ valor".
+  // A variante de tabela DOCX "TAG | Serviço | R$ ..." cai no MESMO
+  // regex — " | " é só mais um separador que \s*\|?\s* absorve.
+  const itens = [];
+  const reItem = /(\d{3,4})\s*\|?\s*(?:(\d{5,7})\s*\|?\s*)?([^\d|][^|\n]*?)\s*\|?\s*R\$\s*([\d.,]+)/g;
+  let m;
+  while ((m = reItem.exec(texto))) {
+    const servicoTexto = m[3].trim();
+    if (/total/i.test(servicoTexto)) continue; // "... Total Geral R$ x" não é item
+    const valorLinha = parseMoedaBR(m[4]);
+    let unidade = 'un', quantidade = 1, precoUnit = valorLinha;
+    const mMetro = servicoTexto.match(/[–-]\s*([\d.,]+)\s*m\b/i);
+    if (mMetro) {
+      const metros = parseMoedaBR(mMetro[1]);
+      if (metros) { unidade = 'm'; quantidade = metros; precoUnit = valorLinha != null ? lerarqRound2(valorLinha / metros) : null; }
+    }
+    // Repetição do mesmo TAG+serviço na mesma tabela = uma linha por
+    // ocorrência (qtd 1 cada) — de propósito, NÃO agregamos aqui.
+    itens.push({ tag: m[1], patrimonio: m[2] || '', estabelecimento: '', local: '',
+      servicoTexto, unidade, quantidade, precoUnit, valorLinha, qtdExecutada: 0 });
+  }
+
+  let totalDocumento = null;
+  const mTotal = texto.match(/(?:VALOR TOTAL DO ORÇAMENTO|TOTAL GERAL|TOTAL)\s*:?\s*\n?\s*R\$\s*([\d.,]+)/i);
+  if (mTotal) totalDocumento = parseMoedaBR(mTotal[1]);
+
+  const somaItens = lerarqRound2(itens.reduce((s, it) => s + (it.valorLinha || 0), 0));
+  const reconhecido = itens.length > 0 && totalDocumento != null && Math.abs(somaItens - totalDocumento) <= 0.05;
+
+  return { numero, revisao, data, estabelecimentos: estabelecimento ? [estabelecimento] : [], itens, totalDocumento, reconhecido };
+}
+
+// ── 4.1: extração de texto no navegador ────────────────────────────
+async function lerarqExtrairDocx(file) {
+  const buf = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+  const entry = zip.file('word/document.xml');
+  if (!entry) return '';
+  const xml = await entry.async('string');
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return '';
+  const corpo = doc.getElementsByTagName('w:body')[0];
+  if (!corpo) return '';
+  const linhas = [];
+  Array.from(corpo.children).forEach(node => {
+    if (node.nodeName === 'w:p') {
+      const t = Array.from(node.getElementsByTagName('w:t')).map(n => n.textContent).join('');
+      if (t.trim()) linhas.push(t);
+    } else if (node.nodeName === 'w:tbl') {
+      // Célula separada por " | ", linha por "\n" — exatamente o pedido.
+      Array.from(node.getElementsByTagName('w:tr')).forEach(tr => {
+        const celulas = Array.from(tr.getElementsByTagName('w:tc')).map(tc =>
+          Array.from(tc.getElementsByTagName('w:t')).map(n => n.textContent).join(''));
+        if (celulas.some(c => c.trim())) linhas.push(celulas.join(' | '));
+      });
+    }
+  });
+  return linhas.join('\n');
+}
+
+async function lerarqExtrairPdf(file) {
+  const buf = await file.arrayBuffer();
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+  const doc = await pdfjsLib.getDocument({ data: buf }).promise;
+  const linhasTotais = [];
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p);
+    const content = await page.getTextContent();
+    // Agrupa itens de texto pela coordenada Y (mesma linha, tolerância de
+    // 2px) ANTES de juntar em texto corrido, pra preservar colunas.
+    const porY = [];
+    content.items.forEach(it => {
+      const y = it.transform[5];
+      let grupo = porY.find(g => Math.abs(g.y - y) < 2);
+      if (!grupo) { grupo = { y, itens: [] }; porY.push(grupo); }
+      grupo.itens.push(it);
+    });
+    porY.sort((a, b) => b.y - a.y);
+    porY.forEach(g => {
+      g.itens.sort((a, b) => a.transform[4] - b.transform[4]);
+      linhasTotais.push(g.itens.map(it => it.str).join(' '));
+    });
+  }
+  return linhasTotais.join('\n');
+}
+
+// ── Orquestração: ler tudo, parsear, deduplicar, extrair por IA ───
+async function lerarqArquivosEscolhidos(input) {
+  const files = Array.from(input.files || []).slice(0, 50);
+  const status = document.getElementById('lerarq-status');
+  if (!files.length) return;
+  lerarqGrade = [];
+  status.textContent = `Lendo ${files.length} arquivo(s)…`;
+  lerarqRenderGrade();
+
+  for (const f of files) {
+    if (f.size > 10 * 1048576) {
+      lerarqGrade.push({ arquivo: f.name, selo: '⛔', motivo: `${(f.size/1048576).toFixed(1)} MB — limite 10 MB`, itens: [] });
+      continue;
+    }
+    const tipo = /\.docx$/i.test(f.name) ? 'docx' : (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') ? 'pdf' : null;
+    if (!tipo) { lerarqGrade.push({ arquivo: f.name, selo: '⛔', motivo: 'formato não suportado (use .docx ou .pdf)', itens: [] }); continue; }
+    let texto = '';
+    try {
+      texto = tipo === 'docx' ? await lerarqExtrairDocx(f) : await lerarqExtrairPdf(f);
+    } catch (e) {
+      lerarqGrade.push({ arquivo: f.name, selo: '⛔', motivo: 'falha ao ler o arquivo: ' + e.message, itens: [] });
+      continue;
+    }
+    if (!texto || !texto.trim()) {
+      // Documento sem texto extraível (escaneado) — sem OCR, como pedido.
+      lerarqGrade.push({ arquivo: f.name, selo: '⛔', motivo: 'sem texto extraível (documento escaneado?)', itens: [] });
+      continue;
+    }
+    const parsed = lerarqParseDeterministico(texto);
+    lerarqGrade.push({
+      arquivo: f.name, tipo, texto,
+      numero: parsed.numero, revisao: parsed.revisao, data: parsed.data,
+      estabelecimentos: parsed.estabelecimentos, totalDocumento: parsed.totalDocumento,
+      itens: parsed.itens,
+      selo: parsed.reconhecido ? '✅' : '⚠️',
+      fonte: parsed.reconhecido ? 'determinístico' : 'pendente-ia',
+    });
+  }
+
+  lerarqDeduplicarPorNumero();
+  status.textContent = 'Extraindo por IA o que não foi reconhecido…';
+  lerarqRenderGrade();
+  await lerarqExtrairPorIaOndeNecessario();
+  status.textContent = '';
+  lerarqRenderGrade();
+}
+
+// Mesmo número em DOCX e PDF → mantém um só (prefere DOCX); totais
+// diferentes ficam ⚠️ com os dois valores lado a lado, pra pessoa
+// escolher. Revisão (sufixo, ex. "097b") é um número textualmente
+// diferente do base — não entra neste dedup, fica como documento
+// distinto (o vínculo com o base é só o próprio número em comum).
+function lerarqDeduplicarPorNumero() {
+  const porChave = new Map();
+  const resultado = [];
+  lerarqGrade.forEach(doc => {
+    if (!doc.numero) { resultado.push(doc); return; }
+    const chave = doc.numero + '|' + (doc.revisao || '');
+    const existente = porChave.get(chave);
+    if (!existente) { porChave.set(chave, doc); resultado.push(doc); return; }
+    // Prefere DOCX; entre dois do mesmo tipo, mantém o primeiro encontrado.
+    const vencedor = (doc.tipo === 'docx' && existente.tipo !== 'docx') ? doc : existente;
+    const perdedor = vencedor === existente ? doc : existente;
+    if (existente.totalDocumento != null && doc.totalDocumento != null &&
+        Math.abs(existente.totalDocumento - doc.totalDocumento) > 0.05) {
+      vencedor.selo = '⚠️';
+      vencedor.motivo = `duplicado: ${existente.arquivo} (R$ ${existente.totalDocumento}) × ${doc.arquivo} (R$ ${doc.totalDocumento}) — totais diferentes, confira`;
+    } else {
+      vencedor.motivo = (vencedor.motivo ? vencedor.motivo + '; ' : '') + `duplicado de ${perdedor.arquivo} (mantido o DOCX)`;
+    }
+    const idx = resultado.indexOf(existente);
+    if (idx >= 0) resultado[idx] = vencedor;
+    porChave.set(chave, vencedor);
+  });
+  lerarqGrade = resultado;
+}
+
+// ── 4.3: extração assistida por IA, só pro que o parser não pegou ──
+async function lerarqExtrairPorIaOndeNecessario() {
+  const contrato = document.getElementById('imp-contrato')?.value;
+  for (const doc of lerarqGrade) {
+    if (doc.fonte !== 'pendente-ia') continue;
+    if (!contrato) { doc.selo = '⚠️'; doc.motivo = 'selecione o contrato (Passo 1) pra extrair por IA'; continue; }
+    try {
+      const r = await DB.extrairOrcamentoTexto(contrato, doc.arquivo, doc.texto);
+      doc.numero = r.numero || doc.numero;
+      doc.data = r.data || doc.data;
+      doc.estabelecimentos = (r.estabelecimentos && r.estabelecimentos.length) ? r.estabelecimentos : doc.estabelecimentos;
+      doc.totalDocumento = r.totalDocumento != null ? r.totalDocumento : doc.totalDocumento;
+      // precoUnit é POR UNIDADE; a IA devolve valorLinha (total da linha) e
+      // quantidade separados — dividir é obrigatório pra quantidade > 1,
+      // senão a comparação com o preço do contrato (abaixo) compara o
+      // total da linha contra um preço unitário e aponta divergência falsa.
+      doc.itens = (r.itens || []).map(it => ({ ...it, qtdExecutada: 0,
+        precoUnit: it.valorLinha != null ? lerarqRound2(it.valorLinha / (it.quantidade || 1)) : null }));
+      doc.auditoriaGeral = r.auditoria;
+      doc.fonte = 'ia';
+      doc.selo = (r.auditoria || doc.itens.some(it => it.auditoria)) ? '⚠️' : '🤖';
+      doc.motivo = r.auditoria || '';
+    } catch (e) {
+      doc.selo = '⚠️';
+      doc.motivo = 'extração por IA falhou: ' + e.message;
+    }
+  }
+}
+
+// ── 4.4: grade de revisão ──────────────────────────────────────────
+function lerarqSeloClasse(selo) {
+  return { '✅': 'badge-approved', '🤖': 'badge-sent', '⚠️': 'badge-partial', '⛔': 'badge-rejected' }[selo] || 'badge-pending';
+}
+
+const LERARQ_STATUS_OPCOES = ['Em aberto', 'Aguardando aprovação', 'Aprovado', 'Recusado', 'Executado'];
+
+function lerarqServicoOptions(contrato, selecionado) {
+  const servicos = _getAvailableServices(contrato);
+  const opts = ['<option value="">— sem vínculo —</option>'];
+  servicos.forEach(s => opts.push(`<option value="${esc(s.name)}" ${s.name===selecionado?'selected':''}>${esc(s.name)}</option>`));
+  return opts.join('');
+}
+
+// Casamento por nome normalizado + apelidos (normalizarNomeServico, de
+// api-client.js — criada na Etapa 2 pra ficha de custo, reaproveitada
+// aqui sem duplicar).
+function lerarqSugerirServico(servicoTexto, contrato) {
+  const servicos = _getAvailableServices(contrato);
+  const norm = normalizarNomeServico(servicoTexto);
+  const achado = servicos.find(s => normalizarNomeServico(s.name) === norm);
+  return achado ? achado.name : '';
+}
+
+function lerarqRenderGrade() {
+  const el = document.getElementById('lerarq-grade');
+  const acoes = document.getElementById('lerarq-acoes');
+  if (!lerarqGrade.length) { el.innerHTML = ''; acoes.style.display = 'none'; return; }
+  acoes.style.display = 'block';
+  const contrato = document.getElementById('imp-contrato')?.value || '';
+
+  let html = '<div style="overflow-x:auto"><table style="width:100%;font-size:11px;border-collapse:collapse">' +
+    `<thead><tr style="text-align:left;color:var(--text-2)">
+    <th>Selo</th><th>Arquivo</th><th>Nº</th><th>Rev.</th><th>Data</th>
+    <th>Estabelec.</th><th>TAG</th><th>Patrim.</th><th>Local</th>
+    <th>Serviço (texto)</th><th>Serviço do contrato</th><th>Un.</th>
+    <th>Qtd</th><th>Preço un.</th><th>Valor</th><th>Qtd exec.</th>
+    <th>Status</th><th>Auditoria</th></tr></thead><tbody>`;
+
+  lerarqGrade.forEach((doc, di) => {
+    if (!doc.itens || !doc.itens.length) {
+      html += `<tr><td><span class="badge ${lerarqSeloClasse(doc.selo)}">${doc.selo}</span></td>
+        <td>${esc(doc.arquivo)}</td><td colspan="16" style="color:var(--text-2)">${esc(doc.motivo||'sem itens reconhecidos')}</td></tr>`;
+      return;
+    }
+    doc._statusGrade = doc._statusGrade || {};
+    doc.itens.forEach((it, ii) => {
+      if (doc._statusGrade[ii] === undefined) doc._statusGrade[ii] = 'Em aberto';
+      if (it._servicoSugerido === undefined) it._servicoSugerido = lerarqSugerirServico(it.servicoTexto, contrato);
+      const servicoCasado = _getAvailableServices(contrato).find(s => s.name === it._servicoSugerido);
+      const precoDoc = it.precoUnit != null ? it.precoUnit : it.valorLinha;
+      const divergePreco = servicoCasado && precoDoc != null && Math.abs((servicoCasado.price||0) - precoDoc) > 0.01;
+      html += `<tr>
+        <td>${ii===0 ? `<span class="badge ${lerarqSeloClasse(doc.selo)}" title="${esc(doc.motivo||'')}">${doc.selo}</span>` : ''}</td>
+        <td>${ii===0 ? esc(doc.arquivo) : ''}</td>
+        <td>${ii===0 ? esc(doc.numero||'') : ''}</td>
+        <td>${ii===0 ? esc(doc.revisao||'') : ''}</td>
+        <td>${ii===0 ? esc(doc.data||'') : ''}</td>
+        <td><input style="width:90px" value="${esc(it.estabelecimento||'')}" oninput="lerarqEditarItem(${di},${ii},'estabelecimento',this.value)"></td>
+        <td><input style="width:50px" value="${esc(it.tag||'')}" oninput="lerarqEditarItem(${di},${ii},'tag',this.value)"></td>
+        <td><input style="width:60px" value="${esc(it.patrimonio||'')}" oninput="lerarqEditarItem(${di},${ii},'patrimonio',this.value)"></td>
+        <td><input style="width:80px" value="${esc(it.local||'')}" oninput="lerarqEditarItem(${di},${ii},'local',this.value)"></td>
+        <td title="${esc(it.servicoTexto||'')}">${esc((it.servicoTexto||'').slice(0,40))}</td>
+        <td><select onchange="lerarqEditarItem(${di},${ii},'_servicoSugerido',this.value)">${lerarqServicoOptions(contrato, it._servicoSugerido)}</select>
+          ${divergePreco ? '<div style="color:#92400e;font-size:10px">preço do documento diverge do contrato</div>' : ''}</td>
+        <td>${esc(it.unidade||'un')}</td>
+        <td><input type="number" min="1" style="width:50px" value="${it.quantidade||1}" oninput="lerarqEditarItem(${di},${ii},'quantidade',parseInt(this.value,10)||1)"></td>
+        <td>${precoDoc!=null?('R$ '+precoDoc.toFixed(2)):'—'}</td>
+        <td>${it.valorLinha!=null?('R$ '+it.valorLinha.toFixed(2)):'—'}</td>
+        <td><input type="number" min="0" style="width:50px" value="${it.qtdExecutada||0}" oninput="lerarqEditarItem(${di},${ii},'qtdExecutada',parseInt(this.value,10)||0)"></td>
+        <td><select onchange="lerarqEditarItem(${di},${ii},'_status',this.value)">
+          ${LERARQ_STATUS_OPCOES.map(s=>`<option ${doc._statusGrade[ii]===s?'selected':''}>${esc(s)}</option>`).join('')}
+        </select></td>
+        <td style="color:${(it.auditoria||doc.auditoriaGeral)?'var(--danger)':'var(--text-2)'}">${esc(it.auditoria||doc.auditoriaGeral||'')}</td>
+      </tr>`;
+    });
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function lerarqEditarItem(di, ii, campo, valor) {
+  const doc = lerarqGrade[di];
+  if (!doc || !doc.itens || !doc.itens[ii]) return;
+  if (campo === '_status') { doc._statusGrade[ii] = valor; return; }
+  doc.itens[ii][campo] = valor;
+  // Só troca de serviço precisa redesenhar (muda a divergência de preço
+  // mostrada). Qtd é 'oninput' — redesenhar a cada tecla tira o foco do
+  // campo no meio da digitação (nunca dá pra digitar "15": o redesenho
+  // acontece depois do "1" e o "5" se perde). E `divergePreco` usa
+  // `precoUnit` (por unidade), que não muda com a quantidade — não há
+  // nada pra atualizar na tela além do próprio valor já digitado.
+  if (campo === '_servicoSugerido') lerarqRenderGrade();
+}
+
+// ── Baixar planilha normalizada / aplicar status de planilha ──────
+function lerarqBaixarPlanilha() {
+  const linhas = [];
+  lerarqGrade.forEach(doc => (doc.itens || []).forEach((it, ii) => linhas.push({
+    'Orçamento': doc.numero || '', 'Revisão': doc.revisao || '', 'Data': doc.data || '',
+    'Estabelecimento': it.estabelecimento || '', 'TAG': it.tag || '', 'Patrimônio': it.patrimonio || '',
+    'Local': it.local || '', 'Serviço': it.servicoTexto || '', 'Serviço do contrato': it._servicoSugerido || '',
+    'Unidade': it.unidade || 'un', 'Qtd': it.quantidade || 1,
+    'Preço unit.': it.precoUnit != null ? it.precoUnit : (it.valorLinha || ''),
+    'Valor': it.valorLinha != null ? it.valorLinha : '', 'Qtd executada': it.qtdExecutada || 0,
+    'Situação': (doc._statusGrade && doc._statusGrade[ii]) || 'Em aberto',
+    'Arquivo': doc.arquivo, 'Auditoria': it.auditoria || doc.auditoriaGeral || '',
+  })));
+  const auditoria = lerarqGrade.map(doc => ({ Arquivo: doc.arquivo, Selo: doc.selo, Motivo: doc.motivo || '' }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(linhas), 'Orçamentos');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(auditoria), 'Auditoria');
+  const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'orcamentos-normalizados.xlsx';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function lerarqAplicarStatusPlanilha(input) {
+  const f = input.files && input.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const linhas = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    let aplicados = 0, conflitos = 0;
+    linhas.forEach(l => {
+      const numero = String(l['Orçamento'] ?? l['orçamento'] ?? '').trim();
+      const situacao = String(l['Situação'] ?? l['Status'] ?? l['Situacao'] ?? '').trim();
+      if (!numero || !situacao) return;
+      const doc = lerarqGrade.find(d => d.numero === numero);
+      if (!doc) { conflitos++; return; }
+      doc._statusGrade = doc._statusGrade || {};
+      (doc.itens || []).forEach((_, ii) => { doc._statusGrade[ii] = situacao; });
+      aplicados++;
+    });
+    lerarqRenderGrade();
+    showToast(`${aplicados} orçamento(s) com status aplicado` + (conflitos ? ` · ${conflitos} número(s) não encontrado(s)` : ''));
+    input.value = '';
+  };
+  reader.readAsArrayBuffer(f);
 }
 
 // ══════════════════════════════════════════════════════════════════
