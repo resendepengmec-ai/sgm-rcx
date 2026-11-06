@@ -888,14 +888,18 @@ function parseFichaCustoTransposta(rowsArr) {
     const linha = rowsArr[r] || [];
     const rotulo = String(linha[0] || linha[1] || '').trim();
     if (!rotulo) continue;
-    if (/total|sinapi|lucro|margem|resultado/i.test(rotulo)) continue; // resultado já calculado pela planilha, nunca grava nada
     const valores = colIdxs.map(c => Number(linha[c]));
     const valoresValidos = valores.filter(v => Number.isFinite(v));
-    if (!valoresValidos.length) continue;
+    // "venda" checado ANTES do ignore genérico: o rótulo real da planilha
+    // é "Valor de Venda (SINAPI - 10%)" — também bate em /sinapi/i, e se
+    // o ignore rodasse primeiro essa linha nunca viraria divergência
+    // informativa (bug real, achado testando com o cabeçalho completo).
     if (/venda/i.test(rotulo)) {
       colunas.forEach((col, i) => { col.venda = Number.isFinite(valores[i]) ? valores[i] : null; });
       continue;
     }
+    if (/total|sinapi|lucro|margem|resultado/i.test(rotulo)) continue; // resultado já calculado pela planilha, nunca grava nada
+    if (!valoresValidos.length) continue;
     const comoFracao = valoresValidos.filter(v => v >= 0 && v < 1).length >= Math.ceil(valoresValidos.length * 0.6);
     if (comoFracao) {
       const media = valoresValidos.reduce((s,v) => s+v, 0) / valoresValidos.length;
