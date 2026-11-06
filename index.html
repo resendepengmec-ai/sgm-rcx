@@ -31,7 +31,7 @@
     upgrade-insecure-requests">
   <meta http-equiv="X-Content-Type-Options" content="nosniff">
   <meta name="referrer" content="no-referrer">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#1e1b4b">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Sistema de Manutenção</title>
@@ -79,8 +79,14 @@ input,select,textarea{display:block;width:100%;padding:11px 14px;border:1.5px so
 input:focus,select:focus,textarea:focus{border-color:var(--primary);outline:2px solid var(--primary-light);}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
 
-/* ── Accessibility bar ── */
-.a11y-bar{position:fixed;top:0;right:0;z-index:9999;display:flex;gap:4px;padding:4px 8px;background:rgba(0,0,0,.55);border-radius:0 0 0 10px;}
+/* ── Accessibility bar ──
+   Fica no canto INFERIOR direito (não mais top:0;right:0): lá em cima
+   ela cobria o primeiro campo de formulários sem cabeçalho fixo (ex.:
+   criação de tomador de serviço) — por ser position:fixed, isso
+   acontecia em qualquer tela que role conteúdo até aquele ponto, não só
+   no topo da página. Embaixo não há nada do sistema no canto direito
+   (o toast fica centralizado). */
+.a11y-bar{position:fixed;bottom:calc(8px + env(safe-area-inset-bottom));right:8px;z-index:9999;display:flex;gap:4px;padding:4px 8px;background:rgba(0,0,0,.55);border-radius:10px;}
 .a11y-btn{border:none;background:rgba(255,255,255,.15);color:#fff;border-radius:6px;padding:4px 9px;font-size:var(--fs-xs);font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px;line-height:1;white-space:nowrap;}
 .a11y-btn:hover{background:rgba(255,255,255,.3);}
 .a11y-btn.active-hc{background:#facc15;color:#000;}
@@ -275,17 +281,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </style>
 </head>
 <body>
-<div id="app"></div>
-<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
-
-<!-- Barra de acessibilidade -->
-<div class="a11y-bar" id="a11y-bar">
-  <button class="a11y-btn" onclick="decreaseFont()" title="Diminuir fonte">A−</button>
-  <button class="a11y-btn" onclick="increaseFont()" title="Aumentar fonte">A+</button>
-  <button class="a11y-btn" id="hc-btn" onclick="toggleHighContrast()" title="Alto contraste">◑</button>
-</div>
-
-
 <div id="app"></div>
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 

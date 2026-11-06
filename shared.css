@@ -99,7 +99,7 @@ select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 /* ───── Quote items ───── */
 .quote-item { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .quote-item:last-child { border-bottom: none; }
-.qi-info { flex: 1; }
+.qi-info { flex: 1 1 220px; min-width: 0; }
 .qi-name { font-size: 14px; font-weight: 500; }
 .qi-price { font-size: 13px; color: var(--text-2); margin-top: 2px; }
 .qty-ctrl { display: flex; align-items: center; gap: 6px; }
@@ -129,17 +129,22 @@ select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.o
 .btn-outline { background: none; border: 1.5px solid var(--primary); color: var(--primary); }
 .btn-outline:active { background: var(--primary-light); }
 
-/* ───── Quote list ───── */
+/* ───── Quote list ─────
+   .qc-total também carrega a trilha de assinaturas (sigTrailHtml, pode
+   ter várias entradas) — sem um teto de largura ela cresce e espreme
+   .qi-info até a coluna da esquerda quebrar palavra por palavra, mesmo
+   com min-width:0. flex-wrap deixa a trilha cair pra linha de baixo
+   inteira em telas estreitas, em vez de só encolher na mesma linha. */
 .quote-card {
   background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 14px 16px; margin-bottom: 10px;
-  display: flex; align-items: center; gap: 12px; cursor: pointer;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 12px; cursor: pointer;
   border-left: 4px solid var(--primary);
 }
 .qc-info { flex: 1; }
 .qc-client { font-size: 15px; font-weight: 600; }
 .qc-meta { font-size: 13px; color: var(--text-2); margin-top: 3px; }
-.qc-total { font-size: 16px; font-weight: 700; color: var(--primary); }
+.qc-total { font-size: 16px; font-weight: 700; color: var(--primary); flex: 0 1 280px; max-width: 280px; min-width: 0; text-align: right; }
 .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 99px; }
 .badge-pending { background: #fef3c7; color: #92400e; }
 .badge-sent { background: #dbeafe; color: #1e40af; }
@@ -440,10 +445,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
   .screen, .container, .filter-bar, #qai-status-tabs { max-width: 920px; margin: 0 auto; }
   #screen-new, #screen-form, #screen-settings, #screen-import { max-width: 640px; }
 
-  /* Listas de cartão: 1 coluna fixa -> várias, conforme a largura */
+  /* Listas de cartão: 1 coluna fixa -> várias, conforme a largura.
+     auto-fit (não auto-fill): com poucos cartões, as colunas vazias
+     colapsam e o(s) cartão(ões) que existem esticam pra usar o espaço —
+     com auto-fill eles ficavam espremidos em ~320px e sobrava vazio do
+     lado, mesmo a lista tendo só 1-2 itens. */
   #chamados-list, #records-list, #quotes-list, #plans-list,
   #mov-list, #contracts-list, #qai-lista {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 10px; align-items: start;
   }
   /* Cabeçalhos de agrupamento (ex.: mês) ocupam a linha inteira */

@@ -382,7 +382,7 @@ function sigTrailHtml(sigs) {
     return `${icone} <strong>${esc(s.by_name || s.by || '?')}</strong> · ${esc(_sigPapel(s.role))} · ${dt} `
       + `<code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${esc(hashCurto)}]</code>`;
   });
-  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
+  return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8;text-align:left">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
 }
 
 // Pra PDF — texto puro, sem ícone: nenhuma biblioteca de PDF deste projeto
