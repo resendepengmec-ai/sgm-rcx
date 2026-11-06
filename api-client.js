@@ -1289,18 +1289,11 @@ function custoUnitarioClient(servico, parametros, preco) {
   const percentuais = (Array.isArray(parametros) ? parametros : []).map(p => ({
     nome: p?.nome || '',
     pct: Number(p?.pct) || 0,
-    tipo: p?.tipo === 'destinacao' ? 'destinacao' : 'custo',
     valor: round2Custo(precoNum * (Number(p?.pct) || 0) / 100),
   }));
-  const destinacao = round2Custo(percentuais.filter(p => p.tipo === 'destinacao').reduce((s, p) => s + p.valor, 0));
-  const custoOperacional = round2Custo(insumos + percentuais.filter(p => p.tipo === 'custo').reduce((s, p) => s + p.valor, 0));
+  const custoOperacional = round2Custo(insumos + percentuais.reduce((s, p) => s + p.valor, 0));
   const margemOperacional = round2Custo(precoNum - custoOperacional);
-  const resultadoAposReserva = round2Custo(margemOperacional - destinacao);
-  return {
-    insumos, percentuais, destinacao, custoOperacional,
-    total: round2Custo(custoOperacional + destinacao),
-    margemOperacional, resultadoAposReserva,
-  };
+  return { insumos, percentuais, custoOperacional, margemOperacional };
 }
 window.custoUnitarioClient = custoUnitarioClient;
 // ── Casamento de serviço por nome normalizado ──────────────────────

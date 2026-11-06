@@ -90,9 +90,10 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
    no sistema, sem inventar um padrão novo. */
 .ind-grid { display:grid; gap:14px; }
 .ind-row-4 { grid-template-columns: repeat(4,1fr); }
+.ind-row-3 { grid-template-columns: repeat(3,1fr); }
 .ind-row-2 { grid-template-columns: repeat(2,1fr); }
-@media (max-width:860px) { .ind-row-4 { grid-template-columns: repeat(2,1fr); } }
-@media (max-width:540px) { .ind-row-4, .ind-row-2 { grid-template-columns: 1fr; } }
+@media (max-width:860px) { .ind-row-4, .ind-row-3 { grid-template-columns: repeat(2,1fr); } }
+@media (max-width:540px) { .ind-row-4, .ind-row-3, .ind-row-2 { grid-template-columns: 1fr; } }
 .kpi { background:var(--surface); border-radius:var(--radius); padding:16px;
        border:1px solid var(--border); box-shadow:var(--shadow); position:relative; overflow:hidden; }
 .kpi::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; background:var(--accent,var(--primary)); }
@@ -2327,7 +2328,7 @@ async function renderIndicadores() {
       </div>
     </div>
     ${temCusto ? `
-    <div class="ind-grid ind-row-4" style="margin-bottom:14px">
+    <div class="ind-grid ind-row-3" style="margin-bottom:14px">
       <div class="kpi" style="--accent:#7c3aed">
         <div class="kpi-label">Custo</div>
         <div class="kpi-val">${moeda(d.custoTotal)}</div>
@@ -2336,10 +2337,6 @@ async function renderIndicadores() {
         <div class="kpi-label">Margem operacional</div>
         <div class="kpi-val">${moeda(d.margemOperacional)}</div>
         <div class="kpi-sub">${d.custoInformado ? pct(d.margemOperacional / d.custoInformado) : '—'}</div>
-      </div>
-      <div class="kpi" style="--accent:#0891b2">
-        <div class="kpi-label">Resultado após reserva</div>
-        <div class="kpi-val">${moeda(d.resultadoAposReserva)}</div>
       </div>
       <div class="kpi" style="--accent:${coberturaBaixa ? '#dc2626' : '#16a34a'}">
         <div class="kpi-label">Cobertura de custo</div>

@@ -207,16 +207,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <!-- Parâmetros de custo do contrato (só visível a quem vê preço) -->
       <div id="parametros-custo-section" style="display:none;margin-bottom:16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:8px">💰 Parâmetros de custo do contrato</div>
-        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Percentuais incidem sobre o preço de venda de cada serviço. "Destinação" (ex. fundo de reserva) não entra no custo operacional, só no resultado após reserva.</p>
+        <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">Percentuais incidem sobre o preço de venda de cada serviço e entram no custo operacional (ex.: Impostos, Engenharia, Fundo de Reserva, M.O.).</p>
         <div id="parametros-custo-list" style="margin-bottom:8px"></div>
         <div style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <input type="text" id="pc-nome" placeholder="Nome (ex: Impostos)" style="flex:2;min-width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
             <input type="number" id="pc-pct" placeholder="% sobre a venda" step="0.01" style="width:130px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-            <select id="pc-tipo" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
-              <option value="custo">Custo</option>
-              <option value="destinacao">Destinação</option>
-            </select>
             <button onclick="addParametroCusto()" style="padding:8px 16px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:13px;font-weight:600;cursor:pointer">+ Adicionar</button>
           </div>
         </div>
@@ -683,7 +679,6 @@ function renderParametrosCustoList() {
     <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff">
       <div style="flex:1;font-size:13px">
         ${esc(p.nome)} — <strong>${Number(p.pct).toFixed(2)}%</strong>
-        <span style="font-size:10px;color:var(--text-3);margin-left:4px">(${p.tipo === 'destinacao' ? 'destinação' : 'custo'})</span>
       </div>
       <button onclick="removeParametroCusto(${i})" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:4px 8px">✕</button>
     </div>
@@ -692,10 +687,9 @@ function renderParametrosCustoList() {
 function addParametroCusto() {
   const nome = document.getElementById('pc-nome').value.trim();
   const pct = parseFloat(document.getElementById('pc-pct').value);
-  const tipo = document.getElementById('pc-tipo').value;
   if (!nome) { showToast('Informe o nome do parâmetro'); return; }
   if (!Number.isFinite(pct)) { showToast('Informe o percentual'); return; }
-  pendingParametrosCusto.push({ nome, pct, tipo });
+  pendingParametrosCusto.push({ nome, pct });
   document.getElementById('pc-nome').value = '';
   document.getElementById('pc-pct').value = '';
   renderParametrosCustoList();
@@ -766,9 +760,7 @@ function renderFichaCustoModal() {
   document.getElementById('fc-totais').innerHTML = `
     <div>Preço de venda: <strong>R$ ${preco.toFixed(2)}</strong></div>
     <div>Custo operacional: <strong>R$ ${r.custoOperacional.toFixed(2)}</strong></div>
-    <div>Destinação: R$ ${r.destinacao.toFixed(2)}</div>
     <div style="color:${cor}">Margem operacional: <strong>R$ ${r.margemOperacional.toFixed(2)} (${pct.toFixed(1)}%)</strong></div>
-    <div>Resultado após reserva: <strong>R$ ${r.resultadoAposReserva.toFixed(2)}</strong></div>
   `;
 }
 function salvarFichaCusto() {
@@ -841,10 +833,10 @@ function handleServicoFile(e) {
     let avisoDivergencia = '';
     if (primeira) {
       const novos = [];
-      if (primeira.impostos != null) novos.push({ nome: 'Impostos', pct: primeira.impostos, tipo: 'custo' });
-      if (primeira.engenharia != null) novos.push({ nome: 'Engenharia', pct: primeira.engenharia, tipo: 'custo' });
-      if (primeira.fundoReserva != null) novos.push({ nome: 'Fundo de Reserva', pct: primeira.fundoReserva, tipo: 'destinacao' });
-      if (primeira.mo != null) novos.push({ nome: 'M.O.', pct: primeira.mo, tipo: 'custo' });
+      if (primeira.impostos != null) novos.push({ nome: 'Impostos', pct: primeira.impostos });
+      if (primeira.engenharia != null) novos.push({ nome: 'Engenharia', pct: primeira.engenharia });
+      if (primeira.fundoReserva != null) novos.push({ nome: 'Fundo de Reserva', pct: primeira.fundoReserva });
+      if (primeira.mo != null) novos.push({ nome: 'M.O.', pct: primeira.mo });
       pendingParametrosCusto = novos;
       renderParametrosCustoList();
       const divergente = paramsPorLinha.some(p => ['impostos','engenharia','fundoReserva','mo'].some(k => p[k] != null && p[k] !== primeira[k]));
