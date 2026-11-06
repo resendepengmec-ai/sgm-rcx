@@ -236,11 +236,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
       <div style="margin-top:14px;padding:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px">
         <div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:8px">📥 Importar em lote (CSV/XLSX)</div>
         <p style="font-size:11px;color:var(--text-2);margin-bottom:8px">
-          Primeira linha = cabeçalho. Uma linha por serviço. Colunas esperadas:
-          <code>nome</code>, <code>unidade</code>, <code>preco</code> (valor de venda),
-          <code>impostos</code>, <code>engenharia</code>, <code>fundo de reserva</code>, <code>mo</code>
-          (percentual sobre o preço de venda — ex. 25 ou 0,25 = 25%; valem pro contrato inteiro, uso a
-          primeira linha), <code>insumos</code> (valor único em R$ por serviço).
+          Primeira linha = cabeçalho (o texto dela não importa, só é pulada). Uma linha por
+          serviço, colunas NESTA ORDEM — <strong>A</strong> nome, <strong>B</strong> unidade,
+          <strong>C</strong> preço (valor de venda), <strong>D</strong> impostos,
+          <strong>E</strong> engenharia, <strong>F</strong> fundo de reserva, <strong>G</strong> mo
+          (percentual sobre o preço de venda — ex. 25 ou 0,25 = 25%; valem pro contrato inteiro, uso
+          a primeira linha), <strong>H</strong> insumos (valor único em R$ por serviço).
         </p>
         <input type="file" accept=".csv,.xlsx,.xls" onchange="handleServicoFile(event)" style="font-size:12px">
       </div>
@@ -775,23 +776,22 @@ function salvarFichaCusto() {
   showToast('Ficha de custo salva — salve o contrato para gravar de verdade');
 }
 
-// Importação unificada: uma linha por serviço, cabeçalho na linha 1.
-// Colunas (por nome, não por posição — qualquer ordem serve): nome,
-// unidade, preco/venda, impostos, engenharia, "fundo de reserva"/reserva,
-// mo, insumos. As 4 percentuais (impostos/engenharia/fundo de
-// reserva/mo) são parâmetro do CONTRATO inteiro (mesmo valor pra todo
-// serviço, igual confirmado na planilha real do usuário) — uso os da
-// PRIMEIRA linha que trouxer algum; "insumos" é um valor único em R$
-// por serviço (não itemizado). Linha com nome repetido ATUALIZA o
-// serviço já pendente (mesma identidade por nome normalizado), em vez
-// de duplicar — permite reimportar a mesma planilha depois de ajustá-la.
+// Importação unificada: uma linha por serviço, cabeçalho na linha 1
+// (o TEXTO do cabeçalho não é lido — só marca que a linha 1 é pulada).
+// Colunas por POSIÇÃO, nesta ordem fixa: A-nome, B-unidade, C-preço
+// (valor de venda), D-impostos, E-engenharia, F-fundo de reserva,
+// G-mo, H-insumos. As 4 percentuais (D-G) são parâmetro do CONTRATO
+// inteiro (mesmo valor pra todo serviço, igual confirmado na planilha
+// real do usuário) — uso os da PRIMEIRA linha que trouxer algum;
+// "insumos" é um valor único em R$ por serviço (não itemizado). Linha
+// com nome repetido ATUALIZA o serviço já pendente (mesma identidade
+// por nome normalizado), em vez de duplicar — permite reimportar a
+// mesma planilha depois de ajustá-la.
+const _COLUNAS_IMPORT_SERVICO = ['nome', 'unidade', 'preco', 'impostos', 'engenharia', 'fundodereserva', 'mo', 'insumos'];
 function _pctOuNull(v) {
   const n = parseFloat(v);
   if (!Number.isFinite(n)) return null;
   return n <= 1 ? Math.round(n * 100 * 100) / 100 : Math.round(n * 100) / 100; // 0,25 e 25 == 25%
-}
-function _normHeaderKey(h) {
-  return String(h || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
 function handleServicoFile(e) {
@@ -802,22 +802,22 @@ function handleServicoFile(e) {
     let criados = 0, atualizados = 0;
     const paramsPorLinha = [];
     rows.forEach(r => {
-      const name = String(r.nome || r.name || r.nomedoservico || '').trim();
+      const name = String(r.nome || '').trim();
       if (!name) return;
       const idx = pendingServicos.findIndex(s => normalizarNomeServico(s.name) === normalizarNomeServico(name));
       const existente = idx >= 0 ? pendingServicos[idx] : null;
       // Em reimportação parcial (só pra ajustar custo, por ex.), célula
       // vazia em unidade/preço preserva o valor já cadastrado em vez de
       // zerar — só um valor novo explícito sobrescreve.
-      const unitBruta = String(r.unidade || r.unit || '').trim();
+      const unitBruta = String(r.unidade || '').trim();
       const unit = unitBruta || existente?.unit || 'un';
-      const precoBruto = parseFloat(r.preco ?? r.venda ?? r.valordevenda ?? r.price);
+      const precoBruto = parseFloat(r.preco);
       const price = Number.isFinite(precoBruto) ? precoBruto : (existente?.price || 0);
-      const impostos = _pctOuNull(r.impostos ?? r.imposto);
-      const engenharia = _pctOuNull(r.engenharia ?? r.engenheiro);
-      const fundoReserva = _pctOuNull(r.fundodereserva ?? r.reserva ?? r.fundoreserva);
-      const mo = _pctOuNull(r.mo ?? r.maodeobra);
-      const insumos = parseFloat(r.insumos ?? r.insumo) || 0;
+      const impostos = _pctOuNull(r.impostos);
+      const engenharia = _pctOuNull(r.engenharia);
+      const fundoReserva = _pctOuNull(r.fundodereserva);
+      const mo = _pctOuNull(r.mo);
+      const insumos = parseFloat(r.insumos) || 0;
       paramsPorLinha.push({ impostos, engenharia, fundoReserva, mo });
 
       const fichaCustoExistente = existente?.fichaCusto;
@@ -851,11 +851,10 @@ function handleServicoFile(e) {
     reader.onload = ev => {
       const lines = ev.target.result.split('\n').filter(l => l.trim());
       if (!lines.length) return;
-      const headers = lines[0].split(',').map(_normHeaderKey);
       const rows = lines.slice(1).map(line => {
         const cols = line.split(',');
         const obj = {};
-        headers.forEach((h,i) => obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''));
+        _COLUNAS_IMPORT_SERVICO.forEach((campo,i) => obj[campo] = (cols[i]||'').trim().replace(/^"|"$/g,''));
         return obj;
       });
       processar(rows);
@@ -871,10 +870,9 @@ function handleServicoFile(e) {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rowsArr = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
         if (!rowsArr.length) return;
-        const headers = rowsArr[0].map(_normHeaderKey);
         const rows = rowsArr.slice(1).map(row => {
           const obj = {};
-          headers.forEach((h,i) => obj[h] = row[i] != null ? row[i] : '');
+          _COLUNAS_IMPORT_SERVICO.forEach((campo,i) => obj[campo] = row[i] != null ? row[i] : '');
           return obj;
         });
         processar(rows);
