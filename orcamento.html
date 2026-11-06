@@ -3170,6 +3170,9 @@ function updateStatus(id, status, itensAprovados) {
     if ((status === 'approved' || status === 'approved_partial') && r?.ordem) {
       showToast(`✅ Orçamento aprovado — O.S. ${r.ordem.numero} disponível em Registro → O.S. Pendentes`);
     }
+    if (r?.ordensCanceladas?.length) {
+      showToast(`A O.S. ${r.ordensCanceladas.join(', ')} foi cancelada — o orçamento não está mais aprovado`);
+    }
     if (currentDetailId === id) openDetail(id);
   }).catch(e => {
     q.status = prev; // reverte em caso de falha (ex.: sem permissão)
