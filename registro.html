@@ -252,7 +252,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 <nav class="bottom-nav">
   <button class="nav-btn active" role="tab" aria-selected="true" onclick="switchTab('records')" id="nav-records">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-    Registros
+    Relatório de Registros
   </button>
   <button class="nav-btn" role="tab" aria-selected="false" onclick="switchTab('new')" id="nav-new">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -489,9 +489,11 @@ function drawPdfFooters(doc, cont) {
 }
 let ordensCache = safeLocalStorageGetJSON('smm_ordens_servico', []);
 function loadOrdens() {
+  _sincronizarFiltrosOS();
   DB.getOrdens().then(list => {
     ordensCache = list || [];
     try { localStorage.setItem('smm_ordens_servico', JSON.stringify(ordensCache)); } catch(e) {}
+    buildFilterOptionsOS();
     renderOSList();
   }).catch(()=>{});
 }
@@ -593,16 +595,30 @@ function buildFilterOptions() {
     [...filteredEstabs].sort().map(e => `<option value="${e}" ${curE===e?'selected':''}>${e}</option>`).join('');
 }
 
-function applyFilters() {
-  filterMonth    = document.getElementById('f-filter-month').value;
-  filterContract = document.getElementById('f-filter-contract').value;
-  filterEstab    = document.getElementById('f-filter-estab').value;
+// Comum às duas abas, chamado DEPOIS que filterMonth/filterContract/
+// filterEstab (globais) já foram atualizados por quem chamou.
+function _reagirAosFiltros() {
+  _sincronizarFiltrosOS();
+  // Best-effort: um valor sem opção correspondente (ex.: estabelecimento
+  // que só existe em ordensCache) é ignorado pelo navegador — a aba
+  // Registros mostra "Todos" nesse caso, sem quebrar nada.
+  const m = document.getElementById('f-filter-month'), c = document.getElementById('f-filter-contract'), e = document.getElementById('f-filter-estab');
+  if (m) m.value = filterMonth;
+  if (c) c.value = filterContract;
+  if (e) e.value = filterEstab;
   buildFilterOptions(); updateOSBadge(); // rebuild estab list filtered by contract
   renderRecordList();
   // Reflete na hora o botão "Pegar assinatura do cliente" da aba de O.S.,
   // que depende do mesmo filterContract (ver renderOSList) — sem isto,
   // só apareceria/desapareceria na próxima troca de aba.
-  if (document.getElementById('os-list')) renderOSList();
+  if (document.getElementById('os-list')) { buildFilterOptionsOS(); renderOSList(); }
+}
+
+function applyFilters() {
+  filterMonth    = document.getElementById('f-filter-month').value;
+  filterContract = document.getElementById('f-filter-contract').value;
+  filterEstab    = document.getElementById('f-filter-estab').value;
+  _reagirAosFiltros();
 }
 
 function clearFilters() {
@@ -610,9 +626,73 @@ function clearFilters() {
   document.getElementById('f-filter-month').value = '';
   document.getElementById('f-filter-contract').value = '';
   document.getElementById('f-filter-estab').value = '';
-  buildFilterOptions();
-  renderRecordList();
-  if (document.getElementById('os-list')) renderOSList();
+  _reagirAosFiltros();
+}
+
+// ── Filtros da aba O.S. (mesmas 3 variáveis globais acima) ─────────
+// Opções de mês/estabelecimento vêm de ordensCache (não de `records`,
+// que é outro módulo) — contrato reaproveita a mesma lista fresca do
+// servidor já usada em populateContractDropdownsReg.
+function buildFilterOptionsOS() {
+  const months = new Set();
+  const estabs = new Set();
+  ordensCache.forEach(o => {
+    if (o.criadoEm) months.add(new Date(o.criadoEm).toISOString().slice(0,7));
+    const e = resolveEstab({ machine: o.machine, contract: o.contrato || o.client, tag: o.tag || o.equip });
+    if (e) estabs.add(e);
+  });
+
+  const mSel = document.getElementById('os-filter-month');
+  if (mSel) {
+    mSel.innerHTML = '<option value="">📅 Todos os meses</option>' +
+      [...months].sort().reverse().map(m => {
+        const [y, mo] = m.split('-');
+        const label = new Date(y, mo-1).toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+        return `<option value="${m}" ${filterMonth===m?'selected':''}>${label}</option>`;
+      }).join('');
+  }
+  const eSel = document.getElementById('os-filter-estab');
+  if (eSel) {
+    eSel.innerHTML = '<option value="">🏢 Todos os estabelecimentos</option>' +
+      [...estabs].sort().map(e => `<option value="${e}" ${filterEstab===e?'selected':''}>${e}</option>`).join('');
+  }
+  const label = document.getElementById('os-filter-count-label');
+  if (label) {
+    const n = (filterMonth || filterContract || filterEstab)
+      ? ordensCache.filter(o => {
+          const mMatch = !filterMonth || (o.criadoEm ? new Date(o.criadoEm).toISOString().slice(0,7) : '') === filterMonth;
+          const cMatch = !filterContract || (o.contrato || o.client) === filterContract;
+          const eMatch = !filterEstab || resolveEstab({ machine: o.machine, contract: o.contrato || o.client, tag: o.tag || o.equip }) === filterEstab;
+          return mMatch && cMatch && eMatch;
+        }).length
+      : ordensCache.length;
+    label.textContent = `${n} O.S. ${(filterMonth||filterContract||filterEstab) ? 'encontrada' + (n!==1?'s':'') : 'no total'}`;
+  }
+}
+// Selects da aba O.S. entram na ação (quem muda é sempre esta função ou
+// applyFilters/clearFilters, que chamam uma à outra) — aqui só repassa
+// pro mesmo fluxo já existente, sem duplicar a lógica de filtragem.
+// Lê dos PRÓPRIOS selects da aba O.S. — nunca via f-filter-estab (que só
+// tem opções derivadas de `records`; um estabelecimento que só existe em
+// ordensCache não é uma opção válida lá, e setar .value pra um valor sem
+// opção correspondente é ignorado pelo navegador, perdendo o filtro).
+function applyFiltersOS() {
+  filterMonth    = document.getElementById('os-filter-month').value;
+  filterContract = document.getElementById('os-filter-contract').value;
+  filterEstab    = document.getElementById('os-filter-estab').value;
+  _reagirAosFiltros();
+}
+function clearFiltersOS() { clearFilters(); }
+// Mantém os selects de cada aba refletindo o filtro ativo ao trocar de
+// aba. Um valor sem opção correspondente (ex.: estabelecimento que só
+// existe no outro módulo) é ignorado pelo navegador — mostra "Todos"
+// nessa aba, sem quebrar nada; o filtro em si (filterEstab) continua
+// correto nas variáveis globais.
+function _sincronizarFiltrosOS() {
+  const m = document.getElementById('os-filter-month'), c = document.getElementById('os-filter-contract'), e = document.getElementById('os-filter-estab');
+  if (m) m.value = filterMonth;
+  if (c) c.value = filterContract;
+  if (e) e.value = filterEstab;
 }
 
 function getFilteredRecords() {
@@ -2037,12 +2117,19 @@ async function populateContractDropdownsReg() {
       filterSel.innerHTML = '<option value="">📋 Todos os contratos</option>' +
         visible.map(c => `<option value="${c.numero}" ${cur===c.numero?'selected':''}>${c.numero}</option>`).join('');
     }
+    // Mesma lista, pro filtro de contrato da aba O.S.
+    const filterSelOS = document.getElementById('os-filter-contract');
+    if (filterSelOS) {
+      filterSelOS.innerHTML = '<option value="">📋 Todos os contratos</option>' +
+        visible.map(c => `<option value="${c.numero}" ${filterContract===c.numero?'selected':''}>${c.numero}</option>`).join('');
+    }
   } catch(e) {}
 }
 
 // ── Init ──
 renderRecordList();
 buildFilterOptions();
+buildFilterOptionsOS();
 // Re-renderiza a aba de O.S. depois que _contratosFrescosReg chega, pelo
 // mesmo motivo do botão de assinatura em preventiva.html: evita a 1ª
 // pintura decidir a visibilidade do botão sem dado fresco do servidor.
@@ -2087,9 +2174,23 @@ function renderOSList() {
     : allOS;
   // Técnico: só vê O.S. abertas e em execução
   // Admin/Gestor/Diretor/Supervisor: vê todas
-  const visible = ['admin','diretor','supervisor','gestor'].includes(userRole)
+  let visible = ['admin','diretor','supervisor','gestor'].includes(userRole)
     ? filteredByContract
     : filteredByContract.filter(o=>o.status!=='concluida');
+
+  // Filtro de tela (mês/contrato/estabelecimento) — mesmas 3 variáveis
+  // globais já usadas na aba "Relatório de Registros" (filterMonth/
+  // filterContract/filterEstab, ver applyFiltersOS). Nunca aplicado ao
+  // badge/banner de pendentes abaixo: a notificação não deve sumir só
+  // porque a tela está filtrada por outro mês/contrato/estabelecimento.
+  if (filterMonth || filterContract || filterEstab) {
+    visible = visible.filter(o => {
+      const mMatch = !filterMonth || (o.criadoEm ? new Date(o.criadoEm).toISOString().slice(0,7) : '') === filterMonth;
+      const cMatch = !filterContract || (o.contrato || o.client) === filterContract;
+      const eMatch = !filterEstab || resolveEstab({ machine: o.machine, contract: o.contrato || o.client, tag: o.tag || o.equip }) === filterEstab;
+      return mMatch && cMatch && eMatch;
+    });
+  }
 
   // Badge no nav
   const pending = allOS.filter(o=>o.status==='aberta').length;
@@ -2525,6 +2626,27 @@ window.addEventListener('sgm:confirmed', event => {
 
 <!-- ── O.S. Screen ── -->
 <div id="screen-os" class="screen" style="display:none">
+  <!-- Mesmos 3 filtros da aba "Relatório de Registros" (filterMonth/
+       filterContract/filterEstab compartilhados — ver applyFiltersOS). -->
+  <div class="filter-bar">
+    <div class="filter-row">
+      <select id="os-filter-month" aria-label="Filtrar por mês" onchange="applyFiltersOS()">
+        <option value="">📅 Todos os meses</option>
+      </select>
+      <select id="os-filter-contract" aria-label="Filtrar por contrato" onchange="applyFiltersOS()">
+        <option value="">📋 Todos os contratos</option>
+      </select>
+    </div>
+    <div class="filter-row">
+      <select id="os-filter-estab" aria-label="Filtrar por estabelecimento" onchange="applyFiltersOS()">
+        <option value="">🏢 Todos os estabelecimentos</option>
+      </select>
+    </div>
+    <div class="filter-summary">
+      <span id="os-filter-count-label"></span>
+      <button class="btn-clear" onclick="clearFiltersOS()">Limpar</button>
+    </div>
+  </div>
   <div id="os-banner" style="display:none;margin:12px 12px 0;background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:10px 14px;font-size:13px;color:#92400e;align-items:center;gap:8px">
     ⏳ <span id="os-banner-text"></span>
   </div>
