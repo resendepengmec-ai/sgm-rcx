@@ -1132,6 +1132,13 @@ const DB = {
     + (excluirId ? `&excluirId=${encodeURIComponent(excluirId)}` : ''),
     undefined, { signal }),
 
+  // Alerta não-bloqueante de duplicidade: chamado aberto e orçamento
+  // aprovado pra mesma TAG podem gerar duas O.S. pro mesmo equipamento.
+  conflitoTagOS: (contrato, tag, excluirId, signal) => _call('GET',
+    `/ordens-servico/conflito-tag?contrato=${encodeURIComponent(contrato)}&tag=${encodeURIComponent(tag)}`
+    + (excluirId ? `&excluirId=${encodeURIComponent(excluirId)}` : ''),
+    undefined, { signal }),
+
   // Ordens de serviço
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),

@@ -3138,7 +3138,7 @@ function confirmarSelecaoItens(id) {
   updateStatus(id, 'approved_partial', idx);
 }
 
-function updateStatus(id, status, itensAprovados) {
+async function updateStatus(id, status, itensAprovados) {
   const q = quotes.find(x => x.id === id);
   if (!q) return;
 
@@ -3149,6 +3149,27 @@ function updateStatus(id, status, itensAprovados) {
     abrirSelecaoItens(id);
     if (currentDetailId === id) openDetail(id);   // desfaz o seletor visualmente
     return;
+  }
+
+  // Alerta (nunca bloqueio automático) de duplicidade: um chamado já
+  // aberto na mesma TAG também gera O.S. própria — aprovar este orçamento
+  // cria uma SEGUNDA O.S. pro mesmo equipamento. Só pergunta na aprovação
+  // DE VERDADE (quando o servidor vai gerar O.S. nova — mesma condição
+  // "!wasApproved" de PATCH /orcamentos/:id/status), não em toda troca.
+  const vaiAprovarAgora = (status === 'approved' || status === 'approved_partial') &&
+    !['approved', 'approved_partial', 'executed', 'executed_partial'].includes(q.status);
+  if (vaiAprovarAgora && q.equip) {
+    try {
+      const conflito = await DB.conflitoTagOS(q.client, q.equip, id);
+      if (conflito?.chamados?.length) {
+        const nums = conflito.chamados.map(c => c.id).join(', ');
+        const confirma = confirm(
+          `⚠️ Já existe chamado aberto na TAG ${q.equip} (${nums}).\n` +
+          `Aprovar este orçamento pode gerar uma SEGUNDA O.S. pro mesmo equipamento.\n\n` +
+          `Confirma a aprovação mesmo assim?`);
+        if (!confirma) { if (currentDetailId === id) openDetail(id); return; }
+      }
+    } catch (e) { /* aviso auxiliar: falha de rede nunca impede a aprovação */ }
   }
 
   const prev = q.status;
