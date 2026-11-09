@@ -1294,8 +1294,8 @@ function openDetail(id){
       <div style="font-size:12px;font-weight:700;color:#15803d;margin-bottom:8px">📋 Ordens de Serviço (${osVinculadas.length})</div>
       ${osVinculadas.map(o=>`
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #dcfce7;font-size:12px">
-          <span style="font-weight:600">${o.numero}</span>
-          <span style="color:#475569">${o.tecnico||'Não atribuída'}</span>
+          <span style="font-weight:600">${esc(o.numero)}</span>
+          <span style="color:#475569">${esc(o.tecnico||'Não atribuída')}</span>
           <span style="padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;${o.status==='concluida'?'background:#d1fae5;color:#065f46':o.status==='em_execucao'?'background:#dbeafe;color:#1e40af':'background:#fef3c7;color:#92400e'}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída'}[o.status]||o.status}</span>
         </div>`).join('')}
     </div>`:'';

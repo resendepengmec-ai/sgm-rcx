@@ -819,8 +819,7 @@ async function trocarEmpresa(cnpj) {
 const CACHES_DE_SESSAO = [
   'smm_contracts', 'chamados_list', 'registro_records', 'prev_plans',
   'orcamento_quotes', 'smm_movimentacoes', 'smm_ordens_servico',
-  'smm_users_cache', 'smm_whitelist_cache', 'smm_custom_db', 'smm_user_cid',
-  'smm_responsaveis', 'smm_laudos', 'smm_prestadora',
+  'smm_users_cache', 'smm_whitelist_cache',
 ];
 function limparCachesLocais() {
   CACHES_DE_SESSAO.forEach(k => { try { localStorage.removeItem(k); } catch(e) {} });

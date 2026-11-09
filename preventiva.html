@@ -2077,11 +2077,11 @@ async function loadTechnicians() {
   try {
     const techs = await DB.getTechnicians();
     sel.innerHTML = '<option value="">Selecione um técnico…</option>' +
-      (techs||[]).map(u => `<option value="${u.email}" data-name="${u.name||u.email}">${u.name||u.email} · ${u.role}</option>`).join('');
+      (techs||[]).map(u => `<option value="${esc(u.email)}" data-name="${esc(u.name||u.email)}">${esc(u.name||u.email)} · ${esc(u.role)}</option>`).join('');
   } catch(e) {
     // Fallback: usuário logado
     const u = window._user;
-    if (u) sel.innerHTML = `<option value="${u.email}">${u.name||u.email}</option>`;
+    if (u) sel.innerHTML = `<option value="${esc(u.email)}">${esc(u.name||u.email)}</option>`;
   }
 }
 
