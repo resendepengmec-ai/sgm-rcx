@@ -1858,14 +1858,38 @@ function lerarqServicoOptions(contrato, selecionado) {
   return opts.join('');
 }
 
+// Mesma normalização de chave que o backend usa pra gravar/ler
+// equivalências (api.js:_chaveTermo) — precisa bater exatamente, senão
+// a busca no objeto nunca encontra a chave certa.
+function _chaveTermoCliente(t) {
+  return String(t || '').trim().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
 // Casamento por nome normalizado + apelidos (normalizarNomeServico, de
 // api-client.js — criada na Etapa 2 pra ficha de custo, reaproveitada
-// aqui sem duplicar).
+// aqui sem duplicar). Se não bater exato, tenta a equivalência já
+// ensinada pro contrato (mesmo sistema do fluxo antigo "Importar PDF",
+// POST /contratos/:numero/equivalencias — antes só gravada/lida por
+// aquele fluxo; esta grade nunca consultava, e isso explicava boa parte
+// dos itens sem preço mesmo com o texto extraído corretamente). Uma
+// equivalência pode apontar pra MAIS de um serviço (serviço agregado) —
+// só uso aqui quando aponta pra UM só, já que esta grade é uma linha
+// por serviço; expandir em várias linhas fica pra decisão manual.
 function lerarqSugerirServico(servicoTexto, contrato) {
   const servicos = _getAvailableServices(contrato);
   const norm = normalizarNomeServico(servicoTexto);
   const achado = servicos.find(s => normalizarNomeServico(s.name) === norm);
-  return achado ? achado.name : '';
+  if (achado) return achado.name;
+
+  const contratoObj = safeLocalStorageGetJSON('smm_contracts', []).find(c => c.numero === contrato);
+  const equiv = contratoObj?.equivalencias?.[_chaveTermoCliente(servicoTexto)];
+  if (Array.isArray(equiv) && equiv.length === 1) {
+    const viaEquivalencia = servicos.find(s => s.name === equiv[0]);
+    if (viaEquivalencia) return viaEquivalencia.name;
+  }
+  return '';
 }
 
 function lerarqRenderGrade() {
@@ -1929,7 +1953,23 @@ function lerarqEditarItem(di, ii, campo, valor) {
   const doc = lerarqGrade[di];
   if (!doc || !doc.itens || !doc.itens[ii]) return;
   if (campo === '_status') { doc._statusGrade[ii] = valor; return; }
-  doc.itens[ii][campo] = valor;
+  const item = doc.itens[ii];
+  // Item que não tinha casamento nenhum (nem exato, nem equivalência) e
+  // o usuário escolheu um serviço manualmente: ensina a equivalência pro
+  // contrato, pra próxima importação já casar sozinha — mesmo espírito
+  // do fluxo antigo "Importar PDF" ("a decisão não vale só pra esta
+  // leitura"). Só quando PREENCHE um vazio — trocar uma sugestão já
+  // existente por outra é correção pontual, não uma regra nova pro
+  // contrato (evita sobrescrever uma equivalência boa por engano).
+  if (campo === '_servicoSugerido' && !item._servicoSugerido && valor) {
+    const contrato = document.getElementById('imp-contrato')?.value;
+    if (contrato && item.servicoTexto) {
+      DB.saveEquivalencias(contrato, { [item.servicoTexto]: [valor] })
+        .then(() => showToast('💡 Equivalência salva — a próxima importação já casa sozinha', 4000))
+        .catch(() => {});   // falhar aqui não pode atrapalhar a edição em si
+    }
+  }
+  item[campo] = valor;
   // Só troca de serviço precisa redesenhar (muda a divergência de preço
   // mostrada). Qtd é 'oninput' — redesenhar a cada tecla tira o foco do
   // campo no meio da digitação (nunca dá pra digitar "15": o redesenho
