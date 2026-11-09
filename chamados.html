@@ -933,6 +933,15 @@ async function deleteChamado(id, btn) {
 }
 function updateStatus(id, status) {
   const c=chamados.find(x=>x.id===id); if(!c) return;
+  if (c.status === status) return; // nada mudou, não pede confirmação à toa
+  const label = STATUS_MAP[status]?.label || status;
+  // Troca de status grava no banco (e pode cancelar a O.S. ligada, no
+  // caso de "Cancelado") — por isso pede confirmação antes, não só nos
+  // casos já cobertos pelo alerta de duplicidade de TAG.
+  if (!confirm(`Confirma alterar o status deste chamado para "${label}"?`)) {
+    openDetail(id); // desfaz a seleção visual do <select>
+    return;
+  }
   const prev = c.status;
   c.status = status; // otimista
   safeLocalStorageSetJSON('chamados_list', chamados, { stripBinaries: true });
@@ -941,8 +950,12 @@ function updateStatus(id, status) {
     if(r?.chamado && c.status===status){c._version=r.chamado._version;}
     safeLocalStorageSetJSON('chamados_list', chamados, {stripBinaries:true});
     renderList();
+    // showToast substitui o texto na hora (sem fila) — só um dos dois,
+    // nunca os dois empilhados.
     if (r?.ordensCanceladas?.length) {
       showToast(`Chamado cancelado — O.S. ${r.ordensCanceladas.join(', ')} também cancelada`);
+    } else {
+      showToast(`✅ Status alterado para "${label}" com sucesso`);
     }
   }).catch(e => {
     if(c.status===status)c.status = prev; // não desfaz uma escolha mais recente

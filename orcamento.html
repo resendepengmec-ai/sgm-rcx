@@ -3141,6 +3141,7 @@ function confirmarSelecaoItens(id) {
 async function updateStatus(id, status, itensAprovados) {
   const q = quotes.find(x => x.id === id);
   if (!q) return;
+  if (q.status === status) return; // nada mudou, não pede confirmação à toa
 
   // Aprovação parcial exige dizer QUAIS itens. Sem isso a O.S. não sabe o
   // que mandar executar, e o faturamento não sabe o que cobrar. A tela de
@@ -3156,8 +3157,11 @@ async function updateStatus(id, status, itensAprovados) {
   // cria uma SEGUNDA O.S. pro mesmo equipamento. Só pergunta na aprovação
   // DE VERDADE (quando o servidor vai gerar O.S. nova — mesma condição
   // "!wasApproved" de PATCH /orcamentos/:id/status), não em toda troca.
+  // Esse confirm(), quando aparece, JÁ serve como a confirmação da troca
+  // de status (mais específico) — não pede duas vezes seguidas.
   const vaiAprovarAgora = (status === 'approved' || status === 'approved_partial') &&
     !['approved', 'approved_partial', 'executed', 'executed_partial'].includes(q.status);
+  let jaConfirmado = false;
   if (vaiAprovarAgora && q.equip) {
     try {
       const conflito = await DB.conflitoTagOS(q.client, q.equip, id);
@@ -3168,8 +3172,23 @@ async function updateStatus(id, status, itensAprovados) {
           `Aprovar este orçamento pode gerar uma SEGUNDA O.S. pro mesmo equipamento.\n\n` +
           `Confirma a aprovação mesmo assim?`);
         if (!confirma) { if (currentDetailId === id) openDetail(id); return; }
+        jaConfirmado = true;
       }
     } catch (e) { /* aviso auxiliar: falha de rede nunca impede a aprovação */ }
+  }
+
+  // Troca de status grava no banco (e pode criar/cancelar O.S.) — pede
+  // confirmação, salvo quando: o alerta de duplicidade acima já
+  // perguntou, OU quando itensAprovados já veio preenchido (a própria
+  // tela de seleção de itens, que chama updateStatus de volta, já É a
+  // confirmação explícita — perguntar de novo aqui seria uma segunda
+  // caixa de diálogo em cima da mesma ação).
+  if (!jaConfirmado && !itensAprovados) {
+    const label = IND_STATUS_LABEL[status] || status;
+    if (!confirm(`Confirma alterar o status deste orçamento para "${label}"?`)) {
+      if (currentDetailId === id) openDetail(id);
+      return;
+    }
   }
 
   const prev = q.status;
@@ -3179,17 +3198,26 @@ async function updateStatus(id, status, itensAprovados) {
   DB.updateOrcamentoStatus(id, status, itensAprovados).then(r => {
     // O servidor pode ter convertido "parcial" em "completo" (quando todos
     // os itens foram marcados). A tela segue o que ele decidiu.
+    let avisoEspecifico = false;
     if (r?.orcamento?.status && r.orcamento.status !== status) {
       q.status = r.orcamento.status;
       showToast('Todos os itens marcados — registrado como Aprovado completo');
+      avisoEspecifico = true;
     }
     if (r?.orcamento?.items) q.items = r.orcamento.items;
     safeLocalStorageSetJSON('orcamento_quotes', quotes, { stripBinaries: true });
     if ((status === 'approved' || status === 'approved_partial') && r?.ordem) {
       showToast(`✅ Orçamento aprovado — O.S. ${r.ordem.numero} disponível em Registro → O.S. Pendentes`);
+      avisoEspecifico = true;
     }
     if (r?.ordensCanceladas?.length) {
       showToast(`A O.S. ${r.ordensCanceladas.join(', ')} foi cancelada — o orçamento não está mais aprovado`);
+      avisoEspecifico = true;
+    }
+    // showToast substitui o texto na hora (sem fila) — só um aviso por
+    // vez; o genérico só aparece quando nenhum mais específico disparou.
+    if (!avisoEspecifico) {
+      showToast(`✅ Status alterado para "${IND_STATUS_LABEL[q.status] || q.status}" com sucesso`);
     }
     if (currentDetailId === id) openDetail(id);
   }).catch(e => {
