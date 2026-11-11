@@ -351,6 +351,8 @@ const _ACAO_FIXA = {
   aprovou_assinatura:    { icone: '✔️', rotulo: 'Assinatura aprovada' },
   rejeitou_assinatura:   { icone: '✕', rotulo: 'Assinatura recusada' },
   aceite_cliente:        { icone: '✍️', rotulo: 'Aceite do cliente' },
+  aceite_anulado:        { icone: '✕', rotulo: 'Aceite anulado (assinatura rejeitada)' },
+  cancelou_assinatura:   { icone: '✕', rotulo: 'Pedido de assinatura cancelado' },
 };
 const _ACAO_STATUS = {
   aberto: 'Aberto', andamento: 'Em andamento', resolvido: 'Resolvido', cancelado: 'Cancelado',
@@ -375,11 +377,12 @@ function _sigPapel(role) { return ROLES[role]?.label || role || '?'; }
 // terceiros, mas escapar custa nada e fecha a brecha por padrão).
 function sigTrailHtml(sigs) {
   if (!sigs || !sigs.length) return '';
-  const entries = sigs.map(s => {
+  const anulados = _aceitesAnulados(sigs);
+  const entries = sigs.map((s, i) => {
     const { icone } = _acaoInfo(s.action);
     const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     const hashCurto = (s.hash || '').slice(0, 6) || 'não verif.';
-    return `${icone} <strong>${esc(s.by_name || s.by || '?')}</strong> · ${esc(_sigPapel(s.role))} · ${dt} `
+    return `${icone} <strong>${esc(s.by_name || s.by || '?')}</strong>${anulados.has(i) ? ' <strong style="color:#b91c1c">(aceite anulado)</strong>' : ''} · ${esc(_sigPapel(s.role))} · ${dt} `
       + `<code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${esc(hashCurto)}]</code>`;
   });
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8;text-align:left">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
@@ -390,13 +393,55 @@ function sigTrailHtml(sigs) {
 // rótulo entre colchetes. Mesmo conteúdo (nome, papel, data, HMAC) da
 // versão de tela — só o estilo de apresentação muda. Devolve uma linha de
 // texto por assinatura; quem chama decide como quebrar/paginar.
+// ── Validação do aceite (registro.html e preventiva.html) ──────────
+// Evidências do aceite e alertas vindos do servidor (GET /pendentes): sem
+// isto quem valida não tinha como notar o técnico assinando no lugar do
+// tomador. Quem solicitou não aprova o próprio pedido (o servidor também
+// recusa); para ele só aparece Rejeitar.
+function valEvidenciaHtml(a) {
+  const ev = a.evidencia || {};
+  const alertas = (ev.alertas || []).map(t => `<div style="color:#b45309;font-weight:600">⚠ ${esc(t)}</div>`).join('');
+  const geo = ev.geo && Number.isFinite(ev.geo.lat)
+    ? `${ev.geo.lat.toFixed(5)}, ${ev.geo.lon.toFixed(5)} (${ev.geoSource === 'gps' ? 'GPS' : 'aproximada pelo IP'})` : 'não informada';
+  const ua = String(ev.ua || '—');
+  return `<div style="font-size:11px;color:var(--text-3);margin-top:8px;padding:8px;border-radius:8px;background:var(--bg);line-height:1.6">
+      ${alertas}
+      <div>IP do aceite: <code>${esc(ev.ip || '—')}</code> · Localização: ${esc(geo)}</div>
+      <div title="${esc(ua)}">Aparelho: ${esc(ua.length > 90 ? ua.slice(0, 90) + '…' : ua)}</div>
+    </div>`;
+}
+function valBotoesHtml(a) {
+  const id = esc(a.id);
+  const aprovar = a.solicitadoPorVoce
+    ? `<div style="flex:1;padding:10px;border:1px dashed var(--border);border-radius:8px;font-size:12px;color:var(--text-3);text-align:center">Você solicitou: outro supervisor aprova</div>`
+    : `<button onclick="_valAprovar('${id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer">✓ Aprovar (travar)</button>`;
+  return `<div style="display:flex;gap:8px;margin-top:10px">${aprovar}
+        <button onclick="_valRejeitar('${id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;cursor:pointer">✗ Rejeitar (reabrir)</button>
+      </div>`;
+}
+window.valEvidenciaHtml = valEvidenciaHtml;
+window.valBotoesHtml = valBotoesHtml;
+
+// Um "Aceite do cliente" seguido de "Aceite anulado" (antes de um novo
+// aceite) foi rejeitado pelo supervisor: o PDF marca como ANULADO, para
+// não parecer que o cliente aceitou um serviço que foi reaberto.
+function _aceitesAnulados(sigs) {
+  const anulados = new Set();
+  let ultimo = -1;
+  [...sigs].map((s, i) => ({ s, i })).sort((a, b) => (a.s.at || 0) - (b.s.at || 0)).forEach(({ s, i }) => {
+    if (s.action === 'aceite_cliente') ultimo = i;
+    else if (s.action === 'aceite_anulado' && ultimo >= 0) { anulados.add(ultimo); ultimo = -1; }
+  });
+  return anulados;
+}
 function sigTrailPdfLines(sigs) {
   if (!sigs || !sigs.length) return [];
-  return sigs.map(s => {
+  const anulados = _aceitesAnulados(sigs);
+  return sigs.map((s, i) => {
     const { rotulo } = _acaoInfo(s.action);
     const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     const hash = (s.hash || '').slice(0, 8) || 'não verificado';
-    return `[${rotulo}] ${s.by_name || s.by || '?'} · ${_sigPapel(s.role)} · ${dt} · HMAC ${hash}`;
+    return `[${rotulo}${anulados.has(i) ? ' — ANULADO' : ''}] ${s.by_name || s.by || '?'} · ${_sigPapel(s.role)} · ${dt} · HMAC ${hash}`;
   });
 }
 
@@ -1106,6 +1151,7 @@ const DB = {
   assinaturasPendentes:       () => API.get('/assinatura-cliente/pendentes'),
   aprovarAssinatura:          id => API.post(`/assinatura-cliente/${id}/aprovar`, {}),
   rejeitarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/rejeitar`, { motivo }),
+  cancelarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/cancelar`, { motivo }),
 
   // Laudos / relatórios de vistoria
   gerarLaudoTexto:    p     => API.post('/laudo/gerar-texto', p),

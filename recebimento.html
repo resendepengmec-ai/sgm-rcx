@@ -105,7 +105,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261005.1"></script>
+<script src="api-client.js?v=20261110.1"></script>
 <script>
 (async function() {
   // V13: a guarda lia o JWT sem verificar a assinatura — guardaDeModulo()
@@ -326,6 +326,7 @@ function renderListaRec(){
         <div class="rec-item-sub">Enviado para ${esc(a.responsavel?.nome||'—')} · ${(a.osIds?.length||0)+(a.preventivaRefs?.length||0)} item(ns)</div>
       </div>
       <span class="rec-badge pendente">⏳ Com o cliente</span>
+      ${_podeCancelarPedido(a) ? `<button onclick="_cancelarPedido('${esc(a.id)}')" style="margin-left:8px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:12px;cursor:pointer">Cancelar pedido</button>` : ''}
     </div>`).join('')]);
   if (aguardandoSupervisor.length) secoes.push(['Aguardando validação do supervisor', aguardandoSupervisor.map(a => `
     <div class="rec-item">
@@ -347,6 +348,24 @@ function renderListaRec(){
   alvo.innerHTML = secoes.length
     ? secoes.map(([tit,html]) => `<div class="rec-grupo-tit">${esc(tit)}</div>${html}`).join('')
     : '<div class="rec-empty">Nada pendente agora.</div>';
+}
+
+// Cancelar um pedido que o cliente ainda não assinou (link errado, tomador
+// errado): libera os itens na hora, sem esperar o link expirar (48 h).
+// Quem solicitou ou supervisor+; o servidor confere de novo.
+function _podeCancelarPedido(a){
+  const u = getCurrentUser() || {};
+  return String(a.solicitadoPor?.id||'') === String(u.id||'') || ['admin','admin_cliente','diretor','supervisor'].includes(u.role);
+}
+async function _cancelarPedido(id){
+  const motivo = prompt('Cancelar este pedido de assinatura? O link enviado deixa de funcionar. Motivo (opcional):');
+  if (motivo === null) return;
+  try{
+    await DB.cancelarAssinatura(id, motivo||'');
+    window._assinaturasCache = await DB.assinaturasCliente();
+    renderResumo(); renderListaRec();
+    showToast('Pedido cancelado — os itens voltaram para "Aguardando envio"');
+  }catch(e){ showToast('Erro: '+(e.message||e)); }
 }
 
 let _respCache = null;
