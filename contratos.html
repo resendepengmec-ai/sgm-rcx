@@ -170,6 +170,11 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           </label>
           <div style="font-size:12px;color:var(--text-3);margin-top:4px">Habilita, neste contrato, a coleta de assinatura do tomador de serviço do estabelecimento (recebimento do serviço).</div>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label for="f-whatsapp-confirmacao">WhatsApp de confirmação (opcional)</label>
+          <input id="f-whatsapp-confirmacao" type="text" inputmode="numeric" placeholder="Ex: (62) 99999-0000">
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Depois de assinar, o tomador envia por WhatsApp (do próprio celular) um código de confirmação para este número — o supervisor confere a mensagem antes de aprovar. Beta sem custo, sem integração automática.</div>
+        </div>
       </div>
     </div>
 
@@ -844,6 +849,7 @@ function openNewContract() {
   ['numero','razao','cnpj','tel','end','resp','email','inicio','fim','art','obs','resp-tec','crea']
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
   document.getElementById('f-assinatura-cliente').checked = false;
+  document.getElementById('f-whatsapp-confirmacao').value = '';
   document.getElementById('equip-preview').style.display = 'none';
   document.getElementById('docs-list').innerHTML = '';
   const box = document.getElementById('cliente-existente-box');
@@ -875,6 +881,7 @@ async function openEdit(id) {
   document.getElementById('f-crea').value   = c.crea||'';
   document.getElementById('f-obs').value    = c.obs||'';
   document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
+  document.getElementById('f-whatsapp-confirmacao').value = c.whatsappConfirmacao || '';
   if (pendingEquip.length) {
     document.getElementById('equip-count').textContent = pendingEquip.length;
     document.getElementById('equip-preview').style.display = '';
@@ -908,6 +915,7 @@ async function saveContract(btn) {
     crea:        document.getElementById('f-crea').value.trim(),
     obs:         document.getElementById('f-obs').value.trim(),
     assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
+    whatsappConfirmacao: document.getElementById('f-whatsapp-confirmacao').value.trim(),
     equipamentos: pendingEquip || [],
     documentos:   pendingDocs  || [],
     servicos:     pendingServicos || [],

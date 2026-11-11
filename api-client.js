@@ -410,16 +410,35 @@ function valEvidenciaHtml(a) {
       <div title="${esc(ua)}">Aparelho: ${esc(ua.length > 90 ? ua.slice(0, 90) + '…' : ua)}</div>
     </div>`;
 }
+// Confirmação por WhatsApp (beta sem custo, auditoria 2026-11): só aparece
+// quando o contrato tem um número cadastrado (ver aba Contratos). Sem API
+// do WhatsApp — o supervisor abre o próprio WhatsApp, confere a mensagem
+// do tomador contra o código mostrado aqui, e só então confirma.
+function valWhatsappHtml(a) {
+  const w = a.confirmacaoWhatsapp;
+  if (!w) return '';
+  if (w.confirmado) {
+    return `<div style="font-size:12px;color:#16a34a;font-weight:600;margin-top:8px">✓ WhatsApp confirmado${w.confirmadoPor?.nome ? ' por ' + esc(w.confirmadoPor.nome) : ''}</div>`;
+  }
+  return `<div style="font-size:12px;margin-top:8px;padding:8px;border-radius:8px;background:#fffbeb;color:#92400e">
+      Aguardando o código <strong>${esc(w.codigo)}</strong> no WhatsApp ${esc(w.numero)}.
+      <button onclick="_valConfirmarWhatsapp('${esc(a.id)}')" style="margin-left:6px;padding:4px 10px;border:none;border-radius:6px;background:#92400e;color:#fff;font-weight:700;cursor:pointer;font-size:11px">Confirmar recebida</button>
+    </div>`;
+}
 function valBotoesHtml(a) {
   const id = esc(a.id);
+  const whatsappPendente = a.confirmacaoWhatsapp && !a.confirmacaoWhatsapp.confirmado;
   const aprovar = a.solicitadoPorVoce
     ? `<div style="flex:1;padding:10px;border:1px dashed var(--border);border-radius:8px;font-size:12px;color:var(--text-3);text-align:center">Você solicitou: outro supervisor aprova</div>`
+    : whatsappPendente
+    ? `<div style="flex:1;padding:10px;border:1px dashed var(--border);border-radius:8px;font-size:12px;color:var(--text-3);text-align:center">Confirme o WhatsApp antes de aprovar</div>`
     : `<button onclick="_valAprovar('${id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#16a34a;color:#fff;font-weight:700;cursor:pointer">✓ Aprovar (travar)</button>`;
   return `<div style="display:flex;gap:8px;margin-top:10px">${aprovar}
         <button onclick="_valRejeitar('${id}')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#dc2626;color:#fff;font-weight:700;cursor:pointer">✗ Rejeitar (reabrir)</button>
       </div>`;
 }
 window.valEvidenciaHtml = valEvidenciaHtml;
+window.valWhatsappHtml = valWhatsappHtml;
 window.valBotoesHtml = valBotoesHtml;
 
 // Um "Aceite do cliente" seguido de "Aceite anulado" (antes de um novo
@@ -1152,6 +1171,7 @@ const DB = {
   aprovarAssinatura:          id => API.post(`/assinatura-cliente/${id}/aprovar`, {}),
   rejeitarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/rejeitar`, { motivo }),
   cancelarAssinatura:  (id,motivo) => API.post(`/assinatura-cliente/${id}/cancelar`, { motivo }),
+  confirmarWhatsapp:          id => API.post(`/assinatura-cliente/${id}/confirmar-whatsapp`, {}),
 
   // Laudos / relatórios de vistoria
   gerarLaudoTexto:    p     => API.post('/laudo/gerar-texto', p),

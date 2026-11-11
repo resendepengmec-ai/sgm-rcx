@@ -163,9 +163,20 @@
     .then(function(res){
       if(!res.ok || !res.j.ok){ var e=new Error((res.j&&res.j.error) || 'Falha ao assinar'); e.status=res.status; throw e; }
       var em = res.j.data && res.j.data.em ? new Date(res.j.data.em).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
+      var w = res.j.data && res.j.data.confirmacaoWhatsapp;
+      var waHtml = '';
+      if(w && w.numero && w.codigo){
+        var waLink = 'https://wa.me/55'+w.numero+'?text='+encodeURIComponent('Confirmação de recebimento: '+w.codigo);
+        waHtml = '<div class="card" style="text-align:left;margin-top:16px">'
+          + '<div class="lbl" style="margin-bottom:6px">Último passo: confirme por WhatsApp</div>'
+          + '<p style="font-size:13px;color:var(--text-2);margin:0 0 10px">Envie, do seu próprio celular, o código <strong>'+esc(w.codigo)+'</strong> para o WhatsApp da empresa. Isso confirma que foi você mesmo quem assinou.</p>'
+          + '<a href="'+esc(waLink)+'" target="_blank" rel="noopener" class="btn btn-primary" style="display:block;text-decoration:none;box-sizing:border-box">Abrir WhatsApp e enviar o código</a>'
+          + '</div>';
+      }
       root.innerHTML = '<div class="msg"><div class="ico">✅</div><h2>Recebimento assinado!</h2>'
         + '<p>Obrigado, '+esc(data.responsavelNome||'')+'.<br>Registrado em '+esc(em)+'.</p>'
-        + '<p style="margin-top:10px;font-size:13px">A empresa foi notificada. Você já pode fechar esta página.</p></div>';
+        + '<p style="margin-top:10px;font-size:13px">A empresa foi notificada. '+(w?'':'Você já pode fechar esta página.')+'</p></div>'
+        + waHtml;
     }).catch(function(e){
       btn.disabled=false; btn.textContent='Confirmar recebimento e assinar';
       // 403 (CPF não corresponde) e 429 (tentativas excedidas) aparecem
