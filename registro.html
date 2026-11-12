@@ -184,6 +184,11 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
       <div id="new-items-list" style="margin-bottom:8px"></div>
     </div>
 
+    <div class="field" id="field-queixa-avaliacao" style="display:none">
+      <label for="f-queixa-avaliacao">Avaliação da queixa (opcional)</label>
+      <textarea id="f-queixa-avaliacao" rows="2" placeholder="O que foi encontrado procede com a queixa relatada? (opcional)"></textarea>
+    </div>
+
     <div class="field">
       <label for="f-notes">Observações</label>
       <textarea id="f-notes" rows="3" placeholder="Observações do serviço…"></textarea>
@@ -1097,6 +1102,9 @@ function startNew() {
   lockOSFields(false); // "+novo" é avulso: contrato e TAG livres
   document.getElementById('os-link-banner')?.remove();
   document.getElementById('os-checklist-box')?.remove();
+  document.getElementById('queixa-balao')?.remove();
+  document.getElementById('field-queixa-avaliacao').style.display = 'none';
+  document.getElementById('f-queixa-avaliacao').value = '';
   const clientSelR = document.getElementById('f-client');
   if (!clientSelR.disabled) clientSelR.value = ''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value = '';
@@ -1201,6 +1209,7 @@ function saveRecord(btn) {
     dateSolic: document.getElementById('f-date-sol').value || '',
     tech: document.getElementById('f-tech').value,
     notes: document.getElementById('f-notes').value,
+    queixaAvaliacao: document.getElementById('f-queixa-avaliacao').value || '',
     items: newItems,
     photos: newPhotos,
     // Campos normalizados para integração com relatório
@@ -1239,6 +1248,8 @@ function saveRecord(btn) {
       window._currentOSId = null;
       document.getElementById('os-link-banner')?.remove();
       document.getElementById('os-checklist-box')?.remove();
+      document.getElementById('queixa-balao')?.remove();
+      document.getElementById('field-queixa-avaliacao').style.display = 'none';
     }
     updateOSBadge();
     editingId = null; pendingRecordId = null; newItems = []; newPhotos = [];
@@ -1263,6 +1274,12 @@ function editRecord(id) {
   document.getElementById('f-date-sol').value = r.dateSolic || '';
   document.getElementById('f-tech').value = r.tech || '';
   document.getElementById('f-notes').value = r.notes || '';
+  document.getElementById('f-queixa-avaliacao').value = r.queixaAvaliacao || '';
+  // Sem O.S. ligada nesta edição não há balão (a queixa original só é
+  // buscada ao iniciar a partir de uma O.S.) — mas se já existe uma
+  // avaliação salva, o campo continua visível pra não desaparecer dado
+  // já preenchido.
+  document.getElementById('field-queixa-avaliacao').style.display = r.queixaAvaliacao ? '' : 'none';
   if (r.machine) showMachineInfo(r.machine); else hideMachineInfo();
   checarRecorrenciaMes();
   renderNewItems();
@@ -1778,6 +1795,7 @@ function openDetail(id){
       <div style="font-size:13px;color:var(--text-3);margin-top:4px">🗓️ Solicitação: ${r.dateSolic||'—'} · ✅ Execução: ${r.date||'—'}${(()=>{const p=prazoDias(r);return p===null?'':' · ⏱️ '+fmtDias(p);})()}${r.tech?' · 👷 '+esc(r.tech):''}</div>
     </div>
     <div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${svcList}</div>
+    ${r.queixaAvaliacao?`<div style="font-size:13px;background:#fefce8;border:1px solid #fde047;border-radius:8px;padding:10px;color:#713f12;margin-bottom:8px"><strong>Avaliação da queixa:</strong> ${esc(r.queixaAvaliacao)}</div>`:''}
     ${r.notes?`<div style="font-size:13px;background:var(--bg);border-radius:8px;padding:10px;color:var(--text-2);margin-bottom:8px">${esc(r.notes)}</div>`:''}
     ${photos}
     ${addPhotoBtn}`;
@@ -1996,8 +2014,24 @@ async function printPDF(id){
   });
 
   y+=6;
+  // Avaliação da queixa original do chamado (Etapa 6) — mesmo visual
+  // amarelo do balão na tela, pra ficar claro que é sobre a queixa, não
+  // uma observação qualquer do serviço.
+  if (r.queixaAvaliacao) {
+    if (y>245) { doc.addPage(); y=M; }
+    doc.setFillColor(254,249,195);
+    const ql = doc.splitTextToSize(r.queixaAvaliacao, CW-8);
+    const qh = ql.length*5+10;
+    doc.rect(M,y,CW,qh,'F');
+    doc.setTextColor(133,77,14);doc.setFont('helvetica','bold');doc.setFontSize(10);
+    doc.text('AVALIAÇÃO DA QUEIXA',M+4,y+6);
+    doc.setFont('helvetica','normal');doc.setTextColor(50,50,50);doc.setFontSize(12);
+    doc.text(ql,M+4,y+12);
+    y+=qh+8;
+  }
   // Notes
   if(r.notes){
+    if (y>245) { doc.addPage(); y=M; }
     doc.setFillColor(255,251,235);
     const nl = doc.splitTextToSize(r.notes, CW-8);
     const nh = nl.length*5+10;
@@ -2490,10 +2524,31 @@ function iniciarRegistroOS(osId) {
     banner.id = 'os-link-banner';
     banner.style.cssText = 'background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 14px;margin:0 12px 14px;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:8px';
     banner.innerHTML = `📋 <strong>O.S. ${os.numero}</strong> · TAG ${os.tag||os.equip||'—'} · Chamado ${os.chamadoId}
-      <button onclick="document.getElementById('os-link-banner').remove();document.getElementById('os-checklist-box')?.remove();window._currentOSId=null;showToast('Vínculo com O.S. removido')"
+      <button onclick="document.getElementById('os-link-banner').remove();document.getElementById('os-checklist-box')?.remove();document.getElementById('queixa-balao')?.remove();document.getElementById('field-queixa-avaliacao').style.display='none';window._currentOSId=null;showToast('Vínculo com O.S. removido')"
         style="margin-left:auto;background:none;border:none;color:#1e40af;cursor:pointer;font-size:16px">✕</button>`;
     const form = document.getElementById('screen-new');
     if (form) { const first = form.firstChild; form.insertBefore(banner, first); }
+
+    // Balão com a queixa original do chamado — o técnico vê o que foi
+    // relatado antes de começar a execução, sem precisar abrir o chamado
+    // em outra tela. Mostrado só quando há queixa de verdade pra exibir.
+    let balao = document.getElementById('queixa-balao');
+    if (balao) balao.remove();
+    const queixaTexto = os.chamadoDesc || os.desc || '';
+    const campoAvaliacao = document.getElementById('field-queixa-avaliacao');
+    if (queixaTexto) {
+      balao = document.createElement('div');
+      balao.id = 'queixa-balao';
+      balao.style.cssText = 'position:relative;background:#fef9c3;border:1px solid #fde047;border-radius:14px;padding:12px 14px;margin:0 12px 18px;font-size:13px;color:#713f12';
+      balao.innerHTML = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#854d0e;margin-bottom:4px">💬 Queixa original do chamado</div>
+        <div>${esc(queixaTexto)}</div>
+        <div style="position:absolute;bottom:-8px;left:20px;width:16px;height:16px;background:#fef9c3;border:1px solid #fde047;border-top:none;border-right:none;transform:rotate(-45deg)"></div>`;
+      if (form) form.insertBefore(balao, banner.nextSibling);
+      if (campoAvaliacao) campoAvaliacao.style.display = '';
+    } else if (campoAvaliacao) {
+      campoAvaliacao.style.display = 'none';
+    }
+
     showToast(`O.S. ${os.numero} vinculada ao registro`);
   }, 100);
 }
