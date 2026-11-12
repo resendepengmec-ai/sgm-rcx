@@ -460,6 +460,24 @@ function drawPdfFooters(doc, cont) {
     doc.setTextColor(0,0,0);
   }
 }
+// Bloco de assinaturas das fotos no PDF: uma linha por foto assinada, com
+// autor, perfil, data/hora e o HMAC (+ keyId) — mesmo formato de
+// registro.html. Foto de chamado nunca tem geo (carimbo de localização),
+// só a assinatura. Devolve o novo y.
+function _pdfPhotoSigs(doc, photos, M, y) {
+  const ps = (photos||[]).filter(p=>p&&p.sig);
+  if (!ps.length) return y;
+  if (y > 272) { doc.addPage(); y = M; }
+  doc.setFontSize(7); doc.setFont('helvetica','normal'); doc.setTextColor(120,120,120);
+  (photos||[]).forEach((p, idx) => {
+    if (!p || !p.sig) return;
+    const dt = new Date(p.sig.at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+    doc.text(`Foto ${idx+1} — assinada por ${p.sig.by||'?'} (${p.sig.role||''}) · ${dt} · HMAC ${(p.sig.hash||'').slice(0,8)} [${p.sig.keyId||'legacy'}]`, M, y);
+    y += 4;
+  });
+  doc.setTextColor(0,0,0);
+  return y + 2;
+}
 let ordensCache = safeLocalStorageGetJSON('smm_ordens_servico', []);
 function loadOrdens() {
   DB.getOrdens().then(list => {
@@ -1435,6 +1453,7 @@ async function printPDF(id){
         else try{doc.addImage(prep.bytes,'JPEG',px,py,imgW,imgH);}catch(e){}
       });
       y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+      y = _pdfPhotoSigs(doc, c.photos, M, y);
       sessao.etapaSaida(1);
     } finally { await sessao.finalizar(); }
     if (falhas>0) showToast(`⚠️ ${falhas} foto(s) não puderam ser incluídas (rede ou formato não suportado).`, 9000);
@@ -1634,6 +1653,7 @@ async function printFilteredPDF(){
         else try{doc.addImage(prep.bytes,'JPEG',px,py,imgW,imgH);}catch(e){}
       });
       y+=Math.ceil(c.photos.length/cols)*(imgH+4)+4;
+      y = _pdfPhotoSigs(doc, c.photos, M, y);
     }
   }
 
