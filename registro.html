@@ -547,6 +547,24 @@ const fmt = d => new Date(d).toLocaleDateString('pt-BR');
 const fmtDataCurta = d => d ? new Date(d+'T12:00:00').toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}) : '—';
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 const today = () => new Date().toISOString().slice(0,10);
+// Etapa 3: today() é o relógio do DISPOSITIVO (UTC) — preenche o campo na
+// hora pra não travar a abertura do formulário, mas pode divergir do "hoje"
+// de verdade em America/Sao_Paulo perto da virada do dia (e o servidor só
+// aceita a data dele sem motivo). Corrige em background com o valor do
+// servidor, e só se o campo ainda tiver o valor-padrão que ESTE preenchimento
+// pôs (não pisa numa edição do usuário nem numa data herdada do chamado).
+function corrigirDataExecucaoComServidor(valorDispositivo, { incluirSolicitacao = false } = {}) {
+  DB.getTempo().then(r => {
+    const hoje = r?.hoje;
+    if (!hoje || hoje === valorDispositivo) return;
+    const dateInput = document.getElementById('f-date');
+    if (dateInput && dateInput.value === valorDispositivo) dateInput.value = hoje;
+    if (incluirSolicitacao) {
+      const solInput = document.getElementById('f-date-sol');
+      if (solInput && solInput.value === valorDispositivo) solInput.value = hoje;
+    }
+  }).catch(()=>{});
+}
 
 // ── Navigation ──
 function switchTab(tab) {
@@ -1082,8 +1100,10 @@ function startNew() {
   const clientSelR = document.getElementById('f-client');
   if (!clientSelR.disabled) clientSelR.value = ''; // não zera se travado num único contrato permitido
   document.getElementById('f-equip').value = '';
-  document.getElementById('f-date').value = today();
-  document.getElementById('f-date-sol').value = today();
+  const valorHojeDispositivo = today();
+  document.getElementById('f-date').value = valorHojeDispositivo;
+  document.getElementById('f-date-sol').value = valorHojeDispositivo;
+  corrigirDataExecucaoComServidor(valorHojeDispositivo, { incluirSolicitacao: true });
   document.getElementById('f-tech').value = settings.defaultTech || '';
   document.getElementById('f-notes').value = '';
   resetRecorrenciaMes();
@@ -2398,9 +2418,12 @@ function iniciarRegistroOS(osId) {
     // Contrato e TAG vêm da O.S. → travados (herdados)
     lockOSFields(true);
 
-    // Data de execução: hoje (dispositivo/servidor)
+    // Data de execução: hoje (dispositivo logo de cara; servidor corrige
+    // em background — ver corrigirDataExecucaoComServidor)
     const dateInput = document.getElementById('f-date');
-    if (dateInput) dateInput.value = today();
+    const valorHojeDispositivo = today();
+    if (dateInput) dateInput.value = valorHojeDispositivo;
+    corrigirDataExecucaoComServidor(valorHojeDispositivo);
 
     // Data de solicitação: herda a data lançada no CHAMADO que originou a O.S.
     // (fallback: data de criação da O.S.; por fim, hoje).

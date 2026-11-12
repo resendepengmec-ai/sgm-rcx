@@ -1213,6 +1213,10 @@ const DB = {
     + (excluirId ? `&excluirId=${encodeURIComponent(excluirId)}` : ''),
     undefined, { signal }),
 
+  // Relógio do servidor (Etapa 3) — now (epoch) e hoje (YYYY-MM-DD,
+  // America/Sao_Paulo). Fonte de verdade da data de execução do registro.
+  getTempo:           ()    => API.get('/tempo'),
+
   // Ordens de serviço
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),
