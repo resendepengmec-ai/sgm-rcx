@@ -372,6 +372,15 @@ function _acaoInfo(action) {
 // painel admin.
 function _sigPapel(role) { return ROLES[role]?.label || role || '?'; }
 
+// Rótulo de data/hora de um instante (epoch ms) fixo em America/Sao_Paulo —
+// o relógio do dispositivo de quem está OLHANDO a tela não deve mudar o
+// horário mostrado de uma assinatura ou foto: duas pessoas em fusos
+// diferentes têm que ver exatamente o mesmo horário de Brasília.
+function fmtDataHoraBR(epochMs, opts) {
+  return new Date(epochMs).toLocaleString('pt-BR',
+    { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', ...opts });
+}
+
 // Pra tela — mesmo HTML/visual de sempre, só que escapado (nome/papel vêm
 // do usuário autenticado no momento de assinar, nunca de entrada livre de
 // terceiros, mas escapar custa nada e fecha a brecha por padrão).
@@ -380,7 +389,7 @@ function sigTrailHtml(sigs) {
   const anulados = _aceitesAnulados(sigs);
   const entries = sigs.map((s, i) => {
     const { icone } = _acaoInfo(s.action);
-    const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const dt = fmtDataHoraBR(s.at);
     const hashCurto = (s.hash || '').slice(0, 6) || 'não verif.';
     return `${icone} <strong>${esc(s.by_name || s.by || '?')}</strong>${anulados.has(i) ? ' <strong style="color:#b91c1c">(aceite anulado)</strong>' : ''} · ${esc(_sigPapel(s.role))} · ${dt} `
       + `<code style="font-family:monospace;font-size:10px;background:#fff;border:1px solid #e2e8f0;border-radius:3px;padding:0 3px;color:#94a3b8">[${esc(hashCurto)}]</code>`;
@@ -458,7 +467,7 @@ function sigTrailPdfLines(sigs) {
   const anulados = _aceitesAnulados(sigs);
   return sigs.map((s, i) => {
     const { rotulo } = _acaoInfo(s.action);
-    const dt = new Date(s.at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const dt = fmtDataHoraBR(s.at);
     const hash = (s.hash || '').slice(0, 8) || 'não verificado';
     return `[${rotulo}${anulados.has(i) ? ' — ANULADO' : ''}] ${s.by_name || s.by || '?'} · ${_sigPapel(s.role)} · ${dt} · HMAC ${hash}`;
   });
@@ -1427,8 +1436,7 @@ function renderSignatures(sigs) {
       if(s.offline) return '<span class="sig-entry">⏳ Assinatura pendente de confirmação no servidor</span>';
       const icon = SIG_ICONS[s.action] || '•';
       const role = SIG_ROLES[s.role]   || s.role;
-      const dt   = new Date(s.at).toLocaleString('pt-BR',
-        {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+      const dt   = fmtDataHoraBR(s.at);
       const hash = (s.hash||'').slice(0,6);
       // V11: `by_name` vem de signatures.by_name — que, para aceites de
       // cliente, é o nome do responsável digitado por um técnico em campo.
