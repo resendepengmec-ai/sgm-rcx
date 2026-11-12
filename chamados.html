@@ -197,7 +197,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 </div>
 
 <!-- ── NEW/EDIT ── -->
-<div id="screen-new" class="screen">
+<div id="screen-new" class="screen" onpaste="handlePaste(event)">
   <div class="card" style="margin:12px">
     <div class="card-title">Novo chamado</div>
 
@@ -261,7 +261,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label>Fotos <span id="photo-badge" style="display:none;background:var(--success);color:#fff;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;margin-left:6px">0</span> (até 3, comprimidas automaticamente)</label>
-      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" onpaste="handlePaste(event)" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('photo-input').click()}">
+      <div id="photo-area" ondrop="handleDrop(event)" ondragover="event.preventDefault(); this.classList.add('drag')" ondragleave="this.classList.remove('drag')" style="border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer" onclick="document.getElementById('photo-input').click()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('photo-input').click()}">
         <input type="file" id="photo-input" accept="image/*" multiple style="display:none" onchange="handlePhotoInput(event)">
         <div style="font-size:24px">📷</div>
         <div style="font-size:12px;color:var(--text-3);margin-top:4px">Toque para adicionar, arraste ou cole (Ctrl+V)</div>
@@ -1125,8 +1125,12 @@ function persist(record) {
 // ── Photos ──
 function handlePhotoInput(e){ addPhotos(Array.from(e.target.files)); e.target.value=''; }
 function handleDrop(e){ e.preventDefault(); document.getElementById('photo-area').classList.remove('drag'); addPhotos(Array.from(e.dataTransfer.files)); }
-// Cola uma imagem da área de transferência (ex.: print screen). Sem
-// imagem no clipboard, deixa o paste normal (texto num campo) seguir.
+// Cola uma imagem da área de transferência (ex.: print screen). Ligado no
+// container da tela (#screen-new), não só em #photo-area: focar a área de
+// foto só dá pra fazer via Tab, já que clicar nela abre o seletor de
+// arquivo — colar funciona de qualquer campo da tela, igual o texto de
+// ajuda promete. Sem imagem no clipboard, deixa o paste normal (texto num
+// campo) seguir.
 function handlePaste(e) {
   const arquivos = Array.from(e.clipboardData?.files || []);
   if (!arquivos.length) return;
@@ -1142,12 +1146,18 @@ function selecionarFotosParaAdicionar(files, quantidadeAtual, max = 3) {
   const vagas = Math.max(0, max - quantidadeAtual);
   return { aceitas: imagens.slice(0, vagas), ignoradas: imagens.length - Math.min(imagens.length, vagas) };
 }
+// fotosPendentes: fotos já aceitas mas ainda sendo lidas/comprimidas (async).
+// Sem isso, dois addPhotos() quase simultâneos (ex.: colar duas vezes rápido,
+// ou dois drops em sequência) veem o mesmo newPhotos.length desatualizado e
+// os dois podem aceitar foto, passando do limite de 3.
+let fotosPendentes = 0;
 function addPhotos(files) {
   const MAX_PX = 800;
-  const quantidadeAtual = (newPhotos||[]).length;
+  const quantidadeAtual = (newPhotos||[]).length + fotosPendentes;
   const { aceitas: toAdd, ignoradas } = selecionarFotosParaAdicionar(files, quantidadeAtual, 3);
   if (!toAdd.length) { if (quantidadeAtual >= 3) showToast('Máximo de 3 fotos por registro'); return; }
   if (ignoradas > 0) showToast('Limite de 3 fotos — algumas ignoradas');
+  fotosPendentes += toAdd.length;
   toAdd.forEach(file => {
     const r = new FileReader();
     r.onload = ev => {
@@ -1162,11 +1172,14 @@ function addPhotos(files) {
         canvas.width=w; canvas.height=h;
         canvas.getContext('2d').drawImage(img,0,0,w,h);
         newPhotos.push({ dataUrl:canvas.toDataURL('image/jpeg',0.75), name:file.name });
+        fotosPendentes--;
         renderPhotoGrid();
         showToast(`📷 Foto ${newPhotos.length} de 3 adicionada`);
       };
+      img.onerror = () => { fotosPendentes--; showToast('Não foi possível ler esta imagem'); };
       img.src = ev.target.result;
     };
+    r.onerror = () => { fotosPendentes--; showToast('Não foi possível ler este arquivo'); };
     r.readAsDataURL(file);
   });
 }
