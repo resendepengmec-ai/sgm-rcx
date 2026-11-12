@@ -250,7 +250,13 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 
     <div class="field">
       <label for="f-desc">Descrição do problema *</label>
-      <textarea id="f-desc" required rows="4" placeholder="Descreva o problema encontrado…"></textarea>
+      <textarea id="f-desc" required rows="4" placeholder="Descreva o problema encontrado…" oninput="onDescInput()"></textarea>
+      <div id="desc-suggestions" style="display:none;background:#fff;border:1px solid var(--border);border-radius:6px;margin-top:4px;max-height:200px;overflow:auto;position:relative;z-index:10"></div>
+      <div style="margin-top:6px;display:flex;align-items:center;gap:10px">
+        <button type="button" id="btn-salvar-texto-padrao" onclick="salvarComoTextoPadrao()" style="display:none;background:none;border:none;color:var(--primary);font-size:12px;cursor:pointer;padding:0">💾 Sugerir como texto padrão</button>
+        <button type="button" id="btn-textos-pendentes" onclick="abrirTextosPendentes()" style="display:none;background:none;border:none;color:var(--primary);font-size:12px;cursor:pointer;padding:0">📝 Revisar sugestões pendentes</button>
+      </div>
+      <div id="textos-pendentes-box" style="display:none;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px"></div>
     </div>
 
     <div class="field">
@@ -478,6 +484,112 @@ function _pdfPhotoSigs(doc, photos, M, y) {
   doc.setTextColor(0,0,0);
   return y + 2;
 }
+// ── Textos padrão sugeridos pra descrição (Etapa 7) ─────────────────
+// Autocomplete alimentado só pelos APROVADOS; propor e revisar pendentes
+// são ações de quem tem permissão (checado também no servidor — isto
+// aqui só evita mostrar um botão que vai dar 403).
+const PODE_PROPOR_TEXTO_PADRAO = ['admin','admin_cliente','diretor','supervisor','gestor','tecnico'];
+const PODE_APROVAR_TEXTO_PADRAO = ['admin','admin_cliente','diretor','supervisor','gestor'];
+let textosPadraoCache = { contrato: null, lista: [] };
+let descTimeout = null;
+
+function atualizarBotoesTextoPadrao() {
+  const role = getCurrentUser()?.role;
+  const btnSalvar = document.getElementById('btn-salvar-texto-padrao');
+  const btnPendentes = document.getElementById('btn-textos-pendentes');
+  if (btnSalvar) btnSalvar.style.display = PODE_PROPOR_TEXTO_PADRAO.includes(role) ? '' : 'none';
+  if (btnPendentes) btnPendentes.style.display = PODE_APROVAR_TEXTO_PADRAO.includes(role) ? '' : 'none';
+}
+
+function carregarTextosPadrao(contrato) {
+  if (!contrato) return Promise.resolve([]);
+  if (textosPadraoCache.contrato === contrato) return Promise.resolve(textosPadraoCache.lista);
+  return DB.getTextosPadraoChamado(contrato).then(lista => {
+    textosPadraoCache = { contrato, lista: lista || [] };
+    return textosPadraoCache.lista;
+  }).catch(() => []);
+}
+
+// Função pura: dada a lista carregada e o que foi digitado, decide quais
+// sugestões aparecem — sem tocar DOM/rede, pra dar pra testar sozinha.
+function filtrarTextosPadrao(lista, consulta, limite = 5) {
+  const alvo = (consulta || '').trim().toLowerCase();
+  if (!alvo) return [];
+  return (lista || []).filter(t => t && typeof t.texto === 'string' && t.texto.toLowerCase().includes(alvo)).slice(0, limite);
+}
+
+function onDescInput() {
+  clearTimeout(descTimeout);
+  const box = document.getElementById('desc-suggestions');
+  const contrato = document.getElementById('f-client').value;
+  const valor = document.getElementById('f-desc').value.trim();
+  if (!contrato || valor.length < 2) { box.style.display = 'none'; return; }
+  descTimeout = setTimeout(() => {
+    carregarTextosPadrao(contrato).then(lista => {
+      const valorAtual = document.getElementById('f-desc').value.trim();
+      if (valorAtual !== valor) return; // usuário já digitou mais — resultado velho, descarta
+      const casados = filtrarTextosPadrao(lista, valor, 5);
+      if (!casados.length) { box.style.display = 'none'; return; }
+      box.innerHTML = casados.map(t =>
+        `<div class="desc-sug-item" data-texto="${esc(t.texto)}" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='#fff'">${esc(t.texto)}</div>`
+      ).join('');
+      box.querySelectorAll('.desc-sug-item').forEach(el => {
+        el.onclick = () => { document.getElementById('f-desc').value = el.dataset.texto; box.style.display = 'none'; };
+      });
+      box.style.display = 'block';
+    });
+  }, 150);
+}
+
+function salvarComoTextoPadrao() {
+  const contrato = document.getElementById('f-client').value;
+  const texto = document.getElementById('f-desc').value.trim();
+  if (!contrato) { showToast('Selecione um contrato primeiro'); return; }
+  if (!texto) { showToast('Escreva a descrição primeiro'); return; }
+  DB.proporTextoPadraoChamado(contrato, texto).then(() => {
+    showToast('📝 Enviado para aprovação de um gestor');
+  }).catch(e => showToast('Erro ao enviar sugestão: ' + e.message));
+}
+
+function abrirTextosPendentes() {
+  const contrato = document.getElementById('f-client').value;
+  const box = document.getElementById('textos-pendentes-box');
+  if (!contrato) { showToast('Selecione um contrato primeiro'); return; }
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  DB.getTextosPadraoPendentes(contrato).then(lista => renderTextosPendentes(lista || [])).catch(e => showToast('Erro: ' + e.message));
+}
+
+function renderTextosPendentes(lista) {
+  const box = document.getElementById('textos-pendentes-box');
+  if (!lista.length) {
+    box.innerHTML = `<div style="font-size:13px;color:var(--text-3)">Nenhuma sugestão pendente neste contrato.</div>`;
+    box.style.display = '';
+    return;
+  }
+  box.innerHTML = lista.map(t => `
+    <div class="texto-pendente-item" data-id="${esc(t.id)}" style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1;font-size:13px">${esc(t.texto)}<div style="font-size:11px;color:var(--text-3)">sugerido por ${esc(t.criadoPorNome||'—')}</div></div>
+      <button type="button" class="btn-aprovar-texto" style="background:var(--success);color:#fff;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✓</button>
+      <button type="button" class="btn-rejeitar-texto" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer">✕</button>
+    </div>`).join('');
+  box.querySelectorAll('.texto-pendente-item').forEach(item => {
+    const id = item.dataset.id;
+    item.querySelector('.btn-aprovar-texto').onclick = () => decidirTextoPendente(id, 'aprovar');
+    item.querySelector('.btn-rejeitar-texto').onclick = () => decidirTextoPendente(id, 'rejeitar');
+  });
+  box.style.display = '';
+}
+
+function decidirTextoPendente(id, acao) {
+  const contrato = document.getElementById('f-client').value;
+  const chamada = acao === 'aprovar' ? DB.aprovarTextoPadraoChamado(id) : DB.rejeitarTextoPadraoChamado(id);
+  chamada.then(() => {
+    showToast(acao === 'aprovar' ? '✓ Sugestão aprovada' : 'Sugestão rejeitada');
+    textosPadraoCache = { contrato: null, lista: [] }; // força recarregar o autocomplete
+    return DB.getTextosPadraoPendentes(contrato);
+  }).then(lista => renderTextosPendentes(lista || [])).catch(e => showToast('Erro: ' + e.message));
+}
+
 let ordensCache = safeLocalStorageGetJSON('smm_ordens_servico', []);
 function loadOrdens() {
   DB.getOrdens().then(list => {
@@ -863,6 +975,9 @@ function startNew() {
   document.getElementById('f-priority').value='normal';
   document.getElementById('f-requester').value='';
   document.getElementById('f-desc').value='';
+  document.getElementById('desc-suggestions').style.display='none';
+  document.getElementById('textos-pendentes-box').style.display='none';
+  atualizarBotoesTextoPadrao();
   hideMachineInfo(); esconderRecorrencia(); esconderConflitoTagOS(); renderPhotoGrid(); switchTab('new');
 }
 function cancelNew() { switchTab('list'); }
@@ -931,6 +1046,9 @@ function editChamado(id) {
   document.getElementById('f-requester').value=c.requester||'';
   document.getElementById('f-desc').value=c.desc||'';
   if (c.machine) showMachineInfo(c.machine); else hideMachineInfo();
+  document.getElementById('desc-suggestions').style.display='none';
+  document.getElementById('textos-pendentes-box').style.display='none';
+  atualizarBotoesTextoPadrao();
   renderPhotoGrid(); switchTab('new');
   document.querySelector('#screen-new .btn-primary').innerHTML='💾 Salvar alterações';
 }

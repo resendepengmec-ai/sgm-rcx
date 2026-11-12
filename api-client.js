@@ -1217,6 +1217,13 @@ const DB = {
   // America/Sao_Paulo). Fonte de verdade da data de execução do registro.
   getTempo:           ()    => API.get('/tempo'),
 
+  // Textos padrão sugeridos pro campo descrição do chamado (Etapa 7).
+  getTextosPadraoChamado:    (contrato) => API.get(`/textos-padrao-chamado?contrato=${encodeURIComponent(contrato)}`),
+  getTextosPadraoPendentes:  (contrato) => API.get(`/textos-padrao-chamado?contrato=${encodeURIComponent(contrato)}&status=pendente`),
+  proporTextoPadraoChamado:  (contrato, texto) => API.post('/textos-padrao-chamado', { contrato, texto }),
+  aprovarTextoPadraoChamado: (id) => API.patch(`/textos-padrao-chamado/${id}/aprovar`, {}),
+  rejeitarTextoPadraoChamado:(id) => API.patch(`/textos-padrao-chamado/${id}/rejeitar`, {}),
+
   // Ordens de serviço
   getOrdens:          ()    => API.get('/ordens-servico'),
   getOrdensByChamado: id    => API.get(`/ordens-servico/chamado/${id}`),
