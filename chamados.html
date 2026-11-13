@@ -187,7 +187,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
   </div>
   <div style="padding:12px">
-    <div id="chamados-list"></div>
+    <div id="chamados-list" class="card-list"></div>
     <div id="chamados-empty" class="empty" style="display:none">
       <span class="empty-icon">🔔</span>
       <h3>Nenhum chamado encontrado</h3>
@@ -938,26 +938,36 @@ function renderList() {
     if (month!==lastMonth) {
       lastMonth=month;
       const ml = month ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'Sem data';
-      header=`<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${ml}</div>`;
+      header=`<div class="card-group">${ml}</div>`;
     }
     const thumb = c.photos&&c.photos[0]
-      ? `<div class="cc-thumb"><img ${fotoAttrs(c.photos[0])} alt="foto"></div>`
-      : `<div class="cc-thumb">📷</div>`;
-    return header + `<div class="chamado-card" onclick="openDetail('${esc(c.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${esc(c.id)}')}">
-      <div class="cc-bar ${p.bar}"></div>
+      ? `<div class="card-thumb"><img ${fotoAttrs(c.photos[0])} alt="foto"></div>`
+      : `<div class="card-thumb" aria-hidden="true">📷</div>`;
+    const nFotos = c.photoCount ?? c.photos?.length ?? 0;
+    const local = [c.machine?.estabelecimento, c.machine?.recinto].filter(Boolean);
+    return header + `<div class="lcard acc-${p.bar}" onclick="openDetail('${esc(c.id)}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${esc(c.id)}')}">
+     <div class="lcard-grid">
       ${thumb}
-      <div class="cc-info">
-        <div class="cc-title">${esc(c.id)} · <span class="chip-tag">${esc(c.equip||'—')}</span>${selo(c)}${seloTriagem(c)}</div>
-        <div class="cc-meta">Contrato ${esc(c.client)} · <span class="chip-data">${fmtDate(c.date)}</span>${c.requester?' · '+esc(c.requester):''}</div>
-        ${c.machine?`<div class="cc-meta" style="color:var(--text-3)">${esc(c.machine.estabelecimento)} · ${esc(c.machine.recinto)}</div>`:''}
-        <div class="cc-desc">${esc(c.desc)}</div>
+      <div class="card-head">
+        <div class="card-title-l">${esc(c.id)}</div>
+        ${c.desc ? `<div class="card-sub">${esc(c.desc)}</div>` : ''}
       </div>
-      <div class="cc-right">
+      <div class="card-meta cluster">
         <span class="badge ${s.cls}">${s.label}</span>
         <span class="prio-badge ${p.cls}">${p.icon} ${p.label}</span>
-        ${(c.photoCount ?? c.photos?.length ?? 0) ? `<span style="font-size:12px;color:var(--text-3)">${c.photoCount ?? c.photos.length}📷</span>` : ''}
-        ${sigTrailHtml(c._signatures)}
-</div>
+        ${nFotos ? `<span class="muted" style="font-size:12px;color:var(--text-3)">${nFotos}📷</span>` : ''}${selo(c)}${seloTriagem(c)}
+      </div>
+      <div class="card-chips">
+        <div class="cluster">
+          ${c.equip ? `<span class="chip-tag" title="TAG ${esc(c.equip)}">${esc(c.equip)}</span>` : ''}
+          ${c.date ? `<span class="chip-data">${fmtDate(c.date)}</span>` : ''}
+          ${c.client ? `<span class="truncate" title="Contrato ${esc(c.client)}">Contrato ${esc(c.client)}</span>` : ''}
+          ${c.requester ? `<span class="truncate" title="${esc(c.requester)}">${esc(c.requester)}</span>` : ''}
+        </div>
+        ${local.length ? `<div class="cluster muted">${local.map(t => `<span class="sep wrap-any">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+      ${sigTrailCardHtml(c._signatures)}
+     </div>
     </div>`;
   }).join('');
   hidratarFotosDOM(list);
