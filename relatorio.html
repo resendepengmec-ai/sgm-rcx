@@ -41,10 +41,10 @@
 body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 .section-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:var(--shadow);}
 .section-card h3{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
-.kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;}
-.kpi{background:var(--surface);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);text-align:center;}
+.kpi-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.kpi{background:var(--surface);border-radius:var(--radius);padding:14px 8px;box-shadow:var(--shadow);text-align:center;min-width:0;}
 .kpi-val{font-size:28px;font-weight:700;color:var(--primary);}
-.kpi-label{font-size:11px;color:var(--text-3);margin-top:3px;}
+.kpi-label{font-size:11px;color:var(--text-3);margin-top:3px;overflow-wrap:anywhere;}
 .event-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
 .event-row:last-child{border-bottom:none;}
 .event-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px;}
@@ -53,9 +53,9 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 .event-dot.preventiva{background:#0369a1;}
 .event-dot.movimentacao{background:#0891b2;}
 .event-info{flex:1;min-width:0;}
-.event-tag{font-size:12px;font-weight:700;}
+.event-tag{font-size:12px;font-weight:700;overflow-wrap:anywhere;}
 .event-desc{font-size:12px;color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.event-date{font-size:11px;color:var(--text-3);white-space:nowrap;}
+.event-date{font-size:11px;color:var(--text-3);white-space:nowrap;flex-shrink:0;}
 .status-pill{display:inline-block;padding:1px 7px;border-radius:99px;font-size:10px;font-weight:700;}
 .legend-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;}
 .legend-item{display:flex;align-items:center;gap:5px;}
@@ -960,10 +960,10 @@ function showPhotoModal(src) {
 
 function tableHTML(headers, rows) {
   if (!rows.length) return '<div style="font-size:13px;color:var(--text-3);padding:8px">Nenhum registro</div>';
-  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+  return `<div style="overflow-x:auto"><table class="tabela-cards" style="width:100%;border-collapse:collapse;font-size:12px">
     <thead><tr>${headers.map(h=>`<th scope="col" style="padding:7px 8px;text-align:left;font-weight:600;color:var(--text-3);border-bottom:1px solid var(--border)">${h}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
-      ${r.map(c=>`<td style="padding:6px 8px;border-bottom:1px solid var(--border)">${c}</td>`).join('')}
+      ${r.map((c,j)=>`<td data-label="${esc(headers[j])}" style="padding:6px 8px;border-bottom:1px solid var(--border)">${c}</td>`).join('')}
     </tr>`).join('')}</tbody>
   </table></div>`;
 }

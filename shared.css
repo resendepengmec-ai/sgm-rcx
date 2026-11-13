@@ -520,6 +520,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
 .trail-row code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .625rem; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; overflow-wrap: anywhere; }
 .trail-mais { margin-left: auto; font-weight: 700; color: var(--primary); white-space: nowrap; }
 
+/* Tabela que vira cards em tela estreita: cada <td> precisa de
+   data-label com o nome da coluna. Evita tabela rolando de lado. */
+@media (max-width: 768px) {
+  .tabela-cards thead { display: none; }
+  .tabela-cards, .tabela-cards tbody, .tabela-cards tr, .tabela-cards td { display: block; width: 100%; }
+  .tabela-cards tr { background: var(--surface) !important; border: 1px solid var(--border); border-left: .25rem solid var(--primary); border-radius: var(--radius-sm); padding: .375rem .25rem; margin-bottom: .5rem; }
+  .tabela-cards td { display: flex; gap: .5rem; padding: .125rem .5rem !important; border: none !important; min-width: 0; overflow-wrap: anywhere; }
+  .tabela-cards td::before { content: attr(data-label); flex: 0 0 6.5rem; color: var(--text-3); font-weight: 600; }
+}
+
 /* Card estreito: meta desce para a própria linha, à esquerda. */
 @container card (max-width: 26.25rem) {
   .lcard-grid { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "thumb head" "meta meta" "chips chips"; }

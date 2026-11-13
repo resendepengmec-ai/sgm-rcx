@@ -130,7 +130,7 @@ function detectar(opts) {
   // 7. Elemento fixo (fora o cabeçalho) cobrindo campo de formulário
   const fixos = [...document.querySelectorAll('body *')].filter((el) => {
     const p = getComputedStyle(el).position;
-    return (p === 'fixed') && visivel(el) && !el.closest(headerSel) && !el.closest('.modal-bg,.auth-overlay,.lightbox');
+    return (p === 'fixed') && visivel(el) && !el.closest(headerSel) && !el.closest('.modal-bg,.auth-overlay,.lightbox,.toast');
   });
   // Conta só o que continua coberto DEPOIS de focar o campo (o navegador
   // rola o campo para a vista respeitando scroll-padding): enquanto se rola
