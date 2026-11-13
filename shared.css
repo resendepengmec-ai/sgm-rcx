@@ -447,13 +447,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
      colapsam e o(s) cartão(ões) que existem esticam pra usar o espaço —
      com auto-fill eles ficavam espremidos em ~320px e sobrava vazio do
      lado, mesmo a lista tendo só 1-2 itens. */
-  #records-list, #quotes-list, #plans-list,
+  #quotes-list, #plans-list,
   #mov-list, #contracts-list, #qai-lista {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     gap: 10px; align-items: start;
   }
   /* Cabeçalhos de agrupamento (ex.: mês) ocupam a linha inteira */
-  #records-list > div[style*="text-transform:uppercase"],
   #quotes-list > div[style*="text-transform:uppercase"] { grid-column: 1 / -1; }
 
   /* Modal: era bottom-sheet full-bleed; em tela larga isso fica
@@ -495,7 +494,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
 .wrap-any { min-width: 0; overflow-wrap: anywhere; word-break: normal; }
 .cluster { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; min-width: 0; }
 .cluster > * { min-width: 0; max-width: 100%; }
-.sep + .sep::before { content: "·"; color: var(--text-3); margin-right: .5rem; }
+/* Em fluxo de texto (não flex): o espaço rígido cola o "·" nas duas
+   palavras vizinhas, então a quebra acontece dentro dos nomes, nunca
+   deixando o separador sozinho no começo ou no fim da linha. */
+.sep-line { min-width: 0; overflow-wrap: anywhere; }
+.sep + .sep::before { content: "\00a0·\00a0"; color: var(--text-3); }
 .chip-data, .chip-tag { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
 
 .card-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: .625rem; align-items: start; }
@@ -507,6 +510,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
   border-left: .25rem solid var(--lcard-accent, var(--primary));
   padding: .875rem 1rem; min-width: 0; cursor: pointer;
 }
+.lcard.estatico { cursor: auto; }
 .lcard-grid {
   display: grid; gap: .375rem .75rem; align-items: start;
   grid-template-columns: auto minmax(0, 1fr) auto;

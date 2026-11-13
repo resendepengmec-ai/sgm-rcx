@@ -964,7 +964,7 @@ function renderList() {
           ${c.client ? `<span class="truncate" title="Contrato ${esc(c.client)}">Contrato ${esc(c.client)}</span>` : ''}
           ${c.requester ? `<span class="truncate" title="${esc(c.requester)}">${esc(c.requester)}</span>` : ''}
         </div>
-        ${local.length ? `<div class="cluster muted">${local.map(t => `<span class="sep wrap-any">${esc(t)}</span>`).join('')}</div>` : ''}
+        ${local.length ? `<div class="sep-line muted">${local.map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>` : ''}
       </div>
       ${sigTrailCardHtml(c._signatures)}
      </div>

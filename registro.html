@@ -97,7 +97,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   </div>
 
   <div style="padding:12px">
-    <div id="records-list"></div>
+    <div id="records-list" class="card-list"></div>
     <div id="records-empty" class="empty" style="display:none">
       <span class="empty-icon">📋</span>
       <h3>Nenhum registro encontrado</h3>
@@ -761,28 +761,33 @@ function renderRecordList() {
       const label = month
         ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})
         : 'Sem data';
-      header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${label}</div>`;
+      header = `<div class="card-group">${label}</div>`;
     }
     const firstPhoto = r.photos && r.photos[0];
     const thumb = firstPhoto
-      ? `<div class="rc-thumb"><img ${fotoAttrs(firstPhoto)} alt="foto"></div>`
-      : `<div class="rc-thumb">📷</div>`;
-    const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).join(', ');
-    return header + `<div class="record-card" onclick="openDetail('${r.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${r.id}')}">
+      ? `<div class="card-thumb"><img ${fotoAttrs(firstPhoto)} alt="foto"></div>`
+      : `<div class="card-thumb" aria-hidden="true">📷</div>`;
+    const svcNames = r.items.map(i => i.inviavel ? '⚠️ Inviável' : i.name).filter(Boolean).join(', ');
+    const local = r._avulso ? [r.machine?.endereco] : [r.machine?.estabelecimento, r.machine?.recinto];
+    return header + `<div class="lcard" onclick="openDetail('${r.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${r.id}')}">
+     <div class="lcard-grid">
       ${thumb}
-      <div class="rc-info">
-        <div class="rc-client">
-          ${r._avulso
-            ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${esc(r.machine?.cliente)||'Cliente avulso'} · ${esc(r.equip)}`
-            : `Contrato ${esc(r.client)} · <span class="chip-tag">${esc(r.equip||'—')}</span>`
-          }
-        </div>
-        <div class="rc-meta"><span class="chip-data">${fmtDataCurta(r.date)}</span>${r.tech?' · 👷 '+esc(r.tech):''}</div>
-        <div class="rc-meta">${esc(svcNames)}</div>
-        ${r.machine && !r._avulso ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.estabelecimento)}${r.machine.recinto?' · '+esc(r.machine.recinto):''}</div>` : ''}
-        ${r._avulso && r.machine?.endereco ? `<div class="rc-meta" style="color:var(--text-3)">${esc(r.machine.endereco)}</div>` : ''}
+      <div class="card-head">
+        <div class="card-title-l">${r._avulso
+          ? `<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;margin-right:6px">AVULSO</span>${esc(r.machine?.cliente)||'Cliente avulso'}`
+          : `Contrato ${esc(r.client)}`}</div>
+        ${svcNames ? `<div class="card-sub">${esc(svcNames)}</div>` : ''}
       </div>
-      <div class="rc-count">${r.photoCount ?? r.photos?.length ?? 0}📷</div>
+      <div class="card-meta cluster"><span class="rc-count">${r.photoCount ?? r.photos?.length ?? 0}📷</span></div>
+      <div class="card-chips">
+        <div class="cluster">
+          ${r.equip ? `<span class="chip-tag" title="TAG ${esc(r.equip)}">${esc(r.equip)}</span>` : ''}
+          ${r.date ? `<span class="chip-data">${fmtDataCurta(r.date)}</span>` : ''}
+          ${r.tech ? `<span class="truncate" title="${esc(r.tech)}">👷 ${esc(r.tech)}</span>` : ''}
+        </div>
+        ${local.some(Boolean) ? `<div class="sep-line muted">${local.filter(Boolean).map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+     </div>
     </div>`;
   }).join('');
   hidratarFotosDOM(list);
@@ -2277,7 +2282,7 @@ function renderOSList() {
   const renderGroup = (titulo, items, cls) => {
     if (!items.length) return '';
     return `
-      <div style="font-size:12px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">${titulo}</div>
+      <div class="card-group">${titulo}</div>
       ${items.map(o => {
         const statusStyle = {
           aberta:     'background:#fef3c7;color:#92400e',
@@ -2285,31 +2290,37 @@ function renderOSList() {
           concluida:  'background:#d1fae5;color:#065f46',
           cancelada:  'background:#f1f5f9;color:#64748b',
         }[o.status]||'';
+        const local = [resolveEstab({machine:o.machine, contract:o.contrato||o.client, tag:o.tag||o.equip}), o.machine?.recinto].filter(Boolean);
         return `
-        <div style="background:var(--surface);border-radius:12px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08);border-left:4px solid ${o.status==='aberta'?'#f59e0b':o.status==='em_execucao'?'#3b82f6':o.status==='cancelada'?'#94a3b8':'#16a34a'}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
-            <div>
-              <div style="font-size:14px;font-weight:700">${o.numero}</div>
-              <div style="font-size:12px;color:var(--text-3)">Chamado: ${o.chamadoId}</div>
+        <div class="lcard estatico" style="--lcard-accent:${o.status==='aberta'?'#f59e0b':o.status==='em_execucao'?'#3b82f6':o.status==='cancelada'?'#94a3b8':'#16a34a'}">
+         <div class="lcard-grid sem-thumb">
+          <div class="card-head">
+            <div class="card-title-l">${esc(o.numero)}</div>
+            <div class="card-sub">Chamado: ${esc(o.chamadoId)}</div>
+          </div>
+          <div class="card-meta cluster"><span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída',cancelada:'Cancelada'}[o.status]||esc(o.status)}</span></div>
+          <div class="card-chips" style="font-size:12px">
+            <div class="cluster">
+              ${o.tag ? `<span class="chip-tag" title="TAG ${esc(o.tag)}">${esc(o.tag)}</span>` : ''}
+              ${o.contrato ? `<span class="truncate" title="Contrato ${esc(o.contrato)}">Contrato ${esc(o.contrato)}</span>` : ''}
             </div>
-            <span style="padding:3px 10px;border-radius:99px;font-size:11px;font-weight:700;${statusStyle}">${{aberta:'Aberta',em_execucao:'Em execução',concluida:'Concluída',cancelada:'Cancelada'}[o.status]||o.status}</span>
+            ${local.length ? `<div class="sep-line"><span aria-hidden="true">🏢 </span>${local.map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>` : ''}
+            <div class="wrap-any" style="background:var(--bg);border-radius:8px;padding:8px 10px;color:var(--text);line-height:1.5"><strong>Problema:</strong> ${esc((o.chamadoDesc||'—').slice(0,120))}</div>
           </div>
-          <div style="background:var(--bg);border-radius:8px;padding:10px;font-size:12px;color:var(--text-2);margin-bottom:10px;line-height:1.6">
-            <div><strong>TAG:</strong> ${o.tag||'—'} · <strong>Contrato:</strong> ${o.contrato||'—'}</div>
-            <div>🏢 ${resolveEstab({machine:o.machine, contract:o.contrato||o.client, tag:o.tag||o.equip})||'—'}${o.machine&&o.machine.recinto?' · '+o.machine.recinto:''}</div>
-            <div style="margin-top:4px;color:var(--text)"><strong>Problema:</strong> ${(o.chamadoDesc||'—').slice(0,120)}</div>
-          </div>
+          <div class="card-actions">
           ${o.status==='aberta'||o.status==='em_execucao' ? `
           <button onclick="iniciarRegistroOS('${o.id}')"
             style="width:100%;padding:11px;border-radius:8px;border:none;background:#059669;color:#fff;font-size:13px;font-weight:700;cursor:pointer">
             ${o.status==='aberta'?'▶ Iniciar execução':'✏️ Continuar registro'}
           </button>` : o.status==='cancelada' ? `
-          <div style="font-size:12px;color:var(--text-3);font-weight:600">
-            🚫 Cancelada${o.motivoCancelamento?' · '+o.motivoCancelamento:''}
+          <div class="wrap-any" style="font-size:12px;color:var(--text-3);font-weight:600">
+            🚫 Cancelada${o.motivoCancelamento ? `: ${esc(o.motivoCancelamento)}` : ''}
           </div>` : `
-          <div style="font-size:12px;color:var(--success);font-weight:600">
-            ✅ Concluída · Registro: ${o.registroId||'—'}
+          <div class="cluster wrap-any" style="font-size:12px;color:var(--success);font-weight:600">
+            <span>✅ Concluída</span>${o.registroId ? `<span class="wrap-any">Registro: ${esc(o.registroId)}</span>` : ''}
           </div>`}
+          </div>
+         </div>
         </div>`;
       }).join('')}`;
   };
@@ -2332,7 +2343,7 @@ function renderOSList() {
   const _btnVal = ['admin','admin_cliente','diretor','supervisor'].includes(userRole)
     ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
     : '';
-  list.innerHTML = _btnAssin + _btnVal +
+  list.innerHTML = (_btnAssin || _btnVal ? `<div class="card-group" style="text-transform:none;letter-spacing:0;font-size:inherit">${_btnAssin}${_btnVal}</div>` : '') +
     renderGroup('⏳ Abertas', abertas) +
     renderGroup('🔧 Em execução', emExecucao) +
     renderGroup('✅ Concluídas', concluidas) +
@@ -2738,7 +2749,7 @@ window.addEventListener('sgm:confirmed', event => {
     ⏳ <span id="os-banner-text"></span>
   </div>
   <div style="padding:12px" id="os-list-container">
-    <div id="os-list"></div>
+    <div id="os-list" class="card-list"></div>
     <div id="os-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
       <div style="font-size:48px;margin-bottom:12px">📋</div>
       <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhuma O.S. pendente</div>
