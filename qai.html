@@ -138,6 +138,10 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     <option value="">Selecione o contrato…</option>
   </select>
   <button class="btn btn-primary btn-sm" id="btn-novo-sensor" onclick="abrirNovoSensor()" disabled>+ Novo sensor</button>
+  <button class="btn btn-secondary btn-sm hidden" id="btn-recintos" onclick="abrirRecintos()">Recintos</button>
+  <button class="btn btn-secondary btn-sm hidden" id="btn-config-qai" onclick="abrirConfigQai()">Config</button>
+  <button class="btn btn-secondary btn-sm hidden" id="btn-painel-qai" onclick="abrirPainelQai()">Painel</button>
+  <button class="btn btn-secondary btn-sm hidden" id="btn-estrutural-qai" onclick="abrirEstruturalQai()">Melhorias</button>
 </div>
 
 <div class="qai-status-tabs hidden" id="qai-status-tabs" role="tablist">
@@ -205,6 +209,42 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   </div>
 </div>
 
+<!-- Modal: cadastro complementar de recinto (recurso experimental) -->
+<div class="modal-bg hidden" id="modal-recintos">
+  <div class="modal" style="max-width:640px;margin:0 auto">
+    <div class="modal-handle"></div>
+    <div id="recintos-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-recintos')">Fechar</button>
+  </div>
+</div>
+
+<!-- Modal: configuração com vigência (recurso experimental, Etapa 8) -->
+<div class="modal-bg hidden" id="modal-config-qai">
+  <div class="modal" style="max-width:720px;margin:0 auto;max-height:85vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div id="config-qai-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-config-qai')">Fechar</button>
+  </div>
+</div>
+
+<!-- Modal: painel de leituras/análises (recurso experimental, Etapa 8) -->
+<div class="modal-bg hidden" id="modal-painel-qai">
+  <div class="modal" style="max-width:640px;margin:0 auto;max-height:85vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div id="painel-qai-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-painel-qai')">Fechar</button>
+  </div>
+</div>
+
+<!-- Modal: O.S. de melhoria estrutural (recurso experimental, Etapa 8) -->
+<div class="modal-bg hidden" id="modal-estrutural-qai">
+  <div class="modal" style="max-width:680px;margin:0 auto;max-height:85vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div id="estrutural-qai-conteudo">Carregando…</div>
+    <button class="btn btn-secondary" style="width:100%;margin-top:8px" onclick="fecharModal('modal-estrutural-qai')">Fechar</button>
+  </div>
+</div>
+
 <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script>
@@ -240,6 +280,8 @@ let LIMITES_RENDER = [];     // ordem das linhas de limites, lida no salvar
 let CONFIGS_LOCAL = new Map(); // estabelecimento (normalizado) -> config de local, do contrato atual
 let CONFIGS_LOCAL_CONTRATO = null; // contrato a que CONFIGS_LOCAL pertence
 let CONFIG_LOCAL_EDITANDO = null; // nome do estabelecimento em edição no modal
+let RECINTOS_CACHE = [];    // recurso experimental (ver contratos.html) — lista do contrato atual
+let RECINTO_EDITANDO = null; // {estabelecimento, recinto} em edição no modal
 let ESTAT_INICIO = '', ESTAT_FIM = '', ESTAT_PERIODO = '24h'; // filtros da tela de Estatísticas
 let ESTAT_SEQ = 0;          // ignora resposta antiga depois de trocar o filtro de novo
 let CHARTS_ESTAT = [];
@@ -528,13 +570,45 @@ function aoTrocarContrato() {
   const contrato = document.getElementById('f-contrato').value;
   document.getElementById('btn-novo-sensor').disabled = !contrato;
   document.getElementById('qai-status-tabs').classList.toggle('hidden', !contrato);
+  document.getElementById('btn-recintos').classList.add('hidden');
+  document.getElementById('btn-config-qai').classList.add('hidden');
+  document.getElementById('btn-painel-qai').classList.add('hidden');
+  document.getElementById('btn-estrutural-qai').classList.add('hidden');
   if (!contrato) {
     LINHAS = [];
     document.getElementById('qai-lista').innerHTML = '<div class="empty">Selecione um contrato para ver os sensores.</div>';
     return;
   }
   carregarLista();
+  probarRecintos(contrato);
 }
+
+// Recurso experimental, atrás de contrato.qaiMetodo (ver contratos.html).
+// Os botões só aparecem se a própria chamada confirmar que está ligado —
+// nunca lendo um campo do contrato (que fica escondido de quem não é
+// admin), só reagindo ao 200/422 da rota. As 4 telas (Recintos/Config/
+// Painel/Melhorias) compartilham a mesma flag por contrato, então uma
+// chamada só já decide a visibilidade das 4.
+async function probarRecintos(contrato) {
+  try {
+    RECINTOS_CACHE = await DB.getRecintosQai(contrato);
+    document.getElementById('btn-recintos').classList.remove('hidden');
+    document.getElementById('btn-config-qai').classList.remove('hidden');
+    document.getElementById('btn-painel-qai').classList.remove('hidden');
+    document.getElementById('btn-estrutural-qai').classList.remove('hidden');
+  } catch (e) {
+    RECINTOS_CACHE = [];
+    // 422 (recurso não habilitado) é o caso comum; qualquer outro erro
+    // (rede, 403 de escopo) também só mantém os botões escondidos, sem
+    // toast — não é uma falha que o usuário precise ser avisado aqui.
+  }
+}
+
+// Reusa a mesma régua de papel do botão "Local" (authz.SUPERVISOR_ACIMA
+// no servidor) — as ações de escrita da Etapa 8 (salvar config, recalcular
+// modelo, executar verificação, avançar O.S. estrutural) usam o mesmo
+// gate no backend; aqui só evita mostrar um botão que o servidor rejeitaria.
+const podeEscreverQaiMetodo = podeConfigurarLocalQai;
 
 function trocarAbaStatus(aba) {
   ABA_STATUS = aba;
@@ -1886,6 +1960,729 @@ function renderAparelhos(lista) {
         ? lista.map(e => `<div class="qai-aparelho-item">${esc(e.tag || '—')} · ${esc(e.marca || '')} ${esc(e.tipo || '')}${e.capacidade ? ' · ' + esc(e.capacidade) + ' BTU' : ''}</div>`).join('')
         : '<div class="qai-sub" style="margin:0">Nenhum equipamento cadastrado com este estabelecimento+recinto.</div>'}
     </div>`;
+}
+
+// ── Cadastro complementar de recinto (recurso experimental) ────────
+const ORIENTACOES_SOLARES = ['norte', 'sul', 'leste', 'oeste', 'nordeste', 'noroeste', 'sudeste', 'sudoeste'];
+const DIAS_SEMANA_LABEL = [['1', 'Seg'], ['2', 'Ter'], ['3', 'Qua'], ['4', 'Qui'], ['5', 'Sex'], ['6', 'Sáb'], ['7', 'Dom']];
+
+async function abrirRecintos() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  try { RECINTOS_CACHE = await DB.getRecintosQai(contrato); }
+  catch (e) { showToast('Não foi possível carregar: ' + e.message, 6000); return; }
+  renderRecintosList();
+  abrirModal('modal-recintos');
+}
+
+function renderRecintosList() {
+  const el = document.getElementById('recintos-conteudo');
+  el.innerHTML = `
+    <div class="modal-title">Recintos do contrato</div>
+    <div class="qai-sub">Derivado do cadastro de equipamentos e dos sensores — não há como criar um recinto "do nada" aqui, só completar o que já existe.</div>
+    ${RECINTOS_CACHE.length ? RECINTOS_CACHE.map((r) => `
+      <div class="qai-aparelho-item" style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div>
+          <strong>${esc(r.estabelecimento)} / ${esc(r.recinto)}</strong>
+          <div class="qai-sub" style="margin:2px 0 0">${r.qtdAparelhos} aparelho(s) · ${r.qtdSensores} sensor(es)
+            · <span style="color:${r.status === 'completo' ? 'var(--success)' : '#92400e'};font-weight:600">${r.status === 'completo' ? 'cadastro completo' : 'cadastro incompleto'}</span></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" data-estab="${esc(r.estabelecimento)}" data-recinto="${esc(r.recinto)}" onclick="abrirEditarRecinto(this.dataset.estab, this.dataset.recinto)">Editar</button>
+      </div>`).join('')
+      : '<div class="qai-sub" style="margin:0">Nenhum recinto encontrado (cadastre equipamentos ou sensores com recinto preenchido).</div>'}`;
+}
+
+function abrirEditarRecinto(estabelecimento, recinto) {
+  RECINTO_EDITANDO = { estabelecimento, recinto };
+  renderEditorRecinto();
+}
+
+function renderEditorRecinto() {
+  const item = RECINTOS_CACHE.find((r) => r.estabelecimento === RECINTO_EDITANDO.estabelecimento && r.recinto === RECINTO_EDITANDO.recinto);
+  const cfg = item?.config || {};
+  // Só edita o 1º bloco de horário por simplicidade (a tela de pendências
+  // só precisa saber SE há ocupação cadastrada); o backend já aceita
+  // vários blocos, pronto pra um editor mais rico depois, se precisar.
+  const bloco = (cfg.horarioOcupacao || [])[0] || { dias: [], inicio: '07:00', fim: '18:00' };
+  const el = document.getElementById('recintos-conteudo');
+  el.innerHTML = `
+    <div class="modal-title">${esc(RECINTO_EDITANDO.estabelecimento)} / ${esc(RECINTO_EDITANDO.recinto)}</div>
+    <div class="qai-sub">${item?.qtdAparelhos || 0} aparelho(s) associado(s) (pelo mesmo estabelecimento+recinto do cadastro de equipamentos).</div>
+    <div class="qai-grid2">
+      <div class="field"><label for="rec-area">Área (m²)</label><input type="number" id="rec-area" step="0.1" min="0" value="${cfg.areaM2 ?? ''}"></div>
+      <div class="field"><label for="rec-pedireito">Pé-direito (m)</label><input type="number" id="rec-pedireito" step="0.1" min="0" value="${cfg.peDireitoM ?? ''}"></div>
+    </div>
+    <div class="field">
+      <label for="rec-volume">Volume (m³)</label>
+      <input type="number" id="rec-volume" step="0.1" min="0" value="${cfg.volumeM3 ?? ''}" placeholder="calculado de área × pé-direito se vazio">
+    </div>
+    <div class="field"><label for="rec-ocupacao">Ocupação prevista (pessoas)</label><input type="number" id="rec-ocupacao" step="1" min="0" value="${cfg.ocupacaoPrevista ?? ''}"></div>
+    <div class="field"><label for="rec-tipo-uso">Tipo de uso</label><input type="text" id="rec-tipo-uso" maxlength="60" value="${esc(cfg.tipoUso || '')}" placeholder="ex.: sala de aula"></div>
+    <div class="field">
+      <label for="rec-orientacao">Orientação solar</label>
+      <select id="rec-orientacao">
+        <option value="">—</option>
+        ${ORIENTACOES_SOLARES.map((o) => `<option value="${o}" ${cfg.orientacaoSolar === o ? 'selected' : ''}>${o[0].toUpperCase() + o.slice(1)}</option>`).join('')}
+      </select>
+    </div>
+    <div class="field"><label for="rec-carga-termica">Carga térmica de projeto (kW)</label><input type="number" id="rec-carga-termica" step="0.1" min="0" value="${cfg.cargaTermicaProjetoKW ?? ''}"></div>
+    <div class="field"><label for="rec-faixa-etaria">Faixa etária dos ocupantes</label><input type="text" id="rec-faixa-etaria" maxlength="40" value="${esc(cfg.faixaEtariaOcupantes || '')}" placeholder="ex.: fundamental"></div>
+    <div class="field">
+      <label>Horário de ocupação</label>
+      ${DIAS_SEMANA_LABEL.map(([v, lbl]) => `<label class="qai-check"><input type="checkbox" class="rec-dia" value="${v}" ${bloco.dias.includes(Number(v)) ? 'checked' : ''}> ${lbl}</label>`).join('')}
+      <div class="qai-grid2" style="margin-top:6px">
+        <div class="field"><label for="rec-hora-ini">Início</label><input type="time" id="rec-hora-ini" value="${esc(bloco.inicio)}"></div>
+        <div class="field"><label for="rec-hora-fim">Fim</label><input type="time" id="rec-hora-fim" value="${esc(bloco.fim)}"></div>
+      </div>
+    </div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="renderRecintosList()">Voltar</button>
+      <button class="btn btn-primary" id="btn-salvar-recinto" onclick="salvarRecinto(this)">Salvar</button>
+    </div>`;
+}
+
+async function salvarRecinto(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  const dias = [...document.querySelectorAll('.rec-dia:checked')].map((c) => Number(c.value));
+  const horaIni = document.getElementById('rec-hora-ini').value, horaFim = document.getElementById('rec-hora-fim').value;
+  const dados = {
+    contrato, estabelecimento: RECINTO_EDITANDO.estabelecimento, recinto: RECINTO_EDITANDO.recinto,
+    areaM2: document.getElementById('rec-area').value || null,
+    peDireitoM: document.getElementById('rec-pedireito').value || null,
+    volumeM3: document.getElementById('rec-volume').value || null,
+    ocupacaoPrevista: document.getElementById('rec-ocupacao').value || null,
+    tipoUso: document.getElementById('rec-tipo-uso').value.trim() || null,
+    orientacaoSolar: document.getElementById('rec-orientacao').value || null,
+    cargaTermicaProjetoKW: document.getElementById('rec-carga-termica').value || null,
+    faixaEtariaOcupantes: document.getElementById('rec-faixa-etaria').value.trim() || null,
+    horarioOcupacao: dias.length ? [{ dias, inicio: horaIni, fim: horaFim }] : [],
+  };
+  await withActionBusy(btn, 'Salvando…', async () => {
+    try {
+      await DB.salvarRecintoQai(dados);
+      // O status "completo/incompleto" depende também do aparelho (não só
+      // do que foi salvo agora) — mais simples e sem risco de inconsistência
+      // recarregar a lista do servidor do que recalcular aqui.
+      RECINTOS_CACHE = await DB.getRecintosQai(contrato);
+      renderRecintosList();
+      showToast('Recinto salvo.');
+    } catch (e) { showToast('Não foi possível salvar: ' + e.message, 7000); }
+  });
+}
+
+// ── Configuração com vigência (recurso experimental, Etapa 8) ──────
+const GRANDEZAS_QAI_UI = [['temperatura', 'Temperatura'], ['umidade', 'Umidade'], ['co2', 'CO₂'], ['pm25', 'PM2.5'], ['pm10', 'PM10']];
+const NORMAS_QAI_UI = ['ABNT NBR 17037', 'NR-17', 'Portaria GM/MS 3.523/1998', 'Outra'];
+const FORMAS_TOLERANCIA_UI = [['duracao', 'Duração mínima contínua fora do limite'], ['janelas', 'Nº de janelas formais fora do limite'], ['integral', 'Integral acumulada fora do limite']];
+let CFGQ_NIVEL = 'contrato';
+let CFGQ_ESTAB = '';
+let CFGQ_RECINTO = '';
+let CFGQ_ATUAL = null;   // {nivel, vigenteDesde, data} efetivo pro nível/local escolhido
+let CFGQ_JANELAS = [];   // janelasFormais em edição (lista solta, independe de grandeza)
+let CFGQ_HISTORICO = [];
+
+// Leitura segura de um caminho aninhado em CFGQ_ATUAL.data (ex.:
+// "porGrandeza.temperatura.limite.min") — nunca lança se um nível
+// intermediário não existir (config nova, versão "nenhuma" etc.).
+function _cfgqGet(path, def) {
+  const data = CFGQ_ATUAL?.data || {};
+  const v = path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), data);
+  return v === undefined ? def : v;
+}
+
+async function abrirConfigQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  CFGQ_NIVEL = 'contrato'; CFGQ_ESTAB = ''; CFGQ_RECINTO = '';
+  try { RECINTOS_CACHE = await DB.getRecintosQai(contrato); } catch (e) { /* mantém o cache que já tinha */ }
+  await carregarConfigQai();
+  abrirModal('modal-config-qai');
+}
+
+async function carregarConfigQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  try {
+    CFGQ_ATUAL = await DB.getConfigQai(contrato, CFGQ_NIVEL === 'recinto' ? CFGQ_ESTAB : undefined, CFGQ_NIVEL === 'recinto' ? CFGQ_RECINTO : undefined);
+  } catch (e) {
+    CFGQ_ATUAL = null;
+    showToast('Não foi possível carregar a configuração: ' + e.message, 6000);
+  }
+  CFGQ_JANELAS = (_cfgqGet('janelasFormais', []) || []).map(j => ({ ...j }));
+  renderConfigQai();
+}
+
+function trocarNivelConfigQai(sel) {
+  const v = sel.value;
+  if (v === 'contrato') { CFGQ_NIVEL = 'contrato'; CFGQ_ESTAB = ''; CFGQ_RECINTO = ''; }
+  else { const [estab, recinto] = v.split('\u0000'); CFGQ_NIVEL = 'recinto'; CFGQ_ESTAB = estab; CFGQ_RECINTO = recinto; }
+  carregarConfigQai();
+}
+
+function renderConfigQai() {
+  const el = document.getElementById('config-qai-conteudo');
+  const podeEscrever = podeEscreverQaiMetodo(user?.role);
+  // "herdado" no rótulo do backend só é significativo numa consulta por
+  // recinto (recinto sem versão própria, caindo pro contrato) — numa
+  // consulta de nível contrato o backend reaproveita a mesma string por
+  // simplicidade interna, então aqui nunca se confia nela fora do caso
+  // de recinto (senão a config do PRÓPRIO contrato apareceria, sem motivo,
+  // como "herdada").
+  const rotuloVigencia = !CFGQ_ATUAL ? ''
+    : CFGQ_ATUAL.nivel === 'nenhuma' ? 'nenhuma versão ainda'
+    : CFGQ_NIVEL === 'recinto' ? (CFGQ_ATUAL.nivel.includes('herdado') ? 'herdada do contrato' : 'própria deste recinto')
+    : 'do contrato';
+  const opcoesLocal = RECINTOS_CACHE.map(r => `<option value="${esc(r.estabelecimento)}\u0000${esc(r.recinto)}" ${CFGQ_NIVEL === 'recinto' && CFGQ_ESTAB === r.estabelecimento && CFGQ_RECINTO === r.recinto ? 'selected' : ''}>${esc(r.estabelecimento)} / ${esc(r.recinto)}</option>`).join('');
+  el.innerHTML = `
+    <div class="modal-title">Configuração (limites e parâmetros)</div>
+    <div class="qai-sub">
+      ${rotuloVigencia ? `Vigente: ${esc(rotuloVigencia)}${CFGQ_ATUAL.vigenteDesde ? ', desde ' + esc(fmtDataHora(CFGQ_ATUAL.vigenteDesde)) : ''}. ` : ''}
+      Salvar aqui sempre cria uma NOVA versão — o histórico anterior nunca é perdido.
+    </div>
+    <div class="field">
+      <label for="cfgq-nivel">Aplicar a</label>
+      <select id="cfgq-nivel" onchange="trocarNivelConfigQai(this)">
+        <option value="contrato" ${CFGQ_NIVEL === 'contrato' ? 'selected' : ''}>Todo o contrato</option>
+        ${opcoesLocal ? `<optgroup label="Recinto específico (sobrescreve o contrato)">${opcoesLocal}</optgroup>` : ''}
+      </select>
+    </div>
+
+    ${GRANDEZAS_QAI_UI.map(([g, label]) => renderGrandezaConfigQai(g, label, podeEscrever)).join('')}
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13px">Janelas formais de verificação</summary>
+      <div class="qai-sub">Horários fixos em que a leitura é checada contra o limite, independente de grandeza.</div>
+      <div id="cfgq-janelas-lista">${renderJanelasConfigQai(podeEscrever)}</div>
+      ${podeEscrever ? '<button type="button" class="btn btn-secondary btn-sm" onclick="addJanelaConfigQai()">+ Janela</button>' : ''}
+    </details>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13px">Parâmetros gerais</summary>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-pareamento">Pareamento c/ clima externo (min)</label><input type="number" id="cfgq-pareamento" min="1" max="1440" value="${_cfgqGet('pareamentoExternoMin', 30)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-idademax">Idade máx. do dado externo (min)</label><input type="number" id="cfgq-idademax" min="1" max="1440" value="${_cfgqGet('idadeMaxDadoExternoMin', 60)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-ref-duracao">Período de referência (dias)</label><input type="number" id="cfgq-ref-duracao" min="1" max="90" value="${_cfgqGet('referencia.duracaoDias', 14)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-ineficacias">Nº de ineficácias até ação estrutural</label><input type="number" id="cfgq-ineficacias" min="1" max="10" value="${_cfgqGet('ineficaciasN', 2)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <label class="qai-check"><input type="checkbox" id="cfgq-ref-exigeconforme" ${_cfgqGet('referencia.exigeConforme', true) ? 'checked' : ''} ${podeEscrever ? '' : 'disabled'}> Exigir leituras conformes no período de referência</label>
+      <label class="qai-check"><input type="checkbox" id="cfgq-ref-semos" ${_cfgqGet('referencia.semOS', true) ? 'checked' : ''} ${podeEscrever ? '' : 'disabled'}> Exigir ausência de O.S. aberta/em execução no período de referência</label>
+
+      <div class="qai-grid2" style="margin-top:8px">
+        <div class="field"><label for="cfgq-efic-janela">Janela de avaliação de eficácia (dias)</label><input type="number" id="cfgq-efic-janela" min="1" max="90" value="${_cfgqGet('eficacia.janelaDias', 7)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-efic-estab">Estabilização após intervenção (h)</label><input type="number" id="cfgq-efic-estab" min="0" max="168" value="${_cfgqGet('eficacia.estabilizacaoH', 24)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-efic-teste">Teste estatístico</label>
+          <select id="cfgq-efic-teste" ${podeEscrever ? '' : 'disabled'}>
+            <option value="welch" ${_cfgqGet('eficacia.teste', 'welch') === 'welch' ? 'selected' : ''}>Welch (t)</option>
+            <option value="mannwhitney" ${_cfgqGet('eficacia.teste', 'welch') === 'mannwhitney' ? 'selected' : ''}>Mann-Whitney (U)</option>
+          </select>
+        </div>
+        <div class="field"><label for="cfgq-efic-alfa">Nível de significância (α)</label><input type="number" id="cfgq-efic-alfa" min="0.001" max="0.5" step="0.001" value="${_cfgqGet('eficacia.alfa', 0.05)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-efic-reducao">Redução mínima exigida (%)</label><input type="number" id="cfgq-efic-reducao" min="0" max="100" value="${_cfgqGet('eficacia.reducaoMinPct', 0)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-efic-diasvalidos">Mínimo de dias válidos</label><input type="number" id="cfgq-efic-diasvalidos" min="1" max="90" value="${_cfgqGet('eficacia.diasValidosMin', 5)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+
+      <div class="qai-grid2" style="margin-top:8px">
+        <div class="field"><label for="cfgq-nc-qtd">Nº de ocorrências dentro da tolerância até ação estrutural</label><input type="number" id="cfgq-nc-qtd" min="0" max="1000" value="${_cfgqGet('ncToleradaFreqMax.qtd', 0)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-nc-dias">Nessa janela (dias)</label><input type="number" id="cfgq-nc-dias" min="1" max="365" value="${_cfgqGet('ncToleradaFreqMax.emDias', 30)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+    </details>
+
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13px">Parâmetros de dimensionamento (O.S. de melhoria)</summary>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-co2-gls">CO₂ gerado por ocupante (L/s)</label><input type="number" id="cfgq-co2-gls" min="0.0001" max="1" step="0.0001" value="${_cfgqGet('co2.gLsPorOcupante', 0.005)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-co2-cext">CO₂ externo de referência (ppm)</label><input type="number" id="cfgq-co2-cext" min="100" max="2000" value="${_cfgqGet('co2.cextPpm', 420)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="field"><label for="cfgq-umid-gw">Umidade gerada por ocupante (g/h)</label><input type="number" id="cfgq-umid-gw" min="0" max="1000" value="${_cfgqGet('umidade.gwPorOcupanteGh', 0)}" ${podeEscrever ? '' : 'disabled'}></div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-carga-ocup">Carga interna por ocupante (W)</label><input type="number" id="cfgq-carga-ocup" min="0" max="1000" value="${_cfgqGet('cargaInterna.qintWPorOcupante', 70)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-carga-equip">Carga de equipamentos (W)</label><input type="number" id="cfgq-carga-equip" min="0" max="1000000" value="${_cfgqGet('cargaInterna.qintEquipamentosW', 0)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-percentil">Percentil de projeto (clima externo)</label><input type="number" id="cfgq-percentil" min="50" max="100" value="${_cfgqGet('percentilProjeto', 99)}" ${podeEscrever ? '' : 'disabled'}></div>
+        <div class="field"><label for="cfgq-pm-deposicao">Constante de deposição (PM)</label><input type="number" id="cfgq-pm-deposicao" min="0" max="10" step="0.01" value="${_cfgqGet('pm.kDeposicao', 0)}" ${podeEscrever ? '' : 'disabled'}></div>
+      </div>
+      <div class="qai-sub" style="margin:4px 0 0">Classes de filtro (PM) e a fração máxima de tempo fora (eficácia) não têm editor próprio ainda — ficam preservadas como estão ao salvar.</div>
+    </details>
+
+    ${podeEscrever ? `
+    <div class="field" style="margin-top:10px">
+      <label for="cfgq-motivo">Motivo (obrigatório só para vigência retroativa, admin)</label>
+      <input type="text" id="cfgq-motivo" maxlength="500" placeholder="opcional">
+    </div>
+    <div class="action-bar">
+      <button class="btn btn-secondary" onclick="verHistoricoConfigQai()">Histórico</button>
+      <button class="btn btn-primary" id="btn-salvar-config-qai" onclick="salvarConfigQai(this)">Salvar nova versão</button>
+    </div>` : `
+    <div class="action-bar"><button class="btn btn-secondary" onclick="verHistoricoConfigQai()">Histórico</button></div>`}
+  `;
+}
+
+function renderGrandezaConfigQai(g, label, podeEscrever) {
+  const base = `porGrandeza.${g}`;
+  const norma = _cfgqGet(`${base}.norma`, '');
+  const limTipo = _cfgqGet(`${base}.limite.tipo`, 'superior');
+  const limMin = _cfgqGet(`${base}.limite.min`, null);
+  const limMax = _cfgqGet(`${base}.limite.max`, null);
+  const limUn = _cfgqGet(`${base}.limite.unidade`, '');
+  const tolDesvio = _cfgqGet(`${base}.tolDesvio`, 0);
+  const formas = _cfgqGet(`${base}.periodoTolerancia.formas`, []) || [];
+  const combinacao = _cfgqGet(`${base}.periodoTolerancia.combinacao`, 'qualquer');
+  const duracaoMinMin = _cfgqGet(`${base}.periodoTolerancia.duracaoMinMin`, 0);
+  const kJanelas = _cfgqGet(`${base}.periodoTolerancia.kJanelas`, 0);
+  const nJanelas = _cfgqGet(`${base}.periodoTolerancia.nJanelas`, 0);
+  const integralMax = _cfgqGet(`${base}.periodoTolerancia.integralMax`, 0);
+  const horizonteH = _cfgqGet(`${base}.periodoTolerancia.horizonteH`, 24);
+  const correspondencia = _cfgqGet(`correspondencia.${g}`, '');
+  const configurado = limMin != null || limMax != null;
+  const d = podeEscrever ? '' : 'disabled';
+  return `
+    <details class="qai-grandeza-cfg" ${configurado ? 'open' : ''} style="border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:8px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13px">${esc(label)}${configurado ? '' : ' (sem limite)'}</summary>
+      <div class="qai-grid2" style="margin-top:8px">
+        <div class="field"><label for="cfgq-${g}-norma">Norma de referência</label>
+          <select id="cfgq-${g}-norma" ${d}><option value="">—</option>${NORMAS_QAI_UI.map(n => `<option value="${esc(n)}" ${norma === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+        </div>
+        <div class="field"><label for="cfgq-${g}-corresp">Serviço do contrato correspondente</label><input type="text" id="cfgq-${g}-corresp" maxlength="160" value="${esc(correspondencia)}" placeholder="nome do serviço, igual ao cadastrado" ${d}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-${g}-limtipo">Tipo de limite</label>
+          <select id="cfgq-${g}-limtipo" ${d}>
+            <option value="superior" ${limTipo === 'superior' ? 'selected' : ''}>Superior (máximo)</option>
+            <option value="inferior" ${limTipo === 'inferior' ? 'selected' : ''}>Inferior (mínimo)</option>
+            <option value="faixa" ${limTipo === 'faixa' ? 'selected' : ''}>Faixa (mín. e máx.)</option>
+          </select>
+        </div>
+        <div class="field"><label for="cfgq-${g}-limun">Unidade</label><input type="text" id="cfgq-${g}-limun" maxlength="20" value="${esc(limUn)}" placeholder="ex.: °C" ${d}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-${g}-limmin">Limite mínimo</label><input type="number" id="cfgq-${g}-limmin" step="0.01" value="${limMin ?? ''}" ${d}></div>
+        <div class="field"><label for="cfgq-${g}-limmax">Limite máximo</label><input type="number" id="cfgq-${g}-limmax" step="0.01" value="${limMax ?? ''}" ${d}></div>
+      </div>
+      <div class="field"><label for="cfgq-${g}-toldesvio">Tolerância ao desvio em relação ao esperado</label><input type="number" id="cfgq-${g}-toldesvio" step="0.01" min="0" value="${tolDesvio}" ${d}></div>
+      <div class="qai-sub" style="margin:4px 0">Como contar tempo fora do limite (pode combinar mais de uma forma):</div>
+      ${FORMAS_TOLERANCIA_UI.map(([f, lbl]) => `<label class="qai-check"><input type="checkbox" class="cfgq-${g}-forma" value="${f}" ${formas.includes(f) ? 'checked' : ''} ${d}> ${esc(lbl)}</label>`).join('')}
+      <div class="field"><label for="cfgq-${g}-combinacao">Exigir</label>
+        <select id="cfgq-${g}-combinacao" ${d}>
+          <option value="qualquer" ${combinacao === 'qualquer' ? 'selected' : ''}>Qualquer uma das formas marcadas</option>
+          <option value="todas" ${combinacao === 'todas' ? 'selected' : ''}>Todas as formas marcadas</option>
+        </select>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-${g}-duracaomin">Duração mínima contínua (min)</label><input type="number" id="cfgq-${g}-duracaomin" min="0" max="1440" value="${duracaoMinMin}" ${d}></div>
+        <div class="field"><label for="cfgq-${g}-horizonteh">Horizonte de avaliação (h)</label><input type="number" id="cfgq-${g}-horizonteh" min="0" max="168" value="${horizonteH}" ${d}></div>
+      </div>
+      <div class="qai-grid2">
+        <div class="field"><label for="cfgq-${g}-kjanelas">Nº de janelas fora, em</label><input type="number" id="cfgq-${g}-kjanelas" min="0" max="50" value="${kJanelas}" ${d}></div>
+        <div class="field"><label for="cfgq-${g}-njanelas">Nº total de janelas</label><input type="number" id="cfgq-${g}-njanelas" min="0" max="50" value="${nJanelas}" ${d}></div>
+      </div>
+      <div class="field"><label for="cfgq-${g}-integralmax">Integral acumulada máxima</label><input type="number" id="cfgq-${g}-integralmax" min="0" step="0.01" value="${integralMax}" ${d}></div>
+    </details>`;
+}
+
+function renderJanelasConfigQai(podeEscrever) {
+  if (!CFGQ_JANELAS.length) return '<div class="qai-sub" style="margin:4px 0">Nenhuma janela formal configurada.</div>';
+  return CFGQ_JANELAS.map((j, i) => `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+      <input type="time" value="${esc(j.hora || '')}" onchange="CFGQ_JANELAS[${i}].hora=this.value" style="flex:1" ${podeEscrever ? '' : 'disabled'}>
+      <input type="number" min="1" max="180" value="${j.toleranciaMin ?? 10}" onchange="CFGQ_JANELAS[${i}].toleranciaMin=Number(this.value)" style="width:90px" title="Tolerância (min)" ${podeEscrever ? '' : 'disabled'}>
+      ${podeEscrever ? `<button type="button" class="btn btn-secondary btn-sm" onclick="removerJanelaConfigQai(${i})">✕</button>` : ''}
+    </div>`).join('');
+}
+function addJanelaConfigQai() {
+  if (CFGQ_JANELAS.length >= 20) { showToast('Máximo de 20 janelas.'); return; }
+  CFGQ_JANELAS.push({ hora: '08:00', toleranciaMin: 10 });
+  document.getElementById('cfgq-janelas-lista').innerHTML = renderJanelasConfigQai(true);
+}
+function removerJanelaConfigQai(i) {
+  CFGQ_JANELAS.splice(i, 1);
+  document.getElementById('cfgq-janelas-lista').innerHTML = renderJanelasConfigQai(true);
+}
+
+async function salvarConfigQai(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  const porGrandeza = {};
+  for (const [g] of GRANDEZAS_QAI_UI) {
+    const limMinEl = document.getElementById(`cfgq-${g}-limmin`), limMaxEl = document.getElementById(`cfgq-${g}-limmax`);
+    const formas = [...document.querySelectorAll(`.cfgq-${g}-forma:checked`)].map(c => c.value);
+    porGrandeza[g] = {
+      norma: document.getElementById(`cfgq-${g}-norma`).value,
+      limite: {
+        tipo: document.getElementById(`cfgq-${g}-limtipo`).value,
+        min: limMinEl.value === '' ? null : Number(limMinEl.value),
+        max: limMaxEl.value === '' ? null : Number(limMaxEl.value),
+        unidade: document.getElementById(`cfgq-${g}-limun`).value,
+      },
+      tolDesvio: Number(document.getElementById(`cfgq-${g}-toldesvio`).value || 0),
+      periodoTolerancia: {
+        formas, combinacao: document.getElementById(`cfgq-${g}-combinacao`).value,
+        duracaoMinMin: Number(document.getElementById(`cfgq-${g}-duracaomin`).value || 0),
+        kJanelas: Number(document.getElementById(`cfgq-${g}-kjanelas`).value || 0),
+        nJanelas: Number(document.getElementById(`cfgq-${g}-njanelas`).value || 0),
+        integralMax: Number(document.getElementById(`cfgq-${g}-integralmax`).value || 0),
+        horizonteH: Number(document.getElementById(`cfgq-${g}-horizonteh`).value || 24),
+      },
+    };
+  }
+  const correspondencia = {};
+  for (const [g] of GRANDEZAS_QAI_UI) {
+    const v = document.getElementById(`cfgq-${g}-corresp`).value.trim();
+    if (v) correspondencia[g] = v;
+  }
+  const dados = {
+    contrato, nivel: CFGQ_NIVEL,
+    estabelecimento: CFGQ_NIVEL === 'recinto' ? CFGQ_ESTAB : undefined,
+    recinto: CFGQ_NIVEL === 'recinto' ? CFGQ_RECINTO : undefined,
+    porGrandeza, correspondencia,
+    janelasFormais: CFGQ_JANELAS,
+    pareamentoExternoMin: Number(document.getElementById('cfgq-pareamento').value || 30),
+    idadeMaxDadoExternoMin: Number(document.getElementById('cfgq-idademax').value || 60),
+    referencia: {
+      duracaoDias: Number(document.getElementById('cfgq-ref-duracao').value || 14),
+      exigeConforme: document.getElementById('cfgq-ref-exigeconforme').checked,
+      semOS: document.getElementById('cfgq-ref-semos').checked,
+    },
+    eficacia: {
+      janelaDias: Number(document.getElementById('cfgq-efic-janela').value || 7),
+      estabilizacaoH: Number(document.getElementById('cfgq-efic-estab').value || 24),
+      alfa: Number(document.getElementById('cfgq-efic-alfa').value || 0.05),
+      teste: document.getElementById('cfgq-efic-teste').value,
+      reducaoMinPct: Number(document.getElementById('cfgq-efic-reducao').value || 0),
+      // Sem editor dedicado nesta etapa — preserva o que já havia na
+      // versão vigente em vez de sempre resetar pro padrão do servidor
+      // (cada versão é um INSERT novo, o servidor nunca funde com a anterior).
+      fracaoTempoMax: _cfgqGet('eficacia.fracaoTempoMax', 1),
+      diasValidosMin: Number(document.getElementById('cfgq-efic-diasvalidos').value || 5),
+    },
+    ineficaciasN: Number(document.getElementById('cfgq-ineficacias').value || 2),
+    ncToleradaFreqMax: {
+      qtd: Number(document.getElementById('cfgq-nc-qtd').value || 0),
+      emDias: Number(document.getElementById('cfgq-nc-dias').value || 30),
+    },
+    co2: {
+      gLsPorOcupante: Number(document.getElementById('cfgq-co2-gls').value || 0.005),
+      cextPpm: Number(document.getElementById('cfgq-co2-cext').value || 420),
+    },
+    umidade: { gwPorOcupanteGh: Number(document.getElementById('cfgq-umid-gw').value || 0) },
+    cargaInterna: {
+      qintWPorOcupante: Number(document.getElementById('cfgq-carga-ocup').value || 70),
+      qintEquipamentosW: Number(document.getElementById('cfgq-carga-equip').value || 0),
+    },
+    percentilProjeto: Number(document.getElementById('cfgq-percentil').value || 99),
+    pm: {
+      kDeposicao: Number(document.getElementById('cfgq-pm-deposicao').value || 0),
+      // Sem editor de lista nesta etapa — mesma razão de fracaoTempoMax acima.
+      classesFiltro: _cfgqGet('pm.classesFiltro', []),
+    },
+  };
+  const motivo = document.getElementById('cfgq-motivo').value.trim();
+  if (motivo) dados.motivo = motivo;
+  await withActionBusy(btn, 'Salvando…', async () => {
+    try {
+      await DB.salvarConfigQai(dados);
+      showToast('Nova versão salva.');
+      await carregarConfigQai();
+    } catch (e) { showToast('Não foi possível salvar: ' + e.message, 7000); }
+  });
+}
+
+async function verHistoricoConfigQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  try {
+    CFGQ_HISTORICO = await DB.getHistoricoConfigQai(contrato, CFGQ_NIVEL, CFGQ_NIVEL === 'recinto' ? CFGQ_ESTAB : undefined, CFGQ_NIVEL === 'recinto' ? CFGQ_RECINTO : undefined);
+  } catch (e) { showToast('Não foi possível carregar o histórico: ' + e.message, 6000); return; }
+  const el = document.getElementById('config-qai-conteudo');
+  el.innerHTML = `
+    <div class="modal-title">Histórico de versões</div>
+    <div class="qai-sub">${CFGQ_NIVEL === 'contrato' ? 'Nível: todo o contrato.' : `Nível: recinto ${esc(CFGQ_ESTAB)} / ${esc(CFGQ_RECINTO)}.`}</div>
+    ${CFGQ_HISTORICO.length ? CFGQ_HISTORICO.map(v => `
+      <div class="qai-aparelho-item">
+        <strong>Vigente desde ${esc(fmtDataHora(v.vigenteDesde))}</strong>
+        <div class="qai-sub" style="margin:2px 0 0">Criada em ${esc(fmtDataHora(v.criadoEm))} por ${esc(v.criadoPor || '—')}${v.motivo ? ' · motivo: ' + esc(v.motivo) : ''}</div>
+      </div>`).join('') : '<div class="qai-sub" style="margin:0">Nenhuma versão ainda.</div>'}
+    <div class="action-bar"><button class="btn btn-secondary" onclick="renderConfigQai()">Voltar</button></div>`;
+}
+
+// ── Painel de leituras/análises (recurso experimental, Etapa 8) ────
+let PNL_ESTAB = '';
+let PNL_RECINTO = '';
+let PNL_GRANDEZA = 'temperatura';
+let PNL_MODELO = null;
+let PNL_CLIMA = null;
+
+// "modo"/"d"/"dEsperado"/"resid" vêm
+// da API tal como o backend usa internamente — aqui só trocamos por um
+// rótulo de tela.
+function _rotuloModoAnaliseQai(modo) {
+  if (modo === 'modelo') return 'com ajuste calculado';
+  if (modo === 'sem_modelo') return 'sem ajuste (dados insuficientes)';
+  if (modo === 'sem_limite') return 'sem limite configurado';
+  return modo || '—';
+}
+
+async function abrirPainelQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  try { RECINTOS_CACHE = await DB.getRecintosQai(contrato); } catch (e) { /* mantém o cache que já tinha */ }
+  if (RECINTOS_CACHE.length && !RECINTOS_CACHE.some(r => r.estabelecimento === PNL_ESTAB && r.recinto === PNL_RECINTO)) {
+    PNL_ESTAB = RECINTOS_CACHE[0].estabelecimento; PNL_RECINTO = RECINTOS_CACHE[0].recinto;
+  }
+  await renderPainelQai();
+  abrirModal('modal-painel-qai');
+}
+
+async function renderPainelQai() {
+  const el = document.getElementById('painel-qai-conteudo');
+  const contrato = document.getElementById('f-contrato').value;
+  if (!RECINTOS_CACHE.length) {
+    el.innerHTML = '<div class="modal-title">Painel</div><div class="qai-sub" style="margin:0">Nenhum recinto cadastrado ainda (ver botão "Recintos").</div>';
+    return;
+  }
+  el.innerHTML = '<div class="modal-title">Painel de leituras e análises</div><div class="qai-sub">Carregando…</div>';
+  try { PNL_MODELO = await DB.getModeloQai(contrato, PNL_ESTAB, PNL_RECINTO, PNL_GRANDEZA); }
+  catch (e) { PNL_MODELO = null; }
+  try { PNL_CLIMA = await DB.getClimaExternoQai(contrato, PNL_ESTAB); }
+  catch (e) { PNL_CLIMA = null; }
+  const podeEscrever = podeEscreverQaiMetodo(user?.role);
+  const opcoesLocal = RECINTOS_CACHE.map(r => `<option value="${esc(r.estabelecimento)}\u0000${esc(r.recinto)}" ${PNL_ESTAB === r.estabelecimento && PNL_RECINTO === r.recinto ? 'selected' : ''}>${esc(r.estabelecimento)} / ${esc(r.recinto)}</option>`).join('');
+  el.innerHTML = `
+    <div class="modal-title">Painel de leituras e análises</div>
+    <div class="qai-grid2">
+      <div class="field"><label for="pnl-local">Recinto</label><select id="pnl-local" onchange="trocarLocalPainelQai(this)">${opcoesLocal}</select></div>
+      <div class="field"><label for="pnl-grandeza">Grandeza</label>
+        <select id="pnl-grandeza" onchange="trocarGrandezaPainelQai(this)">
+          ${GRANDEZAS_QAI_UI.map(([g, lbl]) => `<option value="${g}" ${PNL_GRANDEZA === g ? 'selected' : ''}>${esc(lbl)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">Ajuste calculado</div>
+      ${PNL_MODELO ? `
+        <div class="qai-sub" style="margin:0">
+          Calculado a partir de ${PNL_MODELO.n} leitura(s), ajuste de ${(PNL_MODELO.r2 * 100).toFixed(1)}% · versão ${PNL_MODELO.versao}
+          · ajustado em ${esc(fmtDataHora(PNL_MODELO.ajustadoEm))} por ${esc(PNL_MODELO.ajustadoPor || '—')}.
+        </div>` : '<div class="qai-sub" style="margin:0">Nenhum ajuste calculado ainda para este recinto/grandeza.</div>'}
+      ${podeEscrever ? '<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="recalcularModeloQaiUi(this)">Recalcular</button>' : ''}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Clima externo agora</div>
+      ${PNL_CLIMA && PNL_CLIMA.disponivel !== false
+        ? `<div class="qai-sub" style="margin:0">Temperatura: ${PNL_CLIMA.temperatura != null ? PNL_CLIMA.temperatura + ' °C' : '—'} · Umidade: ${PNL_CLIMA.umidade != null ? PNL_CLIMA.umidade + '%' : '—'}
+           · fonte: ${esc(PNL_CLIMA.origem === 'sensor' ? 'sensor externo' : PNL_CLIMA.origem === 'remoto' ? 'serviço remoto' : '—')}</div>`
+        : `<div class="qai-sub" style="margin:0">${esc(PNL_CLIMA?.motivo || 'Sem dado de clima externo disponível agora.')}</div>`}
+    </div>
+
+    <div class="card">
+      <div class="card-title">Avaliar um valor</div>
+      <div class="qai-grid2">
+        <div class="field"><label for="pnl-valor">Valor lido</label><input type="number" id="pnl-valor" step="0.01"></div>
+        <div class="field"><label for="pnl-instante">Instante</label><input type="datetime-local" id="pnl-instante"></div>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="avaliarAnaliseQaiUi(this)">Avaliar</button>
+      <div id="pnl-avaliacao-resultado" style="margin-top:8px"></div>
+    </div>
+
+    ${podeEscrever ? `
+    <div class="card">
+      <div class="card-title">Verificação de eficácia</div>
+      <div class="qai-sub">Roda agora o ciclo de verificação (todos os contratos), sem esperar o horário automático.</div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="executarVerificacoesQaiUi(this)">Executar agora</button>
+      <div id="pnl-verificacao-resultado" style="margin-top:8px"></div>
+    </div>` : ''}
+  `;
+}
+function trocarLocalPainelQai(sel) {
+  const [estab, recinto] = sel.value.split('\u0000');
+  PNL_ESTAB = estab; PNL_RECINTO = recinto;
+  renderPainelQai();
+}
+function trocarGrandezaPainelQai(sel) {
+  PNL_GRANDEZA = sel.value;
+  renderPainelQai();
+}
+
+async function recalcularModeloQaiUi(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  await withActionBusy(btn, 'Recalculando…', async () => {
+    try {
+      await DB.recalcularModeloQai({ contrato, estabelecimento: PNL_ESTAB, recinto: PNL_RECINTO, grandeza: PNL_GRANDEZA });
+      showToast('Ajuste recalculado.');
+      await renderPainelQai();
+    } catch (e) { showToast('Não foi possível recalcular: ' + e.message, 7000); }
+  });
+}
+
+async function avaliarAnaliseQaiUi(btn) {
+  const contrato = document.getElementById('f-contrato').value;
+  const valor = document.getElementById('pnl-valor').value;
+  if (valor === '') { showToast('Informe o valor lido.'); return; }
+  const instanteInput = document.getElementById('pnl-instante').value;
+  const instante = instanteInput ? new Date(instanteInput).getTime() : Date.now();
+  const out = document.getElementById('pnl-avaliacao-resultado');
+  await withActionBusy(btn, 'Avaliando…', async () => {
+    try {
+      const r = await DB.avaliarAnaliseQai({ contrato, estabelecimento: PNL_ESTAB, recinto: PNL_RECINTO, grandeza: PNL_GRANDEZA, valor: Number(valor), instante });
+      const linhas = [`Modo: ${esc(_rotuloModoAnaliseQai(r.modo))}${r.lado ? ' · lado: ' + esc(r.lado) : ''}`];
+      if (r.limiteEfetivo != null) linhas.push('Limite efetivo: ' + r.limiteEfetivo);
+      if (r.esperado != null) linhas.push('Valor de referência: ' + Number(r.esperado).toFixed(2));
+      if (r.dEsperado != null) linhas.push('Ajuste calculado: ' + Number(r.dEsperado).toFixed(2));
+      if (r.resid != null) linhas.push('Diferença em relação ao esperado: ' + Number(r.resid).toFixed(2));
+      if (r.d != null) linhas.push('Desvio em relação ao limite: ' + Number(r.d).toFixed(2));
+      out.innerHTML = `<div class="qai-sub" style="margin:0">${linhas.map(esc).join('<br>')}</div>`;
+    } catch (e) { out.innerHTML = `<div class="qai-sub" style="margin:0;color:var(--danger)">${esc(e.message)}</div>`; }
+  });
+}
+
+async function executarVerificacoesQaiUi(btn) {
+  const out = document.getElementById('pnl-verificacao-resultado');
+  await withActionBusy(btn, 'Executando…', async () => {
+    try {
+      const r = await DB.executarVerificacoesQai();
+      out.innerHTML = `<div class="qai-sub" style="margin:0">Agendadas: ${r.agendadas} · Executadas: ${r.executadas}</div>`;
+    } catch (e) { out.innerHTML = `<div class="qai-sub" style="margin:0;color:var(--danger)">${esc(e.message)}</div>`; }
+  });
+}
+
+// ── O.S. de melhoria estrutural (recurso experimental, Etapa 8) ────
+let ESTR_LISTA = [];
+let ESTR_RT_ABERTO = null; // id da O.S. com o mini-formulário de validação RT visível
+
+const ESTR_STATUS_LABEL = {
+  gerada: 'Gerada', em_analise: 'Em análise', validada_RT: 'Validada (RT)', rejeitada: 'Rejeitada',
+  em_execucao: 'Em execução', executada: 'Executada (aguardando verificação)', verificada: 'Verificada', encerrada: 'Encerrada',
+};
+const ESTR_STATUS_COR = {
+  gerada: 'var(--text-3)', em_analise: 'var(--warning)', validada_RT: 'var(--success)', rejeitada: 'var(--danger)',
+  em_execucao: 'var(--warning)', executada: 'var(--text-3)', verificada: 'var(--success)', encerrada: 'var(--text-3)',
+};
+const ESTR_TIPO_LABEL = {
+  substituicao_aparelho: 'Substituição de aparelho', inclusao_aparelho: 'Inclusão de aparelho',
+  inclusao_ampliacao_renovacao_ar: 'Inclusão/ampliação de renovação de ar', troca_classe_filtragem: 'Troca de classe de filtragem',
+};
+
+async function abrirEstruturalQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  if (!contrato) return;
+  ESTR_RT_ABERTO = null;
+  await carregarEstruturalQai();
+  abrirModal('modal-estrutural-qai');
+}
+async function carregarEstruturalQai() {
+  const contrato = document.getElementById('f-contrato').value;
+  try { ESTR_LISTA = await DB.getOsEstruturalQai(contrato); }
+  catch (e) { ESTR_LISTA = []; showToast('Não foi possível carregar: ' + e.message, 6000); }
+  renderEstruturalQai();
+}
+
+function renderEstruturalQai() {
+  const el = document.getElementById('estrutural-qai-conteudo');
+  const podeEscrever = podeEscreverQaiMetodo(user?.role);
+  el.innerHTML = `
+    <div class="modal-title">O.S. de melhoria estrutural</div>
+    <div class="qai-sub">Geradas automaticamente quando ajustes pontuais não bastam (troca/inclusão de aparelho, renovação de ar, classe de filtragem).</div>
+    ${ESTR_LISTA.length ? ESTR_LISTA.map(o => renderOsEstruturalItem(o, podeEscrever)).join('') : '<div class="qai-sub" style="margin:0">Nenhuma O.S. de melhoria estrutural ainda.</div>'}
+  `;
+}
+
+function renderOsEstruturalItem(o, podeEscrever) {
+  const cor = ESTR_STATUS_COR[o.status] || 'var(--text-3)';
+  const d = o.dimensao || {};
+  return `
+    <div class="qai-aparelho-item" style="border-left:3px solid ${cor};padding-left:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <strong>${esc(o.numero)} — ${esc(o.estabelecimento)} / ${esc(o.recinto)}</strong>
+        <span style="color:${cor};font-weight:600;font-size:12px">${esc(ESTR_STATUS_LABEL[o.status] || o.status)}</span>
+      </div>
+      <div class="qai-sub" style="margin:2px 0 0">
+        Grandeza: ${esc((GRANDEZAS_QAI_UI.find(g => g[0] === o.grandeza) || [, o.grandeza])[1])}
+        · Tipo: ${esc(ESTR_TIPO_LABEL[o.tipoMelhoria] || o.tipoMelhoria)}
+        · Criada em ${esc(fmtDataHora(o.criadoEm))}
+      </div>
+      ${d.requerida != null ? `<div class="qai-sub" style="margin:4px 0 0">
+        Capacidade instalada: ${esc(String(d.instalada ?? '—'))} ${esc(d.unidade || '')} · Requerida: ${esc(String(d.requerida))} ${esc(d.unidade || '')} · Déficit: ${esc(String(d.deficit))} ${esc(d.unidade || '')}
+      </div>` : ''}
+      ${Array.isArray(d.memoriaCalculo) && d.memoriaCalculo.length ? `
+        <details style="margin-top:4px"><summary style="cursor:pointer;font-size:12px;color:var(--text-3)">Memória de cálculo</summary>
+          <div class="qai-sub" style="margin:4px 0 0">${d.memoriaCalculo.map(l => esc(l)).join('<br>')}</div>
+        </details>` : ''}
+      ${o.validacaoRT ? `<div class="qai-sub" style="margin:4px 0 0">RT: ${esc(o.validacaoRT.nome)}${o.validacaoRT.crea ? ' · CREA ' + esc(o.validacaoRT.crea) : ''} — ${o.validacaoRT.aprovado ? 'aprovado' : 'rejeitado'}${o.validacaoRT.parecer ? ' · ' + esc(o.validacaoRT.parecer) : ''}</div>` : ''}
+      ${podeEscrever ? renderAcoesOsEstrutural(o) : ''}
+      ${podeEscrever && ESTR_RT_ABERTO === o.id ? renderFormRtOsEstrutural(o) : ''}
+    </div>`;
+}
+
+function renderAcoesOsEstrutural(o) {
+  const btns = [];
+  if (o.status === 'gerada') btns.push(`<button type="button" class="btn btn-secondary btn-sm" data-id="${esc(o.id)}" onclick="avancarAnaliseOsEstruturalUi(this)">Avançar para análise</button>`);
+  if (['gerada', 'em_analise'].includes(o.status)) btns.push(`<button type="button" class="btn btn-secondary btn-sm" data-id="${esc(o.id)}" onclick="toggleRtOsEstrutural(this)">Validar RT</button>`);
+  if (o.status === 'validada_RT') btns.push(`<button type="button" class="btn btn-secondary btn-sm" data-id="${esc(o.id)}" onclick="iniciarOsEstruturalUi(this)">Iniciar execução</button>`);
+  if (o.status === 'em_execucao') btns.push(`<button type="button" class="btn btn-secondary btn-sm" data-id="${esc(o.id)}" onclick="concluirOsEstruturalUi(this)">Concluir execução</button>`);
+  if (['verificada', 'rejeitada'].includes(o.status)) btns.push(`<button type="button" class="btn btn-secondary btn-sm" data-id="${esc(o.id)}" onclick="encerrarOsEstruturalUi(this)">Encerrar</button>`);
+  return btns.length ? `<div class="action-bar" style="margin-top:6px">${btns.join('')}</div>` : '';
+}
+
+function renderFormRtOsEstrutural(o) {
+  const id = esc(o.id);
+  return `
+    <div class="field" style="margin-top:8px"><label for="rt-nome-${id}">Responsável técnico</label><input type="text" id="rt-nome-${id}" maxlength="120" placeholder="Nome"></div>
+    <div class="field"><label for="rt-crea-${id}">CREA</label><input type="text" id="rt-crea-${id}" maxlength="60"></div>
+    <div class="field"><label for="rt-parecer-${id}">Parecer</label><textarea id="rt-parecer-${id}" maxlength="2000" rows="2" style="width:100%"></textarea></div>
+    <div class="action-bar">
+      <button type="button" class="btn btn-secondary btn-sm" data-id="${id}" onclick="validarRtOsEstruturalUi(this, false)">Rejeitar</button>
+      <button type="button" class="btn btn-primary btn-sm" data-id="${id}" onclick="validarRtOsEstruturalUi(this, true)">Aprovar</button>
+    </div>`;
+}
+function toggleRtOsEstrutural(btn) {
+  const id = btn.dataset.id;
+  ESTR_RT_ABERTO = ESTR_RT_ABERTO === id ? null : id;
+  renderEstruturalQai();
+}
+
+async function avancarAnaliseOsEstruturalUi(btn) {
+  await withActionBusy(btn, 'Avançando…', async () => {
+    try { await DB.avancarAnaliseOsEstruturalQai(btn.dataset.id); showToast('Avançada para análise.'); await carregarEstruturalQai(); }
+    catch (e) { showToast('Não foi possível avançar: ' + e.message, 7000); }
+  });
+}
+async function validarRtOsEstruturalUi(btn, aprovado) {
+  const id = btn.dataset.id;
+  const nome = document.getElementById(`rt-nome-${id}`).value.trim();
+  if (!nome) { showToast('Informe o nome do responsável técnico.'); return; }
+  const crea = document.getElementById(`rt-crea-${id}`).value.trim();
+  const parecer = document.getElementById(`rt-parecer-${id}`).value.trim();
+  await withActionBusy(btn, 'Enviando…', async () => {
+    try {
+      await DB.validarRtOsEstruturalQai(id, { nome, crea, parecer, aprovado });
+      showToast(aprovado ? 'Validação registrada.' : 'O.S. rejeitada.');
+      ESTR_RT_ABERTO = null;
+      await carregarEstruturalQai();
+    } catch (e) { showToast('Não foi possível validar: ' + e.message, 7000); }
+  });
+}
+async function iniciarOsEstruturalUi(btn) {
+  await withActionBusy(btn, 'Iniciando…', async () => {
+    try { await DB.iniciarOsEstruturalQai(btn.dataset.id); showToast('Execução iniciada.'); await carregarEstruturalQai(); }
+    catch (e) { showToast('Não foi possível iniciar: ' + e.message, 7000); }
+  });
+}
+async function concluirOsEstruturalUi(btn) {
+  await withActionBusy(btn, 'Concluindo…', async () => {
+    try { await DB.concluirOsEstruturalQai(btn.dataset.id); showToast('Execução concluída.'); await carregarEstruturalQai(); }
+    catch (e) { showToast('Não foi possível concluir: ' + e.message, 7000); }
+  });
+}
+async function encerrarOsEstruturalUi(btn) {
+  await withActionBusy(btn, 'Encerrando…', async () => {
+    try { await DB.encerrarOsEstruturalQai(btn.dataset.id); showToast('O.S. encerrada.'); await carregarEstruturalQai(); }
+    catch (e) { showToast('Não foi possível encerrar: ' + e.message, 7000); }
+  });
 }
 
 // ── Painel de geração do PDF: período e grandezas ───────────────────
