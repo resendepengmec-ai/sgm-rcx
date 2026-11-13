@@ -46,11 +46,12 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
 .qai-stab.active{color:var(--primary);border-bottom-color:var(--primary);}
 
 .qai-lista{padding:12px 14px;}
-.qai-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px;border-left:4px solid var(--border);cursor:pointer;}
+.qai-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;min-width:0;border-left:4px solid var(--border);cursor:pointer;}
 .qai-card.ativo{border-left-color:var(--success);}
 .qai-card.inativo{border-left-color:var(--text-3);}
 .qai-card.excluido{border-left-color:var(--danger);cursor:default;opacity:.8;}
 .qai-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;}
+.qai-card-top > div{min-width:0;}
 .qai-card-titulo{font-size:15px;font-weight:700;}
 .qai-card-sub{font-size:12px;color:var(--text-2);margin-top:2px;}
 .qai-card-valores{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
@@ -150,7 +151,7 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
   <button class="qai-stab" role="tab" data-tab="excluidos" aria-selected="false" onclick="trocarAbaStatus('excluidos')">Excluídos</button>
 </div>
 
-<div class="qai-lista" id="qai-lista">
+<div class="qai-lista card-list" id="qai-lista">
   <div class="empty">Selecione um contrato para ver os sensores.</div>
 </div>
 
@@ -669,7 +670,7 @@ function renderCard(linha) {
     return `<div class="qai-card excluido">
       <div class="qai-card-top">
         <div>
-          <div class="qai-card-titulo">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
+          <div class="qai-card-titulo sep-line">${[s.estabelecimento, s.recinto].filter(Boolean).map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>
           <div class="qai-card-sub"><span class="badge inativo">Excluído em ${new Date(s.excluidoEm).toLocaleDateString('pt-BR')}</span></div>
         </div>
       </div>
@@ -692,7 +693,7 @@ function renderCard(linha) {
   return `<div class="qai-card ${s.sensorAtivo ? 'ativo' : 'inativo'}" onclick="abrirSensor('${s.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirSensor('${s.id}')}">
     <div class="qai-card-top">
       <div>
-        <div class="qai-card-titulo">${esc(s.estabelecimento)} · ${esc(s.recinto)}</div>
+        <div class="qai-card-titulo sep-line">${[s.estabelecimento, s.recinto].filter(Boolean).map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>
         <div class="qai-card-sub">${s.sensorAtivo ? '<span class="badge ativo">Ativo</span>' : '<span class="badge inativo">Inativo</span>'} ${quando ? badgeConforme : ''}</div>
       </div>
     </div>

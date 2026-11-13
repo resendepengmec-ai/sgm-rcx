@@ -430,15 +430,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
   .screen, .container, .filter-bar, #qai-status-tabs { max-width: 920px; margin: 0 auto; }
   #screen-new, #screen-form, #screen-settings, #screen-import { max-width: 640px; }
 
-  /* Listas de cartão: 1 coluna fixa -> várias, conforme a largura.
-     auto-fit (não auto-fill): com poucos cartões, as colunas vazias
-     colapsam e o(s) cartão(ões) que existem esticam pra usar o espaço —
-     com auto-fill eles ficavam espremidos em ~320px e sobrava vazio do
-     lado, mesmo a lista tendo só 1-2 itens. */
-  #qai-lista {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 10px; align-items: start;
-  }
+  /* Listas de cartão: classe .card-list (padrão de card, fim do arquivo),
+     em qualquer largura — não mais uma grade só no desktop por id. */
 
   /* Modal: era bottom-sheet full-bleed; em tela larga isso fica
      gigante e sem sentido — centraliza como diálogo. */
