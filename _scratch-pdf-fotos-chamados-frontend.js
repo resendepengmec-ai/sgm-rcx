@@ -102,6 +102,7 @@ function montarSandbox({ dbRecords, chamadosFixture }) {
   sandbox.window.jspdf = { jsPDF: criarFakeJsPDF() };
   vm.createContext(sandbox);
   vm.runInContext(
+    extraeFuncao(html, '_pdfPhotoSigs') + '\n' +
     extraeFuncao(html, 'getFiltered') + '\n' +
     extraeFuncao(html, 'printFilteredPDF') + '\n' +
     extraeFuncao(html, 'printPDF') + '\n' +
