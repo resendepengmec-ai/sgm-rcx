@@ -119,6 +119,44 @@ console.log('\n── 4. Bibliotecas auto-hospedadas ──');
   checar('nenhuma página carrega script de CDN', comCdn.length === 0, comCdn.join(', '));
 }
 
+// ── 5. Layout: viewport, cache do CSS, cabeçalho e cards ──────────
+// Regressões já vistas: zoom bloqueado, Safari/Chrome Android servindo o
+// shared.css antigo depois do deploy, cabeçalho sem a classe que o deixa
+// fixo e "·" literal sobrando entre campos vazios nos cards de lista.
+console.log('\n── 5. Layout (cabeçalho fixo e cards) ──');
+{
+  // Páginas com barra de topo própria, fora do padrão .app-header.
+  const CABECALHO_PROPRIO = { 'index.html': 'dash-topbar', 'assinar.html': 'topbar' };
+  // Páginas públicas/estáticas sem barra de topo (abertura com "hero").
+  const SEM_CABECALHO = ['sobre.html', 'privacidade.html', 'auth-callback.html'];
+  for (const arquivo of htmls) {
+    const html = fs.readFileSync(path.join(RAIZ, arquivo), 'utf8');
+    const vp = (html.match(/<meta\s+name="viewport"\s+content="([^"]*)"/i) || [])[1] || '';
+    checar(`${arquivo}: meta viewport`,
+      /width=device-width/.test(vp) && /initial-scale=1(\.0)?\b/.test(vp) && /viewport-fit=cover/.test(vp)
+        && !/user-scalable\s*=\s*no|maximum-scale/i.test(vp), `content="${vp}"`);
+    if (/href="shared.css/.test(html)) {
+      const refs = [...html.matchAll(/href="shared\.css([^"]*)"/g)].map((m) => m[1]);
+      checar(`${arquivo}: shared.css com ?v=`, refs.length > 0 && refs.every((q) => /^\?v=[\w.-]+$/.test(q)), refs.join(' '));
+    }
+    if (SEM_CABECALHO.includes(arquivo)) continue;
+    const classe = CABECALHO_PROPRIO[arquivo] || 'app-header';
+    checar(`${arquivo}: cabeçalho .${classe}`, new RegExp(`class="[^"]*\\b${classe}\\b`).test(html));
+  }
+
+  // Dentro do HTML de card (de class="lcard" até o fim do template), nenhum
+  // "·" literal colado a uma interpolação: separador é .sep ou o gap do .cluster.
+  const fontes = [...htmls, 'api-client.js'];
+  for (const arquivo of fontes) {
+    const src = fs.readFileSync(path.join(RAIZ, arquivo), 'utf8');
+    const ruins = [];
+    for (const m of src.matchAll(/class="lcard[\s\S]*?<\/div>`/g)) {
+      if (/\}\s*·|·\s*\$\{|'\s*·\s*'/.test(m[0])) ruins.push(src.slice(0, m.index).split('\n').length);
+    }
+    if (src.includes('class="lcard')) checar(`${arquivo}: cards sem "·" literal entre campos`, !ruins.length, `linhas ~${ruins.join(', ')}`);
+  }
+}
+
 console.log(`\n═══ ${passou} passaram, ${falhou} falharam ═══\n`);
 if (falhou) falhas.forEach(f => console.log('  ✗ ' + f));
 process.exit(falhou ? 1 : 0);
