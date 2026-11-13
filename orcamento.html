@@ -70,7 +70,6 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
 .qc-numero  { font-size:17px; font-weight:800; letter-spacing:-.01em; line-height:1.15; }
 .qc-unidade { font-size:12px; font-weight:600; color:var(--text-2); margin-top:1px;
               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.quote-card .qc-meta { font-size:11px; }
 
 /* Parcial: cor própria, para não se confundir com aprovado integral na
    leitura rápida da lista. */
@@ -166,7 +165,7 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
   </div>
 
   <div style="padding:12px">
-    <div id="quotes-list"></div>
+    <div id="quotes-list" class="card-list"></div>
     <div id="quotes-empty" class="empty" style="display:none">
       <span class="empty-icon">📋</span>
       <h3>Nenhum orçamento encontrado</h3>
@@ -1516,7 +1515,7 @@ function renderQuoteList() {
     if (month !== lastMonth) {
       lastMonth = month;
       const mLabel = month ? new Date(month+'-02').toLocaleDateString('pt-BR',{month:'long',year:'numeric'}) : 'Sem data';
-      header = `<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);padding:12px 0 6px">${mLabel}</div>`;
+      header = `<div class="card-group">${mLabel}</div>`;
     }
     // O NÚMERO é o que identifica o orçamento na conversa com o cliente
     // ("o 039 foi aprovado?"). Antes ele nem aparecia na lista — só
@@ -1524,21 +1523,26 @@ function renderQuoteList() {
     // Por isso vem primeiro e grande; o resto fica em corpo menor.
     const numero = numeroDoOrcamento(q);
     const unid = q.unidade || q.machine?.estabelecimento || '';
-    return header + `<div class="quote-card" onclick="openDetail('${q.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${q.id}')}">
-      <div class="qi-info">
-        <div class="qc-numero">${numero ? esc(numero) : '<span style=\'color:var(--text-3);font-weight:400\'>sem número</span>'}</div>
-        ${unid ? `<div class="qc-unidade">${esc(unid)}</div>` : ''}
-        <div class="qc-meta">Contrato ${esc(q.client) || '—'} · ${q.date || ''} ·
-          ${(() => { const t = new Set((q.items||[]).map(i => i.tag).filter(Boolean));
-                     return t.size > 1 ? `${t.size} TAGs` : ''; })()}
-          ${q.items.length} serviço(s)</div>
-        <div class="qc-meta" style="margin-top:3px">
+    const nTags = new Set((q.items||[]).map(i => i.tag).filter(Boolean)).size;
+    return header + `<div class="lcard" onclick="openDetail('${q.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail('${q.id}')}">
+     <div class="lcard-grid sem-thumb">
+      <div class="card-head">
+        <div class="qc-numero wrap-any">${numero ? esc(numero) : '<span style=\'color:var(--text-3);font-weight:400\'>sem número</span>'}</div>
+        ${unid ? `<div class="qc-unidade" title="${esc(unid)}">${esc(unid)}</div>` : ''}
+      </div>
+      <div class="card-meta cluster"><span class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}</span></div>
+      <div class="card-chips" style="font-size:12px">
+        <div class="cluster">
           <span class="badge ${sCls}">${sLabel}</span>
-          ${q.equip ? ` · 🏷️ ${esc(q.equip)}` : ''}
+          ${q.equip ? `<span class="chip-tag" title="TAG ${esc(q.equip)}">${esc(q.equip)}</span>` : ''}
+          ${q.client ? `<span class="truncate" title="Contrato ${esc(q.client)}">Contrato ${esc(q.client)}</span>` : ''}
+          ${q.date ? `<span class="chip-data">${esc(q.date)}</span>` : ''}
+          ${nTags > 1 ? `<span>${nTags} TAGs</span>` : ''}
+          <span>${q.items.length} serviço(s)</span>
         </div>
       </div>
-      <div class="qc-total">${window.HIDE_PRICES ? '—' : fmt(total)}  ${sigTrailHtml(q._signatures)}
-</div>
+      ${sigTrailCardHtml(q._signatures)}
+     </div>
     </div>`;
   }).join('');
 }
