@@ -194,8 +194,16 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .user-row{background:var(--surface);border-radius:var(--radius);box-shadow:0 1px 4px rgba(0,0,0,.07);padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .user-row img,.uavatar{width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;}
 .uavatar{background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:18px;border:1.5px solid var(--border);}
-.user-info{flex:1;min-width:120px;}
-.user-info .uname{font-size:var(--fs-base);font-weight:600;}
+/* Linhas de usuário/pré-autorização: o bloco de texto tem base de 12–14rem
+   e só encolhe até 0; sem largura para ele, os selos/ações descem para a
+   linha de baixo em vez de espremer o texto ou passar por cima dele. */
+.user-info{flex:1 1 12rem;min-width:0;}
+.user-info .uname{font-size:var(--fs-base);font-weight:600;overflow-wrap:anywhere;}
+.wl-info{flex:1 1 14rem;min-width:0;}
+.wl-info > div{overflow-wrap:anywhere;}
+.u-badge{max-width:100%;overflow-wrap:anywhere;}
+.wl-info button{white-space:nowrap;}
+html{scroll-padding-top:5.5rem;scroll-padding-bottom:3.5rem;}
 .user-info .uemail{font-size:var(--fs-xs);color:var(--text-2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .user-info .ulast{font-size:var(--fs-xs);color:var(--text-3);margin-top:2px;}
 .role-select{font-size:var(--fs-xs);padding:6px 26px 6px 8px;border-radius:8px;border:1.5px solid var(--border);-webkit-appearance:none;appearance:none;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 6px center;cursor:pointer;width:auto;}
@@ -1044,17 +1052,17 @@ function _renderUsersList(el, users, currentUser) {
       ? `Último acesso: ${new Date(ll).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}`
       : 'Nunca acessou';
     const contBadges = u.role === 'admin_cliente'
-      ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${conts.length} contrato(s)</span>`
+      ? `<span class="u-badge" style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${conts.length} contrato(s)</span>`
       : conts.length
-        ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
-        : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
+        ? conts.map(c=>`<span class="u-badge" style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${esc(c)}</span>`).join(' ')
+        : '<span class="u-badge" style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
     return `<div class="user-row" style="flex-wrap:wrap">
       ${u.picture
         ? `<img src="${u.picture}" alt="">`
         : `<div class="uavatar">${r.icon||'👤'}</div>`}
       <div class="user-info">
         <div class="uname">${esc(u.name)||'(sem nome)'}</div>
-        <div class="uemail">${esc(u.email)}</div>
+        <div class="uemail" title="${esc(u.email)}">${esc(u.email)}</div>
         <div class="ulast">${lastLogin}</div>
         ${empresas.length ? `<div style="font-size:10px;color:#7e22ce;font-weight:600;margin-top:2px">🏢 ${empresas.map(esc).join(', ')}</div>` : ''}
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
@@ -1120,15 +1128,16 @@ function _renderWLContent(el, wl) {
   const papeisSelLinha = papeisSel.filter(([k]) => k !== 'admin_cliente');
   const renderRow = (e) => {
     const conts = e.contract ? String(e.contract).split(',').map(s=>s.trim()).filter(Boolean) : [];
+    // Um selo por informação (sem "·" entre campos): cada um quebra sozinho.
+    const seloFranquia = (txt) => `<span class="u-badge" style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${txt}</span>`;
     const contBadges = e.role === 'admin_cliente'
-      ? `<span style="background:#f3e8ff;color:#7e22ce;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">
-          ${esc(e.company) || '(sem nome fantasia)'}${e.cnpj ? ' · CNPJ '+esc(e.cnpj) : ''} · ${conts.length} contrato(s) · franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês</span>`
+      ? [esc(e.company) || '(sem nome fantasia)', e.cnpj ? 'CNPJ ' + esc(e.cnpj) : '', `${conts.length} contrato(s)`, `franquia ${e.franquia_fotos_mes ?? '—'} foto(s)/mês`].filter(Boolean).map(seloFranquia).join('')
       : conts.length
-        ? conts.map(c=>`<span style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${c}</span>`).join(' ')
-        : '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
+        ? conts.map(c=>`<span class="u-badge" style="background:#dbeafe;color:#1e40af;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700">${esc(c)}</span>`).join(' ')
+        : '<span class="u-badge" style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
     return `
     <div class="wl-row" style="flex-wrap:wrap;gap:8px">
-      <div style="flex:1;min-width:0">
+      <div class="wl-info">
         <div class="wl-email" title="${esc(e.email)}" style="font-weight:600">${esc(e.name)||esc(e.email)}</div>
         <div style="font-size:11px;color:var(--text-3)">${esc(e.email)}</div>
         <div style="font-size:11px;margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;align-items:center">
