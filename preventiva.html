@@ -90,12 +90,10 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .section-title{font-size:12px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;}
 
 /* Plan cards */
-.plan-card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer;border-left:4px solid var(--primary);transition:transform .12s;}
+/* .plan-card usa o padrão .lcard do shared.css. */
+.plan-card{transition:transform .12s;}
 .plan-card:active{transform:scale(.98);}
-.plan-icon{font-size:26px;flex-shrink:0;}
-.plan-info{flex:1;min-width:0;}
-.plan-title{font-size:15px;font-weight:700;}
-.plan-meta{font-size:13px;color:var(--text-2);margin-top:3px;}
+.plan-icon{font-size:26px;background:none;}
 .plan-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;white-space:nowrap;}
 .badge-n1{background:#dbeafe;color:#1e40af;}
 .badge-n2{background:#fef3c7;color:#92400e;}
@@ -250,7 +248,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     </div>
   </div>
   <div style="padding:12px">
-    <div id="plans-list"></div>
+    <div id="plans-list" class="card-list"></div>
     <div id="plans-empty" class="empty" style="display:none">
       <span class="empty-icon">📋</span>
       <h3>Nenhuma preventiva encontrada</h3>
@@ -882,7 +880,9 @@ function renderPlansList() {
     ? `<button onclick="abrirValidacaoAssinaturas()" style="width:100%;padding:12px;border-radius:10px;border:1px solid #0369a1;background:var(--surface);color:#0369a1;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px">🔎 Validar assinaturas do cliente</button>`
     : '';
 
-  if (!filtered.length) { list.innerHTML=_btnAssin+_btnVal; empty.style.display=''; return; }
+  // Botões ocupam a linha inteira da grade de cards.
+  const _botoes = _btnAssin || _btnVal ? `<div class="card-group" style="text-transform:none;letter-spacing:0;font-size:inherit">${_btnAssin}${_btnVal}</div>` : '';
+  if (!filtered.length) { list.innerHTML=_botoes; empty.style.display=''; return; }
   empty.style.display='none';
 
   const statusInfo = {
@@ -891,7 +891,7 @@ function renderPlansList() {
     done:   { label:'Concluída',   badge:'badge-done'    },
   };
 
-  list.innerHTML = _btnAssin + _btnVal + filtered.map(p => {
+  list.innerHTML = _botoes + filtered.map(p => {
     const st = getPlanStatus(p);
     const si = statusInfo[st];
     const done = p.equipments ? p.equipments.filter(e=>isEquipDone(e,p.level)).length : 0;
@@ -899,23 +899,32 @@ function renderPlansList() {
     const pct = total ? Math.round(done/total*100) : 0;
     const _estabs = [...new Set((p.equipments||[]).map(e=>e.estabelecimento).filter(Boolean))];
     const estabLabel = _estabs.length===1 ? _estabs[0] : _estabs.length>1 ? `${_estabs.length} estabelecimentos` : '';
-    return `<div class="plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
-      <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
-      <div class="plan-info">
-        <div class="plan-title">Contrato ${esc(p.client)} · ${fmtMonth(p.period)}</div>
-        ${estabLabel?`<div class="plan-meta" style="color:var(--text-2)">🏢 ${esc(estabLabel)}</div>`:''}
-        <div class="plan-meta">${LEVEL_LABEL[p.level]} · ${total} equipamentos · ${esc(p.tech)||'—'}</div>
-        <div style="margin-top:6px;display:flex;gap:6px;align-items:center">
+    return `<div class="lcard plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
+     <div class="lcard-grid">
+      <div class="card-thumb plan-icon" aria-hidden="true">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
+      <div class="card-head">
+        <div class="card-title-l">${p.client ? `Contrato ${esc(p.client)}` : fmtMonth(p.period)}</div>
+        ${p.client && p.period ? `<div class="card-sub">${fmtMonth(p.period)}</div>` : ''}
+      </div>
+      <div class="card-meta cluster">
+        <span class="plan-badge ${LEVEL_BADGE[p.level]}">N${p.level}</span>
+        <span class="plan-badge ${si.badge}">${si.label}</span>
+      </div>
+      <div class="card-chips">
+        ${estabLabel ? `<div class="wrap-any">🏢 ${esc(estabLabel)}</div>` : ''}
+        <div class="cluster">
+          ${LEVEL_LABEL[p.level] ? `<span>${LEVEL_LABEL[p.level]}</span>` : ''}
+          <span>${total} equipamentos</span>
+          ${p.tech ? `<span class="truncate" title="${esc(p.tech)}">${esc(p.tech)}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
           <div style="flex:1;height:4px;background:var(--border);border-radius:99px;overflow:hidden">
             <div style="width:${pct}%;height:100%;background:${LEVEL_COLOR[p.level]};border-radius:99px"></div>
           </div>
           <span style="font-size:11px;font-weight:700;color:${LEVEL_COLOR[p.level]}">${done}/${total}</span>
         </div>
       </div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-        <span class="plan-badge ${LEVEL_BADGE[p.level]}">N${p.level}</span>
-        <span class="plan-badge ${si.badge}">${si.label}</span>
-      </div>
+     </div>
     </div>`;
   }).join('');
 }
@@ -1679,19 +1688,29 @@ function renderHistory() {
     el.innerHTML = '<div class="empty"><span class="empty-icon">📊</span><h3>Nenhuma preventiva concluída</h3><p>O histórico aparece aqui<br>quando uma preventiva for finalizada</p></div>';
     return;
   }
-  el.innerHTML = '<div style="padding:12px">' + done.map(p => {
+  el.innerHTML = '<div class="card-list" style="padding:12px">' + done.map(p => {
     const equip = p.equipments || [];
     const total = equip.length;
     const done2 = equip.filter(e=>isEquipDone(e,p.level)).length;
-    return `<div class="plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
-      <div class="plan-icon">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
-      <div class="plan-info">
-        <div class="plan-title">Contrato ${esc(p.client)} · ${fmtMonth(p.period)}</div>
-        ${(() => { const e=[...new Set(equip.map(x=>x.estabelecimento).filter(Boolean))]; const l=e.length===1?e[0]:e.length>1?`${e.length} estabelecimentos`:''; return l?`<div class="plan-meta" style="color:var(--text-2)">🏢 ${esc(l)}</div>`:''; })()}
-        <div class="plan-meta">${LEVEL_LABEL[p.level]} · ${esc(p.tech)||'—'}</div>
-        <div class="plan-meta">Concluída em ${fmtDate(p.finalizedAt||p.createdAt)} · ${done2}/${total} equipamentos</div>
+    const estabs = [...new Set(equip.map(x=>x.estabelecimento).filter(Boolean))];
+    const estabLabel = estabs.length===1 ? estabs[0] : estabs.length>1 ? `${estabs.length} estabelecimentos` : '';
+    return `<div class="lcard plan-card" onclick="openPlan('${p.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openPlan('${p.id}')}">
+     <div class="lcard-grid">
+      <div class="card-thumb plan-icon" aria-hidden="true">${p.level===1?'🟢':p.level===2?'🟡':'🔴'}</div>
+      <div class="card-head">
+        <div class="card-title-l">${p.client ? `Contrato ${esc(p.client)}` : fmtMonth(p.period)}</div>
+        ${p.client && p.period ? `<div class="card-sub">${fmtMonth(p.period)}</div>` : ''}
       </div>
-      <div><span class="plan-badge badge-done">✅ Concluída</span></div>
+      <div class="card-meta cluster"><span class="plan-badge badge-done">✅ Concluída</span></div>
+      <div class="card-chips">
+        ${estabLabel ? `<div class="wrap-any">🏢 ${esc(estabLabel)}</div>` : ''}
+        <div class="cluster">
+          ${LEVEL_LABEL[p.level] ? `<span>${LEVEL_LABEL[p.level]}</span>` : ''}
+          ${p.tech ? `<span class="truncate" title="${esc(p.tech)}">${esc(p.tech)}</span>` : ''}
+        </div>
+        <div class="cluster"><span>Concluída em ${fmtDate(p.finalizedAt||p.createdAt)}</span><span>${done2}/${total} equipamentos</span></div>
+      </div>
+     </div>
     </div>`;
   }).join('') + '</div>';
 }
