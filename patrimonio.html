@@ -46,11 +46,12 @@
 --success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
 body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 
-.mov-card{background:var(--surface);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;box-shadow:var(--shadow);border-left:4px solid var(--border);}
-.mov-card.pendente{border-left-color:#f59e0b;}
-.mov-card.aprovada{border-left-color:#16a34a;}
-.mov-card.rejeitada{border-left-color:#dc2626;}
-.mov-card.executada{border-left-color:#7c3aed;}
+/* .mov-card usa o padrão .lcard do shared.css; aqui só a cor da borda. */
+.mov-card{--lcard-accent:var(--border);}
+.mov-card.pendente{--lcard-accent:#f59e0b;}
+.mov-card.aprovada{--lcard-accent:#16a34a;}
+.mov-card.rejeitada{--lcard-accent:#dc2626;}
+.mov-card.executada{--lcard-accent:#7c3aed;}
 
 .badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11px;font-weight:700;}
 .badge.pendente{background:#fef3c7;color:#92400e;}
@@ -210,7 +211,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
     <button class="filter-pill" role="tab" data-tab="rejeitada" aria-selected="false" onclick="setFilter('rejeitada')">✕ Rejeitadas</button>
   </div>
 
-  <div id="mov-list"></div>
+  <div id="mov-list" class="card-list"></div>
   <div id="mov-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📦</div>
     <div style="font-size:16px;font-weight:600;margin-bottom:6px" id="mov-empty-title">Nenhuma movimentação</div>
@@ -1176,48 +1177,45 @@ function renderList() {
       const canExecute= podeEditarMovimentacao() && m.status==='aprovada';
       const canDeleteMov = ['admin','diretor','supervisor'].includes(user?.role);
       const dataStr   = new Date(m.criadoEm).toLocaleDateString('pt-BR');
-      const local = localMovimento(m);
+      const local0 = localMovimento(m);
+      const tag = m.tag || m.novaTag;
+      const local = [local0.estabelecimento, local0.recinto].filter(Boolean);
       return `
-      <div class="mov-card ${m.status}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px">
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div class="lcard estatico mov-card ${esc(m.status)}">
+       <div class="lcard-grid sem-thumb">
+        <div class="card-head"><div class="card-title-l">${tag ? `TAG ${esc(tag)}` : esc(tipoLabel)}</div></div>
+        <div class="card-meta cluster"><span class="chip-data">${dataStr}</span></div>
+        <div class="card-chips" style="font-size:12px">
+          <div class="cluster">
             <span class="tipo-badge ${esc(m.tipo)}">${esc(tipoLabel)}</span>
-            <span class="badge ${m.status}">${{pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',executada:'Executada'}[m.status]||m.status}</span>
+            <span class="badge ${esc(m.status)}">${{pendente:'Pendente',aprovada:'Aprovada',rejeitada:'Rejeitada',executada:'Executada'}[m.status]||esc(m.status)}</span>
+            ${m.contrato ? `<span class="truncate" title="Contrato ${esc(m.contrato)}">Contrato ${esc(m.contrato)}</span>` : ''}
           </div>
-          <span style="font-size:11px;color:var(--text-3)">${dataStr}</span>
+          ${m.numPatrimonio ? `<div class="wrap-any">Nº Patrimônio: ${esc(m.numPatrimonio)}</div>` : ''}
+          ${local.length ? `<div class="sep-line"><span aria-hidden="true">🏢 </span>${local.map(t => `<span class="sep">${esc(t)}</span>`).join('')}</div>` : ''}
+          ${m.solicitanteNome ? `<div class="truncate" title="${esc(m.solicitanteNome)}">Solicitado por: ${esc(m.solicitanteNome)}</div>` : ''}
+          ${m.motivo ? `<div class="wrap-any" style="font-size:13px">${esc(m.motivo)}</div>` : ''}
+          ${m.status==='rejeitada' && m.motivoRejeicao ? `
+            <div class="wrap-any" style="color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 10px">
+              Motivo da rejeição: ${esc(m.motivoRejeicao)}
+            </div>` : ''}
+          ${m.status==='executada' ? `
+            <div class="cluster" style="color:var(--success)">
+              <span>✅ Executado em ${new Date(m.executadoEm).toLocaleDateString('pt-BR')}</span><span>Banco atualizado</span>
+            </div>` : ''}
         </div>
-        <div style="font-size:14px;font-weight:700;margin-bottom:4px">
-          TAG: ${esc(m.tag||m.novaTag)||'—'} · Contrato ${esc(m.contrato)||'—'}
-        </div>
-        ${m.numPatrimonio ? `<div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
-          Nº Patrimônio: ${esc(m.numPatrimonio)}
+        ${canReview || canEditMov || canExecute || canDeleteMov ? `<div class="card-actions">
+          ${canReview || canEditMov ? `
+            <div class="admin-actions">
+              ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}', this)">✏️ Editar</button>` : ''}
+              ${canReview ? `<button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
+              <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>` : ''}
+            </div>` : ''}
+          ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}', this)">⚙️ Executar no banco</button>` : ''}
+          ${canDeleteMov ? `<button class="btn-sm btn-secondary" onclick="deleteMovimento('${m.id}', this)">🗑️ Excluir</button>` : ''}
         </div>` : ''}
-        <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
-          🏢 Estabelecimento: ${esc(local.estabelecimento)||'—'} · Recinto: ${esc(local.recinto)||'—'}
-        </div>
-        <div style="font-size:12px;color:var(--text-2);margin-bottom:4px">
-          Solicitado por: ${esc(m.solicitanteNome)||'—'}
-        </div>
-        ${m.motivo ? `<div style="font-size:13px;color:var(--text-2);margin-bottom:${canReview||canExecute?'10':'0'}px">
-          ${esc(m.motivo)}
-        </div>` : ''}
-        ${m.status==='rejeitada' && m.motivoRejeicao ? `
-          <div style="font-size:12px;color:var(--danger);background:var(--danger-bg);border-radius:6px;padding:6px 10px;margin-bottom:6px">
-            Motivo da rejeição: ${esc(m.motivoRejeicao)}
-          </div>` : ''}
-        ${m.status==='executada' ? `
-          <div style="font-size:12px;color:var(--success);margin-top:4px">
-            ✅ Executado em ${new Date(m.executadoEm).toLocaleDateString('pt-BR')} · Banco atualizado
-          </div>` : ''}
-        ${canReview || canEditMov ? `
-          <div class="admin-actions">
-            ${canEditMov ? `<button class="btn-sm btn-secondary" onclick="editMovimento('${m.id}', this)">✏️ Editar</button>` : ''}
-            ${canReview ? `<button class="btn-approve" onclick="openReview('${m.id}','approve')">✅ Aprovar</button>
-            <button class="btn-reject"  onclick="openReview('${m.id}','reject')">✕ Rejeitar</button>` : ''}
-          </div>` : ''}
-        ${canExecute ? `<button class="btn-execute" onclick="executeMovimento('${m.id}', this)">⚙️ Executar no banco</button>` : ''}
-        ${canDeleteMov ? `<button class="btn-sm btn-secondary" style="margin-top:8px" onclick="deleteMovimento('${m.id}', this)">🗑️ Excluir</button>` : ''}
-        ${sigTrailHtml(m._signatures)}
+        ${sigTrailCardHtml(m._signatures)}
+       </div>
       </div>`;
     }).join('');
   }
