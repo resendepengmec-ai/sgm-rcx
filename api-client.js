@@ -397,6 +397,27 @@ function sigTrailHtml(sigs) {
   return `<div style="font-size:11px;color:#94a3b8;margin-top:8px;padding:6px 10px;background:#f5f6fa;border-radius:6px;border-left:3px solid #e2e8f0;line-height:1.8;text-align:left">${entries.join(' <span style="color:#e2e8f0;padding:0 4px">|</span> ')}</div>`;
 }
 
+// Versão para card de lista (.card-trail do shared.css): uma entrada por
+// linha, só a mais recente visível e "+N" para abrir as demais. O clique e
+// as teclas dentro da trilha não chegam ao card (que abre o detalhe).
+function sigTrailCardHtml(sigs) {
+  if (!sigs || !sigs.length) return '';
+  const anulados = _aceitesAnulados(sigs);
+  const linha = (s, i, extra = '') => {
+    const { icone } = _acaoInfo(s.action);
+    const nome = s.by_name || s.by || '?';
+    const hashCurto = (s.hash || '').slice(0, 6) || 'não verif.';
+    return `<div class="trail-row"><span aria-hidden="true">${icone}</span><strong title="${esc(nome)}">${esc(nome)}</strong>`
+      + (anulados.has(i) ? '<strong style="color:#b91c1c">(aceite anulado)</strong>' : '')
+      + `<span>${esc(_sigPapel(s.role))}</span><span>${fmtDataHoraBR(s.at)}</span><code>[${esc(hashCurto)}]</code>${extra}</div>`;
+  };
+  const ult = sigs.length - 1;
+  if (!ult) return `<div class="card-trail">${linha(sigs[0], 0)}</div>`;
+  const anteriores = sigs.slice(0, ult).map((s, i) => linha(s, i)).reverse().join('');
+  return `<details class="card-trail" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()">`
+    + `<summary title="Ver as ${ult + 1} assinaturas">${linha(sigs[ult], ult, `<span class="trail-mais">+${ult}</span>`)}</summary>${anteriores}</details>`;
+}
+
 // Pra PDF — texto puro, sem ícone: nenhuma biblioteca de PDF deste projeto
 // embute fonte com emoji (só a Helvetica padrão), então o ícone vira um
 // rótulo entre colchetes. Mesmo conteúdo (nome, papel, data, HMAC) da
