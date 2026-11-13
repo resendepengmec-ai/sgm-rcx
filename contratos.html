@@ -44,10 +44,20 @@
 --radius:12px;--shadow:0 1px 3px rgba(0,0,0,.08);--shadow-md:0 4px 16px rgba(0,0,0,.10);
 --success:#16a34a;--success-bg:#f0fdf4;--danger:#dc2626;--danger-bg:#fef2f2;--warning:#d97706;--warning-bg:#fffbeb;}
 body{padding-bottom:80px;background:var(--bg);color:var(--text);}
-.contract-card{background:var(--surface);border-radius:var(--radius);padding:16px;margin-bottom:12px;box-shadow:var(--shadow);border-left:4px solid var(--primary);}
-.contract-card h3{font-size:16px;font-weight:700;color:var(--primary);margin-bottom:4px;}
-.contract-meta{font-size:12px;color:var(--text-3);display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px;}
-.contract-body{font-size:13px;color:var(--text-2);display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin-bottom:12px;}
+/* .contract-card usa o padrão .lcard do shared.css. */
+.contract-card h3{font-size:16px;font-weight:700;color:var(--primary);}
+.contract-meta{font-size:12px;color:var(--text-3);gap:4px 12px;}
+.contract-body{font-size:13px;color:var(--text-2);display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,9rem),1fr));gap:6px 16px;margin:4px 0;}
+/* Equipamentos: em tela estreita cada linha da tabela vira um card com
+   rótulo e valor, em vez de uma tabela que precisa rolar de lado. */
+@media (max-width:768px){
+  .tabela-equip thead{display:none;}
+  .tabela-equip,.tabela-equip tbody,.tabela-equip tr,.tabela-equip td{display:block;width:100%;}
+  .tabela-equip tr{background:var(--surface)!important;border:1px solid var(--border);border-left:.25rem solid var(--primary);border-radius:var(--radius-sm);padding:6px 4px;margin-bottom:8px;}
+  .tabela-equip td{display:flex;gap:8px;padding:2px 8px!important;min-width:0;overflow-wrap:anywhere;}
+  .tabela-equip td::before{content:attr(data-label);flex:0 0 6.5rem;color:var(--text-3);font-weight:600;}
+}
+.contrato-acao{background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px;padding:0;min-height:2.75rem;white-space:nowrap;}
 .contract-body label{font-weight:600;color:var(--text);font-size:12px;}
 .doc-chip{display:inline-flex;align-items:center;gap:4px;background:#eff6ff;color:#1e40af;border-radius:6px;padding:3px 8px;font-size:11px;font-weight:600;margin:2px;}
 .tag-count{background:var(--primary-light);color:var(--primary);border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;}
@@ -76,7 +86,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <!-- Lista de contratos -->
 <div id="screen-list" class="screen active" style="padding:12px">
   <div id="cont-lista-content">
-  <div id="contracts-list"></div>
+  <div id="contracts-list" class="card-list"></div>
   <div id="contracts-empty" style="display:none;text-align:center;padding:48px 16px;color:var(--text-3)">
     <div style="font-size:48px;margin-bottom:12px">📋</div>
     <div style="font-size:16px;font-weight:600;margin-bottom:6px">Nenhum contrato cadastrado</div>
@@ -393,33 +403,35 @@ function renderList() {
     const docs   = c.documentos   || [];
     const canEdit= ['admin','admin_cliente','diretor','supervisor'].includes(getCurrentUser()?.role);
     return `
-    <div class="contract-card">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start">
-        <h3>Contrato ${esc(c.numero)} — ${esc(c.razao)}</h3>
-        <div style="display:flex;gap:10px;align-items:center;flex-shrink:0">
-          <button onclick="generateContractPDF('${esc(c.id)}', this)" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
-          ${canEdit ? `<button onclick="openEdit('${esc(c.id)}')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:13px">✏️ Editar</button>` : ''}
+    <div class="lcard estatico contract-card">
+     <div class="lcard-grid sem-thumb">
+      <div class="card-head"><h3 class="wrap-any">Contrato ${esc(c.numero)}${c.razao ? ` — ${esc(c.razao)}` : ''}</h3></div>
+      <div class="card-meta cluster" style="gap:0 10px">
+        <button onclick="generateContractPDF('${esc(c.id)}', this)" class="contrato-acao" title="Gerar PDF com os dados e documentos do contrato">📄 PDF</button>
+        ${canEdit ? `<button onclick="openEdit('${esc(c.id)}')" class="contrato-acao">✏️ Editar</button>` : ''}
+      </div>
+      <div class="card-chips">
+        ${c.cnpj || c.responsavel || c.art ? `<div class="contract-meta cluster">
+          ${c.cnpj ? `<span class="wrap-any">CNPJ: ${esc(c.cnpj)}</span>` : ''}
+          ${c.responsavel ? `<span class="truncate" title="${esc(c.responsavel)}">Resp: ${esc(c.responsavel)}</span>` : ''}
+          ${c.art ? `<span class="wrap-any">ART: ${esc(c.art)}</span>` : ''}
+        </div>` : ''}
+        <div class="contract-body">
+          <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
+          <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
+          ${c.razao ? `<div><label>Contratante</label><div class="wrap-any">${esc(c.razao)}</div></div>` : ''}
+          ${c.tel ? `<div><label>Telefone</label><div class="wrap-any">${esc(c.tel)}</div></div>` : ''}
+        </div>
+        <div class="cluster">
+          <span class="tag-count">📊 ${equipCount} equipamentos</span>
+          ${docs.map(d=>d.sha
+            ? `<span class="doc-chip truncate" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)}" title="Baixar ${esc(d.name)}">📄 ${esc(d.name)}</span>`
+            : `<span class="doc-chip truncate" title="${esc(d.name)}">📄 ${esc(d.name)}</span>`).join('')}
+          ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" class="contrato-acao" style="font-size:12px">Ver equipamentos →</button>` : ''}
         </div>
       </div>
-      <div class="contract-meta">
-        <span>CNPJ: ${esc(c.cnpj||'—')}</span>
-        <span>Resp: ${esc(c.responsavel||'—')}</span>
-        <span>ART: ${esc(c.art||'—')}</span>
-      </div>
-      <div class="contract-body">
-        <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
-        <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
-        <div><label>Contratante</label><div>${esc(c.razao)}</div></div>
-        <div><label>Telefone</label><div>${esc(c.tel||'—')}</div></div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <span class="tag-count">📊 ${equipCount} equipamentos</span>
-        ${docs.map(d=>d.sha
-          ? `<span class="doc-chip" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)}" title="Baixar documento">📄 ${esc(d.name)}</span>`
-          : `<span class="doc-chip">📄 ${esc(d.name)}</span>`).join('')}
-        ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" style="font-size:12px;color:var(--primary);background:none;border:none;cursor:pointer;padding:0">Ver equipamentos →</button>` : ''}
-      ${sigTrailHtml(c._signatures)}
-      </div>
+      ${sigTrailCardHtml(c._signatures)}
+     </div>
     </div>`;
   }).join('');
 }
@@ -1215,10 +1227,10 @@ async function viewEquipamentos(id) {
   const estabs = [...new Set(_equipAtuais.map(e => e.estabelecimento || '—'))]
     .sort((a, b) => a.localeCompare(b, 'pt-BR'));
   detail.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-      <button onclick="showScreen('list')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px">← Contratos</button>
-      <h2 style="font-size:16px;font-weight:700">Equipamentos — Contrato ${esc(c.numero)}</h2>
-      <span class="tag-count">${_equipAtuais.length} total</span>
+    <div class="cluster" style="gap:6px 10px;margin-bottom:14px">
+      <button onclick="showScreen('list')" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px;min-height:2.75rem;white-space:nowrap">← Contratos</button>
+      <h2 class="wrap-any" style="font-size:16px;font-weight:700;flex:1 1 12rem">Equipamentos — Contrato ${esc(c.numero)}</h2>
+      <span class="tag-count" style="white-space:nowrap">${_equipAtuais.length} total</span>
     </div>
     <div class="filter-bar" style="margin-bottom:10px">
       <div class="filter-row">
@@ -1261,23 +1273,23 @@ function renderEquipamentosFiltrados() {
   document.getElementById('equip-list-body').innerHTML = Object.entries(byEstab).map(([estab, items]) => `
       <div style="margin-bottom:14px">
         <div style="font-size:13px;font-weight:700;color:var(--text-2);margin-bottom:6px;padding:6px 10px;background:var(--bg);border-radius:6px">
-          🏢 ${estab} (${items.length})
+          🏢 ${esc(estab)} (${items.length})
         </div>
         <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <table class="tabela-equip" style="width:100%;border-collapse:collapse;font-size:12px">
             <thead><tr style="background:var(--surface);color:var(--text-3)">
               ${['TAG','Patrimônio','Marca','Tipo','Capacidade','Recinto','Área','Status'].map(h=>`<th scope="col" style="padding:6px 8px;text-align:left;font-weight:600">${h}</th>`).join('')}
             </tr></thead>
             <tbody>
               ${items.map((eq,i)=>`<tr style="${i%2?'background:var(--bg)':''}">
-                <td style="padding:5px 8px;font-weight:700;color:var(--primary)">${esc(eq.tag||eq['tag'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.patrimonio||eq['patrimonio'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.marca||eq['marca'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.tipo||eq['tipo'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.capacidade||eq['capacidade'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.recinto||eq['recinto'])||'—'}</td>
-                <td style="padding:5px 8px">${esc(eq.area||eq['area'])||'—'}</td>
-                <td style="padding:5px 8px;font-weight:600;color:${equipamentoOperante(eq)?'var(--success)':'var(--danger)'}">${esc(_statusEquipLabel(eq))}</td>
+                <td data-label="TAG" style="padding:5px 8px;font-weight:700;color:var(--primary)">${esc(eq.tag||eq['tag'])||'—'}</td>
+                <td data-label="Patrimônio" style="padding:5px 8px">${esc(eq.patrimonio||eq['patrimonio'])||'—'}</td>
+                <td data-label="Marca" style="padding:5px 8px">${esc(eq.marca||eq['marca'])||'—'}</td>
+                <td data-label="Tipo" style="padding:5px 8px">${esc(eq.tipo||eq['tipo'])||'—'}</td>
+                <td data-label="Capacidade" style="padding:5px 8px">${esc(eq.capacidade||eq['capacidade'])||'—'}</td>
+                <td data-label="Recinto" style="padding:5px 8px">${esc(eq.recinto||eq['recinto'])||'—'}</td>
+                <td data-label="Área" style="padding:5px 8px">${esc(eq.area||eq['area'])||'—'}</td>
+                <td data-label="Status" style="padding:5px 8px;font-weight:600;color:${equipamentoOperante(eq)?'var(--success)':'var(--danger)'}">${esc(_statusEquipLabel(eq))}</td>
               </tr>`).join('')}
             </tbody>
           </table>
