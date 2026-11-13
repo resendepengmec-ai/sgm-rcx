@@ -1292,6 +1292,45 @@ const DB = {
   getConfigLocalQai:    (contrato, estabelecimento) => API.get(`/qai/config-local?contrato=${encodeURIComponent(contrato)}${estabelecimento ? '&estabelecimento='+encodeURIComponent(estabelecimento) : ''}`),
   salvarConfigLocalQai: dados => API.post('/qai/config-local', dados),
 
+  // Cadastro complementar de recinto — recurso experimental por contrato
+  // (ver contratos.html); contrato sem o recurso ligado devolve 422.
+  getRecintosQai:    (contrato) => API.get(`/qai/recintos?contrato=${encodeURIComponent(contrato)}`),
+  salvarRecintoQai:  dados      => API.post('/qai/recintos', dados),
+
+  // Config com vigência (limites, tolerâncias, parâmetros) — Etapa 2.
+  getConfigQai: (contrato, estabelecimento, recinto, instante) =>
+    API.get(`/qai/config?contrato=${encodeURIComponent(contrato)}`
+      + (estabelecimento ? `&estabelecimento=${encodeURIComponent(estabelecimento)}` : '')
+      + (recinto ? `&recinto=${encodeURIComponent(recinto)}` : '')
+      + (instante ? `&instante=${encodeURIComponent(instante)}` : '')),
+  salvarConfigQai: dados => API.post('/qai/config', dados),
+  getHistoricoConfigQai: (contrato, nivel, estabelecimento, recinto) =>
+    API.get(`/qai/config/historico?contrato=${encodeURIComponent(contrato)}&nivel=${encodeURIComponent(nivel)}`
+      + (estabelecimento ? `&estabelecimento=${encodeURIComponent(estabelecimento)}` : '')
+      + (recinto ? `&recinto=${encodeURIComponent(recinto)}` : '')),
+
+  // Clima externo efetivo agora (sensor > remoto > nenhum) — Etapa 3.
+  getClimaExternoQai: (contrato, estabelecimento) =>
+    API.get(`/qai/clima-externo?contrato=${encodeURIComponent(contrato)}&estabelecimento=${encodeURIComponent(estabelecimento)}`),
+
+  // Modelo de referência e avaliação sob demanda — Etapa 4.
+  getModeloQai: (contrato, estabelecimento, recinto, grandeza) =>
+    API.get(`/qai/modelo?contrato=${encodeURIComponent(contrato)}&estabelecimento=${encodeURIComponent(estabelecimento)}&recinto=${encodeURIComponent(recinto)}&grandeza=${encodeURIComponent(grandeza)}`),
+  recalcularModeloQai: dados => API.post('/qai/modelo/recalcular', dados),
+  avaliarAnaliseQai: dados => API.post('/qai/analise/avaliar', dados),
+
+  // Verificação de eficácia (Etapa 6) — roda o ciclo na hora, sem
+  // esperar o timer de fundo.
+  executarVerificacoesQai: () => API.post('/qai/verificacoes/executar', {}),
+
+  // O.S. de melhoria estrutural (Etapa 7).
+  getOsEstruturalQai: (contrato) => API.get(`/qai/os-estrutural?contrato=${encodeURIComponent(contrato)}`),
+  avancarAnaliseOsEstruturalQai: id => API.post(`/qai/os-estrutural/${encodeURIComponent(id)}/avancar-analise`, {}),
+  validarRtOsEstruturalQai: (id, dados) => API.post(`/qai/os-estrutural/${encodeURIComponent(id)}/validar-rt`, dados),
+  iniciarOsEstruturalQai: id => API.post(`/qai/os-estrutural/${encodeURIComponent(id)}/iniciar`, {}),
+  concluirOsEstruturalQai: id => API.post(`/qai/os-estrutural/${encodeURIComponent(id)}/concluir`, {}),
+  encerrarOsEstruturalQai: id => API.post(`/qai/os-estrutural/${encodeURIComponent(id)}/encerrar`, {}),
+
 };
 
 // ── Inventário de equipamentos por contrato ────────────────────────

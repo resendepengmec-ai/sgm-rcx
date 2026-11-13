@@ -175,6 +175,13 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           <input id="f-whatsapp-confirmacao" type="text" inputmode="numeric" placeholder="Ex: (62) 99999-0000">
           <div style="font-size:12px;color:var(--text-3);margin-top:4px">Depois de assinar, o tomador envia por WhatsApp (do próprio celular) um código de confirmação para este número — o supervisor confere a mensagem antes de aprovar. Beta sem custo, sem integração automática.</div>
         </div>
+        <div class="field" id="qai-metodo-field" style="grid-column:1/-1;display:none">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+            <input id="f-qai-metodo" type="checkbox" style="width:18px;height:18px;cursor:pointer">
+            Módulo QAI — recurso experimental de recintos
+          </label>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Visível só para admin. Habilita, neste contrato, o cadastro complementar de recintos no módulo QAI.</div>
+        </div>
       </div>
     </div>
 
@@ -850,6 +857,8 @@ function openNewContract() {
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
   document.getElementById('f-assinatura-cliente').checked = false;
   document.getElementById('f-whatsapp-confirmacao').value = '';
+  document.getElementById('f-qai-metodo').checked = false;
+  document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   document.getElementById('equip-preview').style.display = 'none';
   document.getElementById('docs-list').innerHTML = '';
   const box = document.getElementById('cliente-existente-box');
@@ -882,6 +891,8 @@ async function openEdit(id) {
   document.getElementById('f-obs').value    = c.obs||'';
   document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
   document.getElementById('f-whatsapp-confirmacao').value = c.whatsappConfirmacao || '';
+  document.getElementById('f-qai-metodo').checked = !!c.qaiMetodo;
+  document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   if (pendingEquip.length) {
     document.getElementById('equip-count').textContent = pendingEquip.length;
     document.getElementById('equip-preview').style.display = '';
@@ -916,6 +927,11 @@ async function saveContract(btn) {
     obs:         document.getElementById('f-obs').value.trim(),
     assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
     whatsappConfirmacao: document.getElementById('f-whatsapp-confirmacao').value.trim(),
+    // Só manda o campo quando é admin que está salvando — pra quem mais
+    // nem o valor atual (lido num checkbox que ficou escondido) viaja no
+    // payload; o servidor já ignoraria de qualquer forma, isto é só pra
+    // não expor o campo em nenhuma chamada de rede de quem não é admin.
+    ...(getCurrentUser()?.role === 'admin' ? { qaiMetodo: document.getElementById('f-qai-metodo').checked } : {}),
     equipamentos: pendingEquip || [],
     documentos:   pendingDocs  || [],
     servicos:     pendingServicos || [],
@@ -958,6 +974,65 @@ async function saveContract(btn) {
   renderList();
 }
 
+// ── Importação de equipamentos: apelidos de cabeçalho ──────────────
+// A importação hoje usa o nome da coluna, lowercased, direto como chave
+// do objeto (sem tabela de apelidos) — então uma coluna "Capacidade
+// Nominal (kW)" viraria a chave "capacidade nominal (kw)" (com espaços e
+// parênteses), nunca batendo com o campo canônico usado no resto do
+// sistema. Esta tabela resolve ISSO, só para os campos novos — colunas
+// já conhecidas (tag, marca, tipo, capacidade, recinto, área,
+// estabelecimento, patrimônio) continuam exatamente como sempre
+// funcionaram, sem passar por aqui.
+function _chaveAliasImportEquip(s) {
+  return String(s || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+const _ALIASES_IMPORT_EQUIP = {
+  capacidadeNominalKW: ['capacidade nominal', 'capacidade nominal kw', 'capacidade kw', 'potencia nominal', 'potencia nominal kw'],
+  capacidadeNominalBTU: ['capacidade nominal btu h', 'capacidade btu h', 'capacidade nominal btu', 'potencia nominal btu h'],
+  vazaoArM3h: ['vazao de ar', 'vazao de ar m h', 'vazao de ar m3 h', 'vazao de ar total'],
+  vazaoArExternoM3h: ['vazao de ar externo', 'vazao de ar externo m h', 'vazao de ar externo m3 h', 'vazao ar externo'],
+  classeFiltragem: ['classe de filtragem', 'classe filtro', 'classe de filtro', 'filtro'],
+  capacidadeLatenteKW: ['capacidade latente', 'capacidade latente kw'],
+  dataInstalacao: ['data de instalacao', 'instalado em', 'data instalacao'],
+  medidorConsumoId: ['medidor de consumo', 'id do medidor', 'medidor consumo'],
+};
+// 1 BTU/h = 0,29307107 W (valor pedido) = 0,00029307107 kW.
+const BTU_H_PARA_KW = 0.00029307107;
+function _numeroImportEquip(v) {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  const limpo = s.includes(',') ? s.replace(/\./g, '').replace(',', '.') : s;
+  const n = Number(limpo.replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+// Aplica os apelidos num objeto já lido do CSV/XLSX (chaves = cabeçalho
+// lowercased original) — remove as chaves de apelido reconhecidas e
+// grava o campo canônico; chaves não-reconhecidas seguem intocadas
+// (comportamento de hoje, preservado).
+function _resolverAliasesImportEquip(obj) {
+  for (const chaveOriginal of Object.keys(obj)) {
+    const norm = _chaveAliasImportEquip(chaveOriginal);
+    for (const [canonico, aliases] of Object.entries(_ALIASES_IMPORT_EQUIP)) {
+      if (!aliases.includes(norm)) continue;
+      const valor = obj[chaveOriginal];
+      delete obj[chaveOriginal];
+      if (canonico === 'capacidadeNominalBTU') {
+        const n = _numeroImportEquip(valor);
+        if (n != null) obj.capacidadeNominalKW = Math.round(n * BTU_H_PARA_KW * 1000) / 1000;
+      } else if (['capacidadeNominalKW', 'vazaoArM3h', 'vazaoArExternoM3h', 'capacidadeLatenteKW'].includes(canonico)) {
+        const n = _numeroImportEquip(valor);
+        if (n != null) obj[canonico] = n;
+      } else {
+        const t = String(valor ?? '').trim();
+        if (t) obj[canonico] = t;
+      }
+      break;
+    }
+  }
+  return obj;
+}
+
 // ── File handlers ─────────────────────────────────────────────────
 function handleEquipFile(e) {
   const file = e.target.files[0]; if (!file) return;
@@ -973,6 +1048,7 @@ function handleEquipFile(e) {
     let adicionados = 0, atualizados = 0, ignorados = 0;
 
     csvData.forEach(novo => {
+      _resolverAliasesImportEquip(novo);
       const tag = (novo.tag||novo['tag']||'').toString().toUpperCase().trim();
       if (!tag) return;
       novo.tag = tag;
