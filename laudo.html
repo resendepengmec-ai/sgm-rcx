@@ -52,6 +52,7 @@
   .foto-del{ position:absolute; top:0; right:0; background:rgba(220,38,38,.9); color:#fff; border:none; border-radius:50%; width:44px; height:44px; cursor:pointer; font-size:16px; line-height:1; display:flex; align-items:center; justify-content:center; }
   .foto-geo{ position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,.6); color:#fff; font-size:8px; padding:1px 3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .btn-lg{ width:100%; padding:13px; border:none; border-radius:10px; font-size:15px; font-weight:700; cursor:pointer; }
+.laudo-acao{border:none;background:none;cursor:pointer;font-size:16px;min-width:2.75rem;min-height:2.75rem;}
 </style>
 </head>
 <body>
@@ -216,7 +217,7 @@ function renderForm(){
           <div class="field" style="flex:1;min-width:120px;margin-bottom:8px"><label for="rf-fim">Até (mês)</label>
             <input id="rf-fim" type="month" onchange="renderRealizados()"></div>
         </div>
-        <div id="l-lista" style="margin-top:6px"><div style="color:var(--text-3);font-size:13px">Carregando…</div></div>
+        <div id="l-lista" class="card-list" style="margin-top:6px"><div style="color:var(--text-3);font-size:13px">Carregando…</div></div>
       </div>
     </div>
   `;
@@ -791,14 +792,20 @@ function renderRealizados(){
   if(!lista.length){ el.innerHTML='<div style="color:var(--text-3);font-size:13px;padding:8px 0">Nenhum laudo no filtro selecionado.</div>'; return; }
   const podeExcluir=['admin','diretor','supervisor'].includes((typeof getCurrentUser==='function'?getCurrentUser():{}).role);
   el.innerHTML = lista.map(l=>`
-    <div style="display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);padding:10px 0">
-      <div style="flex:1;min-width:0">
-        <div style="font-weight:600;font-size:13px">${esc(l.unidade||'—')}</div>
-        <div style="font-size:12px;color:var(--text-3)">Contrato ${esc(l.contract||'—')} · ${esc(l.assunto||'')} · ${new Date(l.createdAt).toLocaleDateString('pt-BR')}</div>
+    <div class="lcard estatico" style="box-shadow:none;border:1px solid var(--border);border-left:.25rem solid var(--lcard-accent,var(--primary))">
+     <div class="lcard-grid sem-thumb">
+      <div class="card-head">
+        <div class="card-title-l" style="font-size:13px">${esc(l.unidade||'—')}</div>
+        ${l.assunto ? `<div class="card-sub" style="font-size:12px">${esc(l.assunto)}</div>` : ''}
       </div>
-      <button onclick="gerarPDFde('${l.id}', this)" style="border:none;background:none;cursor:pointer;font-size:16px" title="Gerar PDF">🖨️</button>
-      <button onclick="reabrirLaudo('${l.id}')" style="border:none;background:none;cursor:pointer;font-size:16px" title="Reabrir para editar">✏️</button>
-      ${podeExcluir?`<button onclick="excluirLaudo('${l.id}', this)" style="border:none;background:none;cursor:pointer;font-size:16px" title="Excluir">🗑️</button>`:''}
+      <div class="card-meta cluster">${l.createdAt ? `<span class="chip-data">${new Date(l.createdAt).toLocaleDateString('pt-BR')}</span>` : ''}</div>
+      ${l.contract ? `<div class="card-chips" style="font-size:12px;color:var(--text-3)"><span class="truncate" title="Contrato ${esc(l.contract)}">Contrato ${esc(l.contract)}</span></div>` : ''}
+      <div class="card-actions" style="gap:0">
+        <button onclick="gerarPDFde('${l.id}', this)" class="laudo-acao" title="Gerar PDF" aria-label="Gerar PDF">🖨️</button>
+        <button onclick="reabrirLaudo('${l.id}')" class="laudo-acao" title="Reabrir para editar" aria-label="Reabrir para editar">✏️</button>
+        ${podeExcluir?`<button onclick="excluirLaudo('${l.id}', this)" class="laudo-acao" title="Excluir" aria-label="Excluir">🗑️</button>`:''}
+      </div>
+     </div>
     </div>`).join('');
 }
 
