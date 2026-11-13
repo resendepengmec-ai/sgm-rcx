@@ -129,6 +129,8 @@ const USERS = [
 
 const WHITELIST = [
   { email: USERS[0].email, role: 'supervisor', contract: CONTRATO_LONGO + ',1020', company: 'Empresa de Manutenção Predial e Climatização do Centro-Oeste Ltda.' },
+  { email: 'franquia.cliente.com.nome.longo@empresa-cliente-exemplo.com.br', name: NOME_LONGO, role: 'admin_cliente', contract: CONTRATO_LONGO + ',1020,1023', company: 'Empresa de Manutenção Predial e Climatização do Centro-Oeste Ltda.', cnpj: '12.345.678/0001-90', franquia_fotos_mes: 300 },
+  { email: 'pendente@x.com', role: 'tecnico', contract: '' },
 ];
 
 const PAPEIS = ['admin', 'supervisor', 'tecnico'];

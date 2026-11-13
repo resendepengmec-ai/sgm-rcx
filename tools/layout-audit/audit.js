@@ -8,7 +8,6 @@
 //   node audit.js --ci               sai com código 1 se houver ocorrência crítica
 const path = require('path');
 const fs = require('fs');
-const http = require('http');
 const pw = require('playwright');
 const { responder, sessao } = require('./fixtures');
 const { detectar, checarCabecalho } = require('./detect');
@@ -22,20 +21,17 @@ const CI = !!arg('ci'), QUICK = !!arg('quick');
 const SAIDA = path.join(__dirname, 'out', String(arg('out') || 'ultimo'));
 const LARGURAS = [360, 375, 390, 412, 768, 1024, 1280, 1366, 1920];
 
-function servir() {
-  const tipos = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
-  const srv = http.createServer((req, res) => {
-    let p = decodeURIComponent(req.url.split('?')[0]);
-    if (p === '/') p = '/index.html';
-    const full = path.join(RAIZ, p);
-    if (!full.startsWith(RAIZ)) { res.writeHead(403); return res.end(); }
-    fs.readFile(full, (err, data) => {
-      if (err) { res.writeHead(404); return res.end('404'); }
-      res.writeHead(200, { 'Content-Type': tipos[path.extname(full)] || 'application/octet-stream' });
-      res.end(data);
-    });
-  });
-  return new Promise((ok) => srv.listen(0, '127.0.0.1', () => ok(srv)));
+// O site é servido pelo próprio page.route num host fictício, em http e
+// https: a CSP das páginas tem upgrade-insecure-requests, e o WebKit
+// promove até localhost para https (o CSS/JS não carregaria).
+const HOST = 'sgm.auditoria.local';
+const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
+function servirArquivo(route) {
+  let p = decodeURIComponent(new URL(route.request().url()).pathname);
+  if (p === '/') p = '/index.html';
+  const full = path.join(RAIZ, p);
+  if (!full.startsWith(RAIZ) || !fs.existsSync(full)) return route.fulfill({ status: 404, body: '404' });
+  return route.fulfill({ status: 200, contentType: TIPOS[path.extname(full)] || 'application/octet-stream', body: fs.readFileSync(full) });
 }
 
 function matriz() {
@@ -83,7 +79,8 @@ async function auditarPagina(ctx, base, pg, c, shotsDir) {
   await page.route('**/*', (route) => {
     const u = route.request().url();
     if (u.startsWith(API)) return responder(route, pg.papel);
-    if (u.startsWith(base) || u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
+    if (new URL(u).hostname === HOST) return servirArquivo(route);
+    if (u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
     return route.abort();
   });
   const res = { pagina: pg.nome, config: rotulo(c), ocorrencias: [], erros };
@@ -95,6 +92,8 @@ async function auditarPagina(ctx, base, pg, c, shotsDir) {
     await page.waitForTimeout(300);
     const mobile = (c.device ? (pw.devices[c.device].viewport.width) : Math.round(c.w / (c.zoom || 1))) <= 768;
     const header = pg.cabecalho === undefined ? '.app-header' : pg.cabecalho;
+    // Trilhas abertas: o caso mais alto (todas as assinaturas) também é auditado.
+    await page.evaluate(() => document.querySelectorAll("details.card-trail").forEach((d) => { d.open = true; }));
     res.cards = await page.evaluate((sel) => document.querySelectorAll(sel).length, CARDS);
     res.ocorrencias.push(...await page.evaluate(`(${detectar})(${JSON.stringify({ cardSel: CARDS, headerSel: header || '__nenhum__', mobile })})`));
     if (header) {
@@ -136,8 +135,7 @@ function html(resultados) {
   fs.rmSync(SAIDA, { recursive: true, force: true });
   const shots = path.join(SAIDA, 'shots');
   fs.mkdirSync(shots, { recursive: true });
-  const srv = await servir();
-  const base = `http://127.0.0.1:${srv.address().port}`;
+  const base = `http://${HOST}`;
   const resultados = [];
   const porEngine = {};
   for (const c of matriz()) (porEngine[c.engine] = porEngine[c.engine] || []).push(c);
@@ -152,7 +150,6 @@ function html(resultados) {
     }
     await browser.close();
   }
-  srv.close();
   const resumo = {};
   resultados.forEach((r) => r.ocorrencias.forEach((o) => {
     const k = `${r.pagina}|${o.critico ? 'critico' : 'aviso'}|${o.tipo}`;

@@ -2,7 +2,7 @@
 // Páginas auditadas. "pronto" é um seletor que indica que a lista já
 // renderizou; "preparar" leva a tela até o estado auditado (aba, sublista).
 
-const CARDS = '.lcard,#l-lista > div,.chamado-card,.record-card,.quote-card,.tri-card,.user-row,.mov-card,.plan-card,.contract-card,.laudo-card,.equip-card,.module-card,.os-card';
+const CARDS = '.lcard,#l-lista > div,.tabela-equip tbody tr,.chamado-card,.record-card,.quote-card,.tri-card,.user-row,.mov-card,.plan-card,.contract-card,.laudo-card,.equip-card,.module-card,.os-card,.wl-row';
 
 const PAGINAS = [
   { nome: 'chamados', arquivo: 'chamados.html', papel: 'supervisor', pronto: '#chamados-list > *' },
@@ -16,6 +16,7 @@ const PAGINAS = [
   { nome: 'contratos-equip', arquivo: 'contratos.html', papel: 'admin', pronto: '#contracts-list > *', preparar: "viewEquipamentos('c1')" },
   { nome: 'index', arquivo: 'index.html', papel: 'admin', pronto: '.module-card', cabecalho: '.dash-header-top' },
   { nome: 'index-usuarios', arquivo: 'index.html', papel: 'admin', pronto: '.module-card', preparar: 'showAdminPanel()', depois: '.user-row', cabecalho: '.dash-header-top' },
+  { nome: 'index-whitelist', arquivo: 'index.html', papel: 'admin', pronto: '.module-card', preparar: "showAdminPanel(); setAdminTab('whitelist')", depois: '.wl-row', cabecalho: '.dash-header-top' },
   { nome: 'relatorio', arquivo: 'relatorio.html', papel: 'supervisor', pronto: '.app-header' },
   { nome: 'qai', arquivo: 'qai.html', papel: 'supervisor', pronto: '.app-header' },
   { nome: 'dashboard', arquivo: 'dashboard.html', papel: 'supervisor', pronto: '.app-header' },

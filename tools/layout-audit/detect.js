@@ -14,6 +14,9 @@ function detectar(opts) {
     return `${el.tagName.toLowerCase()}${id}${cls} "${txt}"`;
   };
   const visivel = (el) => {
+    // Conteúdo de <details> fechado não é desenhado (o resumo, sim).
+    const det = el.closest("details:not([open])");
+    if (det && !el.closest("summary") && el !== det) return false;
     const r = el.getBoundingClientRect();
     if (r.width < 1 || r.height < 1) return false;
     const cs = getComputedStyle(el);
@@ -129,18 +132,25 @@ function detectar(opts) {
     const p = getComputedStyle(el).position;
     return (p === 'fixed') && visivel(el) && !el.closest(headerSel) && !el.closest('.modal-bg,.auth-overlay,.lightbox');
   });
+  // Conta só o que continua coberto DEPOIS de focar o campo (o navegador
+  // rola o campo para a vista respeitando scroll-padding): enquanto se rola
+  // a página, qualquer barra fixa passa por cima de algo.
+  const cobre = (f, fx) => {
+    const rf = f.getBoundingClientRect(), r = fx.getBoundingClientRect();
+    const w = Math.min(r.right, rf.right) - Math.max(r.left, rf.left);
+    const h = Math.min(r.bottom, rf.bottom) - Math.max(r.top, rf.top);
+    return w > 4 && h > 4;
+  };
+  const y0 = scrollY;
   document.querySelectorAll('input:not([type=hidden]),select,textarea').forEach((f) => {
     if (!visivel(f) || f.closest('.modal-bg')) return;
-    const rf = f.getBoundingClientRect();
-    if (rf.bottom < 0 || rf.top > innerHeight) return;
-    fixos.forEach((fx) => {
-      if (fx.contains(f)) return;
-      const r = fx.getBoundingClientRect();
-      const w = Math.min(r.right, rf.right) - Math.max(r.left, rf.left);
-      const h = Math.min(r.bottom, rf.bottom) - Math.max(r.top, rf.top);
-      if (w > 4 && h > 4) add('fixo-cobre-campo', true, fx, 'cobre ' + nome(f));
-    });
+    const suspeitos = fixos.filter((fx) => !fx.contains(f) && cobre(f, fx));
+    if (!suspeitos.length) return;
+    f.focus();
+    suspeitos.forEach((fx) => { if (cobre(f, fx)) add('fixo-cobre-campo', true, fx, 'cobre ' + nome(f) + ' mesmo com o campo focado'); });
+    f.blur();
   });
+  scrollTo(0, y0);
 
   // 8. Alvos de toque e fonte de campo (só telas ≤ 768px)
   if (mobile) {
@@ -176,6 +186,18 @@ function checarCabecalho(headerSel) {
     const x = r.left + Math.min(40, r.width / 2), y = r.top + r.height / 2;
     const topo = document.elementFromPoint(x, y);
     if (topo && !h.contains(topo)) out.push({ tipo: 'cabecalho-coberto', critico: true, onde: headerSel, detalhe: 'coberto por ' + (topo.tagName + '.' + topo.className) });
+  }
+  // Foco: um item lá do começo da página, focado com a página rolada, não
+  // pode ficar escondido atrás do cabeçalho fixo (scroll-padding-top).
+  const alvo = [...document.querySelectorAll('[tabindex="0"],input:not([type=hidden]),select,textarea,button')]
+    .find((el) => !h.contains(el) && el.getBoundingClientRect().height > 0 && el.getBoundingClientRect().top < 0 && !el.closest('.modal-bg,.bottom-nav,.a11y-bar'));
+  if (alvo) {
+    alvo.focus();
+    const ra = alvo.getBoundingClientRect(), rh = h.getBoundingClientRect();
+    if (document.activeElement === alvo && ra.top < rh.bottom - 1 && ra.bottom > rh.top) {
+      out.push({ tipo: 'cabecalho-cobre-foco', critico: true, onde: headerSel, detalhe: `foco em ${alvo.tagName.toLowerCase()} fica atrás do cabeçalho (top ${Math.round(ra.top)} < ${Math.round(rh.bottom)})` });
+    }
+    alvo.blur();
   }
   return out;
 }
