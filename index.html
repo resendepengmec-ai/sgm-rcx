@@ -58,8 +58,9 @@
   --shadow-md:0 0 0 2px #000;
 }
 :root.high-contrast .dash-header,
+:root.high-contrast .dash-topbar,
 :root.high-contrast .login-bg{background:#000 !important;}
-:root.high-contrast .dash-header *{color:#fff !important;}
+:root.high-contrast .dash-header *,:root.high-contrast .dash-topbar > *{color:#fff !important;}
 :root.high-contrast .module-card{border-left-width:5px;border-color:#000 !important;}
 :root.high-contrast .module-card .module-count{background:#000 !important;color:#fff !important;}
 :root.high-contrast .btn-google{border:2px solid #000;}
@@ -73,7 +74,7 @@
 /* ── Reset ── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 html{font-size:16px;-webkit-tap-highlight-color:transparent;}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px;overflow-x:hidden;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:40px;overflow-x:hidden;overflow-x:clip;}
 input,select,textarea,button{font-family:inherit;font-size:var(--fs-base);}
 input,select,textarea{display:block;width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);outline:none;transition:border-color .15s;-webkit-appearance:none;appearance:none;}
 input:focus,select:focus,textarea:focus{border-color:var(--primary);outline:2px solid var(--primary-light);}
@@ -109,8 +110,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .btn-config:hover{background:var(--bg);}
 
 /* ── Dashboard header ── */
-.dash-header{background:linear-gradient(135deg,#1e1b4b 0%,#4c1d95 50%,#7c3aed 100%);padding:18px 18px 64px;color:#fff;}
-.dash-header-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+/* A barra de cima (ícone + avatar) é irmã sticky do bloco gradiente: dentro
+   dele o sticky só valeria enquanto o próprio bloco estivesse na tela. */
+.dash-header{background:linear-gradient(135deg,#1e1b4b 0%,#4c1d95 50%,#7c3aed 100%);padding:0 18px 64px;color:#fff;}
+.dash-header-top{display:flex;align-items:center;justify-content:space-between;}
+.dash-topbar{position:sticky;top:0;z-index:100;color:#fff;background:#1e1b4b linear-gradient(135deg,#1e1b4b 0%,#4c1d95 50%,#7c3aed 100%);padding:calc(18px + env(safe-area-inset-top, 0px)) 18px 18px;}
 .dash-header-top h1{font-size:var(--fs-md);font-weight:600;}
 .dash-greeting{font-size:var(--fs-sm);color:rgba(255,255,255,.7);margin-bottom:4px;}
 .dash-name{font-size:var(--fs-2xl);font-weight:700;line-height:1.2;}
@@ -318,7 +322,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 </div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261112.1"></script>
+<script src="api-client.js?v=20261113.1"></script>
 <script>
 
 // ── V31: e-mail dentro de string JS em atributo onclick ───────────
@@ -502,8 +506,7 @@ function renderDashboard(user) {
   ].filter(m=>modulosVisiveis.includes(m.id));
 
   app.innerHTML = `
-    <div class="dash-header">
-      <div class="dash-header-top">
+    <div class="dash-header-top dash-topbar">
         <div style="font-size:20px">🔧</div>
         <div class="dash-user">
           ${user.picture
@@ -529,7 +532,8 @@ function renderDashboard(user) {
             <button class="user-menu-item danger" onclick="logout()">🚪 Sair do sistema</button>
           </div>
         </div>
-      </div>
+    </div>
+    <div class="dash-header">
       <div class="dash-greeting">Olá,</div>
       <div class="dash-name">${user.name.split(' ')[0]} 👋</div>
       <div class="dash-role-chip">${role.icon} ${role.label}</div>

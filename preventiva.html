@@ -39,7 +39,7 @@
 <title>Preventiva — Sistema de Manutenção</title>
 <script src="vendor/jspdf.umd.min.js"></script>
 <script src="pdf-seguro.js"></script>
-<link rel="stylesheet" href="shared.css?v=20261112.1">
+<link rel="stylesheet" href="shared.css?v=20261113.1">
 <style>
 :root{
   --primary:#0369a1;--primary-dark:#075985;--primary-light:#e0f2fe;
@@ -60,8 +60,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--primary);}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:36px;}
 
 /* Header */
-.app-header{background:var(--primary);color:#fff;padding:16px 20px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;box-shadow:var(--shadow-md);}
-.app-header h1{font-size:17px;font-weight:600;flex:1;}
+/* .app-header vem do shared.css (fixo ao rolar, safe area, versão compacta) */
 .back-btn{background:rgba(255,255,255,.18);border:none;color:#fff;padding:6px 14px;border-radius:99px;font-size:13px;font-weight:600;cursor:pointer;}
 .back-btn:active{background:rgba(255,255,255,.28);}
 .user-chip{position:relative;}
@@ -349,7 +348,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261112.1"></script>
+<script src="api-client.js?v=20261113.1"></script>
 <script>
 // ── Checklist definitions ──
 const CHECKLIST = {

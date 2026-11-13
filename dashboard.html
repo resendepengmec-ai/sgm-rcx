@@ -35,13 +35,13 @@
 <meta name="theme-color" content="#7c3aed">
 <title>Dashboard — SGM-RCX</title>
 <script src="vendor/chart.umd.js"></script>
-<link rel="stylesheet" href="shared.css?v=20261112.1">
+<link rel="stylesheet" href="shared.css?v=20261113.1">
 <style>
 :root{
   --primary:#7c3aed;--primary-dark:#5b21b6;--primary-light:#f5f3ff;
   --green:var(--success);--yellow:#d97706;--red:var(--danger);--blue:#2563eb;--cyan:#0891b2;
 }
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding-bottom:80px;overflow-x:hidden;}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;min-height:100vh;padding-bottom:80px;overflow-x:hidden;overflow-x:clip;}
 
 /* Header uses the shared .app-header/.back-btn pattern. */
 
@@ -179,7 +179,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 <div id="dash-content" class="loading">Carregando dados…</div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261112.1"></script>
+<script src="api-client.js?v=20261113.1"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 let user = null;

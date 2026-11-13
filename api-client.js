@@ -1506,3 +1506,31 @@ async function loadAndRenderSigs(recordId, containerEl) {
     containerEl.innerHTML = '';
   }
 }
+
+// ── --header-h: altura real do cabeçalho fixo ─────────────────────
+// Varia com safe area, quebra de linha e A+. Usada pelo shared.css em
+// scroll-padding-top (foco/âncora não ficam escondidos) e nas barras
+// sticky secundárias. O index monta o cabeçalho depois, por isso espera.
+(function () {
+  if (typeof ResizeObserver === 'undefined') return;
+  const SEL = '.app-header:not(.app-subheader), .dash-topbar';
+  const medir = (h) => {
+    const ro = new ResizeObserver(() => {
+      // O index refaz o HTML: o cabeçalho antigo sai do DOM e mede 0.
+      if (!h.isConnected) { ro.disconnect(); iniciar(); return; }
+      document.documentElement.style.setProperty('--header-h', h.offsetHeight + 'px');
+    });
+    ro.observe(h);
+  };
+  const iniciar = () => {
+    const h = document.querySelector(SEL);
+    if (h) return medir(h);
+    const mo = new MutationObserver(() => {
+      const achou = document.querySelector(SEL);
+      if (achou) { mo.disconnect(); medir(achou); }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar);
+  else iniciar();
+})();
