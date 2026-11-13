@@ -1,0 +1,12 @@
+{
+  "name": "sgm-layout-audit",
+  "private": true,
+  "description": "Auditoria de layout (ferramenta de desenvolvimento; nada aqui é carregado pelo site)",
+  "scripts": {
+    "audit": "node audit.js",
+    "audit:ci": "node audit.js --ci"
+  },
+  "devDependencies": {
+    "playwright": "1.65.0"
+  }
+}
