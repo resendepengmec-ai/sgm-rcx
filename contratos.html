@@ -408,7 +408,7 @@ function renderList() {
           ${c.art ? `<span class="wrap-any">ART: ${esc(c.art)}</span>` : ''}
         </div>` : ''}
         <div class="contract-body">
-          <div><label>Vigência</label><div>${c.inicio||'—'} → ${c.fim||'—'}</div></div>
+          <div><label>Vigência</label><div>${esc(c.inicio||'—')} → ${esc(c.fim||'—')}</div></div>
           <div><label>Status</label><div>${vigenciaLabel(c.fim)}</div></div>
           ${c.razao ? `<div><label>Contratante</label><div class="wrap-any">${esc(c.razao)}</div></div>` : ''}
           ${c.tel ? `<div><label>Telefone</label><div class="wrap-any">${esc(c.tel)}</div></div>` : ''}
