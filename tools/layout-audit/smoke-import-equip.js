@@ -53,6 +53,17 @@ let falhas = 0; const ok = (d, c) => { console.log(c ? '  ✓' : '  ✗', d); if
   await page.setInputFiles('#tab-equipamentos input[type=file]', { name: 'eq2.csv', mimeType: 'text/csv', buffer: Buffer.from('tag,tipo,estabelecimento\n20,BALANÇA,Escola Municipal Santa Rita\n') });
   await page.waitForFunction(() => pendingEquip.length === 4);
   ok('sem decisão pendente: mescla direto', true);
+  // Modelo de corretiva: motivo só aparece ao trocar o modelo de um contrato já salvo.
+  await page.evaluate(() => switchFormTab(document.querySelector('.stab').dataset.tab));
+  await page.selectOption('#f-modelo-corretiva', 'franquia');
+  ok('contrato novo com franquia: sem campo de motivo', !(await page.isVisible('#f-motivo-modelo-corretiva')));
+  await page.evaluate(() => { _modeloCorretivaCarregado = 'lista'; mostrarMotivoModeloCorretiva(); });
+  ok('contrato salvo trocando de modelo: pede motivo', await page.isVisible('#f-motivo-modelo-corretiva'));
+  const posts = []; page.on('request', rq => { if (rq.method() === 'POST' && rq.url().includes('/contratos')) posts.push(rq.url()); });
+  await page.evaluate(() => { document.getElementById('f-numero').value = '999'; document.getElementById('f-razao').value = 'X'; return saveContract(null); });
+  ok('sem motivo não envia', posts.length === 0);
+  await page.selectOption('#f-modelo-corretiva', 'lista');
+  ok('voltando ao modelo salvo, o motivo some', !(await page.isVisible('#f-motivo-modelo-corretiva')));
   ok('sem erros de página', erros.length === 0 || (console.log(erros), false));
   await b.close();
   console.log(falhas ? falhas + ' falha(s)' : 'Todos passaram'); process.exit(falhas ? 1 : 0);

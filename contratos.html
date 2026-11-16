@@ -185,6 +185,18 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           </select>
           <div style="font-size:12px;color:var(--text-3);margin-top:4px">Vale para os planos criados daqui em diante; cada plano guarda a lista com que foi criado. "Por família" usa a inspeção geral enquanto a família não tiver checklist próprio.</div>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label for="f-modelo-corretiva">Modelo de corretiva</label>
+          <select id="f-modelo-corretiva" onchange="mostrarMotivoModeloCorretiva()">
+            <option value="lista">Lista de serviços com preço (padrão)</option>
+            <option value="franquia">Franquia total (lança o que foi feito, sem preço)</option>
+          </select>
+          <div id="motivo-modelo-corretiva-field" style="display:none;margin-top:8px">
+            <label for="f-motivo-modelo-corretiva">Motivo da mudança do modelo</label>
+            <input id="f-motivo-modelo-corretiva" type="text" maxlength="300" placeholder="Ex: aditivo nº 3 assinado em 10/11">
+          </div>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Vale para os registros criados daqui em diante; cada registro guarda o modelo com que foi criado.</div>
+        </div>
         <div class="field" id="qai-metodo-field" style="grid-column:1/-1;display:none">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
             <input id="f-qai-metodo" type="checkbox" style="width:18px;height:18px;cursor:pointer">
@@ -870,6 +882,10 @@ function openNewContract() {
   document.getElementById('f-assinatura-cliente').checked = false;
   document.getElementById('f-whatsapp-confirmacao').value = '';
   document.getElementById('f-checklist-padrao').value = 'split';
+  _modeloCorretivaCarregado = null;
+  document.getElementById('f-modelo-corretiva').value = 'lista';
+  document.getElementById('f-motivo-modelo-corretiva').value = '';
+  mostrarMotivoModeloCorretiva();
   document.getElementById('f-qai-metodo').checked = false;
   document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   document.getElementById('equip-preview').style.display = 'none';
@@ -905,6 +921,10 @@ async function openEdit(id) {
   document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
   document.getElementById('f-whatsapp-confirmacao').value = c.whatsappConfirmacao || '';
   document.getElementById('f-checklist-padrao').value = c.checklistPadrao || 'split';
+  _modeloCorretivaCarregado = c.modeloCorretiva || 'lista';
+  document.getElementById('f-modelo-corretiva').value = _modeloCorretivaCarregado;
+  document.getElementById('f-motivo-modelo-corretiva').value = '';
+  mostrarMotivoModeloCorretiva();
   document.getElementById('f-qai-metodo').checked = !!c.qaiMetodo;
   document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   if (pendingEquip.length) {
@@ -918,12 +938,24 @@ async function openEdit(id) {
 
 function cancelForm() { showScreen('list'); }
 
+// Modelo de corretiva: trocar o de um contrato já salvo exige motivo
+// (o servidor confere de novo e registra no audit_log).
+let _modeloCorretivaCarregado = null;   // null = contrato novo
+function _mudouModeloCorretiva() {
+  return _modeloCorretivaCarregado !== null && document.getElementById('f-modelo-corretiva').value !== _modeloCorretivaCarregado;
+}
+function mostrarMotivoModeloCorretiva() {
+  document.getElementById('motivo-modelo-corretiva-field').style.display = _mudouModeloCorretiva() ? '' : 'none';
+}
+
 async function saveContract(btn) {
   const numero = document.getElementById('f-numero').value.trim();
   const razao  = document.getElementById('f-razao').value.trim();
   const inicio = document.getElementById('f-inicio').value;
   const fim    = document.getElementById('f-fim').value;
   if (!numero || !razao) { showToast('Número e razão social são obrigatórios'); return; }
+  const motivoModelo = document.getElementById('f-motivo-modelo-corretiva').value.trim();
+  if (_mudouModeloCorretiva() && motivoModelo.length < 5) { showToast('Informe o motivo da mudança do modelo de corretiva'); return; }
   const restore = setActionBusy(btn, true, 'Salvando contrato…');
   load();
   const c = {
@@ -942,6 +974,8 @@ async function saveContract(btn) {
     assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
     whatsappConfirmacao: document.getElementById('f-whatsapp-confirmacao').value.trim(),
     checklistPadrao: document.getElementById('f-checklist-padrao').value,
+    modeloCorretiva: document.getElementById('f-modelo-corretiva').value,
+    ...(_mudouModeloCorretiva() ? { motivoModeloCorretiva: motivoModelo } : {}),
     // Só manda o campo quando é admin que está salvando — pra quem mais
     // nem o valor atual (lido num checkbox que ficou escondido) viaja no
     // payload; o servidor já ignoraria de qualquer forma, isto é só pra
