@@ -346,7 +346,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261113.1"></script>
+<script src="api-client.js?v=20261116.1"></script>
 <script>
 // ── Checklist definitions ──
 const CHECKLIST = {
@@ -379,6 +379,14 @@ const CHECKLIST = {
   ],
 };
 
+// Itens de um nível: a cópia gravada pelo servidor no plano (contrato com
+// checklist genérico/por família) ou, sem cópia, a lista de split acima —
+// que continua sendo o padrão de todo contrato sem configuração.
+function itensChecklist(plan, lv) {
+  const copia = plan?.checklist?.itens;
+  if (Array.isArray(copia)) return lv === 1 ? copia : [];
+  return CHECKLIST[lv];
+}
 const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'Nível 3 — Pesada'};
 const LEVEL_COLOR = {1:'#2563eb', 2:'#d97706', 3:'#dc2626'};
 const LEVEL_BG    = {1:'#eff6ff',  2:'#fffbeb', 3:'#fef2f2'};
@@ -389,7 +397,7 @@ let plans = safeLocalStorageGetJSON('prev_plans', []);
 
 // Marcador de build: permite confirmar num relance qual versão está no ar
 // (útil porque o Safari do iOS costuma servir HTML antigo do cache).
-const APP_BUILD = '2026-09-23.1';
+const APP_BUILD = '2026-11-16.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM preventiva build', APP_BUILD);
@@ -1373,7 +1381,8 @@ async function setLevelCheck(ei, level, value) {
 // pro técnico saber o que verificar em cada nível, já que a marcação
 // agora é só "feito" por nível, não item a item).
 function showChecklistItems(planLevel) {
-  const levels = getLevelsFor(planLevel);
+  const plan = plans.find(p => p.id === currentPlanId);
+  const levels = getLevelsFor(planLevel).filter(lv => itensChecklist(plan, lv).length);
   let modal = document.getElementById('checklist-ref-modal');
   if (!modal) {
     modal = document.createElement('div');
@@ -1391,7 +1400,7 @@ function showChecklistItems(planLevel) {
           ${LEVEL_LABEL[lv]}
         </div>
         <ul style="margin:0;padding-left:18px;font-size:13px;color:var(--text-2);line-height:1.9">
-          ${CHECKLIST[lv].map(item=>`<li>${item}</li>`).join('')}
+          ${itensChecklist(plan, lv).map(item=>`<li>${esc(item)}</li>`).join('')}
         </ul>`).join('')}
       <button onclick="document.getElementById('checklist-ref-modal').remove()" style="width:100%;margin-top:16px;padding:10px;border-radius:8px;border:1px solid var(--border);background:none;font-size:13px;cursor:pointer">Fechar</button>
     </div>`;
@@ -1838,9 +1847,9 @@ async function generatePlanPDF(plan, sharedDoc, sharedSessao, stats) {
     doc.text(`${eq.estabelecimento} · ${eq.recinto}`, M+CW/2, y+20);
     y+=32;
 
-    const levelGroups = [{lv:1, items:CHECKLIST[1]}];
-    if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
-    if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
+    const levelGroups = [{lv:1, items:itensChecklist(plan, 1)}];
+    if(plan.level>=2) levelGroups.push({lv:2, items:itensChecklist(plan, 2)});
+    if(plan.level>=3) levelGroups.push({lv:3, items:itensChecklist(plan, 3)});
 
     levelGroups.forEach(({lv, items:lvItems}) => {
       if(y>250){doc.addPage();y=M;header(`TAG ${eq.tag} (cont.)`);}

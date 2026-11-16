@@ -1429,6 +1429,31 @@ window.statusEquipamento = statusEquipamento;
 window.equipamentoOperante = equipamentoOperante;
 window.encontrarEquipamento = encontrarEquipamento;
 window.textoStatusEquipamento = textoStatusEquipamento;
+// ── Família de equipamento (cópia de smm-backend src/familias.js) ──
+// Só para avisos na prévia da importação: o servidor recalcula a família
+// ao gravar. test/_scratch-familias.js (backend) compara as duas tabelas.
+// <familias>
+const _REGRAS_FAMILIA = [
+  ['climatizacao', /\bSPLIT\b|HI ?-?WALL|PISO ?-?TETO|CASSETE|CORTINA DE AR|AR CONDICIONADO|\bACJ\b|JANELEIRO|\bVRF\b|FAN ?-?COIL|SELF ?-?CONTAINED|CHILLER|CLIMATIZADOR/],
+  ['refrigeracao', /GELADEIRA|FREEZER|FRIGOBAR|REFRIGERADOR|EXPOSITOR|CAMARA FRIA|CONSERVADORA|BALCAO REFRIGERADO/],
+  ['agua', /BEBEDOURO|PURIFICADOR|GELAGUA/],
+  ['jardinagem', /SOPRADOR|CORTADOR DE GRAMA|ROCADEIRA|MOTOSSERRA|APARADOR DE GRAMA/],
+  ['limpeza', /ENCERADEIRA|ALTA PRESSAO|LAVA ?-?JATO|ASPIRADOR|EXTRATORA|VAPORIZADOR/],
+  ['lavanderia', /LAVAR ROUPA|LAVADORA DE ROUPA|TANQUINHO|LAVA ?-?LOUCA|SECADORA|CENTRIFUGA/],
+  ['coccao_gas', /FOGAO|\bGAS\b/],
+  ['coccao_eletrica', /FORNO|MICRO ?-?ONDAS|SANDUICHEIRA|PIPOQUEIRA|CAFETEIRA|ALGODAO DOCE|AIR ?FRYER|FRITADEIRA|CHAPA|GRILL|TORRADEIRA|CHALEIRA|ESTUFA/],
+  ['processamento_alimentos', /LIQUIDIFICADOR|PICADOR|PROCESSADOR|EXTRATOR DE SUCO|SUQUEIRA|BATEDEIRA|TRITURADOR|MOEDOR|ESPREMEDOR|FATIADOR|AMASSADEIRA|DESCASCADOR/],
+  ['pesagem', /BALANCA/],
+];
+function familiaDoTipo(tipo) {
+  const t = String(tipo ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toUpperCase().replace(/\s+/g, ' ').trim();
+  if (!t) return '';
+  const regra = _REGRAS_FAMILIA.find(([, re]) => re.test(t));
+  return regra ? regra[0] : 'outros';
+}
+// </familias>
+window.familiaDoTipo = familiaDoTipo;
 // ── Custo de serviço do contrato ──────────────────────────────────
 // Espelho de custoUnitario em smm-backend-main/src/custo.js — mesma
 // fórmula, só pra mostrar a conta na tela sem ir ao servidor. O servidor

@@ -176,6 +176,15 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
           <input id="f-whatsapp-confirmacao" type="text" inputmode="numeric" placeholder="Ex: (62) 99999-0000">
           <div style="font-size:12px;color:var(--text-3);margin-top:4px">Depois de assinar, o tomador envia por WhatsApp (do próprio celular) um código de confirmação para este número — o supervisor confere a mensagem antes de aprovar. Beta sem custo, sem integração automática.</div>
         </div>
+        <div class="field" style="grid-column:1/-1">
+          <label for="f-checklist-padrao">Checklist da preventiva</label>
+          <select id="f-checklist-padrao">
+            <option value="split">Ar-condicionado split (padrão)</option>
+            <option value="generico">Inspeção geral (qualquer equipamento)</option>
+            <option value="familia">Por família de equipamento</option>
+          </select>
+          <div style="font-size:12px;color:var(--text-3);margin-top:4px">Vale para os planos criados daqui em diante; cada plano guarda a lista com que foi criado. "Por família" usa a inspeção geral enquanto a família não tiver checklist próprio.</div>
+        </div>
         <div class="field" id="qai-metodo-field" style="grid-column:1/-1;display:none">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
             <input id="f-qai-metodo" type="checkbox" style="width:18px;height:18px;cursor:pointer">
@@ -303,7 +312,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 </div>
 
 <script src="config.js"></script>
-<script src="api-client.js?v=20261113.1"></script>
+<script src="api-client.js?v=20261116.1"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const user = getCurrentUser();
@@ -860,6 +869,7 @@ function openNewContract() {
     .forEach(f => { const el=document.getElementById('f-'+f); if(el) el.value=''; });
   document.getElementById('f-assinatura-cliente').checked = false;
   document.getElementById('f-whatsapp-confirmacao').value = '';
+  document.getElementById('f-checklist-padrao').value = 'split';
   document.getElementById('f-qai-metodo').checked = false;
   document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   document.getElementById('equip-preview').style.display = 'none';
@@ -894,6 +904,7 @@ async function openEdit(id) {
   document.getElementById('f-obs').value    = c.obs||'';
   document.getElementById('f-assinatura-cliente').checked = !!c.assinaturaClientePorEstab;
   document.getElementById('f-whatsapp-confirmacao').value = c.whatsappConfirmacao || '';
+  document.getElementById('f-checklist-padrao').value = c.checklistPadrao || 'split';
   document.getElementById('f-qai-metodo').checked = !!c.qaiMetodo;
   document.getElementById('qai-metodo-field').style.display = getCurrentUser()?.role === 'admin' ? '' : 'none';
   if (pendingEquip.length) {
@@ -930,6 +941,7 @@ async function saveContract(btn) {
     obs:         document.getElementById('f-obs').value.trim(),
     assinaturaClientePorEstab: document.getElementById('f-assinatura-cliente').checked,
     whatsappConfirmacao: document.getElementById('f-whatsapp-confirmacao').value.trim(),
+    checklistPadrao: document.getElementById('f-checklist-padrao').value,
     // Só manda o campo quando é admin que está salvando — pra quem mais
     // nem o valor atual (lido num checkbox que ficou escondido) viaja no
     // payload; o servidor já ignoraria de qualquer forma, isto é só pra
@@ -999,6 +1011,13 @@ const _ALIASES_IMPORT_EQUIP = {
   capacidadeLatenteKW: ['capacidade latente', 'capacidade latente kw'],
   dataInstalacao: ['data de instalacao', 'instalado em', 'data instalacao'],
   medidorConsumoId: ['medidor de consumo', 'id do medidor', 'medidor consumo'],
+  // Campos opcionais da família de equipamento (o servidor normaliza os
+  // valores: 127/220/bivolt, GLP/GN, ANT/NOV → existente/adicionado).
+  marca: ['marca', 'fabricante'],
+  tensao: ['tensao', 'voltagem', 'tensao v'],
+  gas: ['gas', 'tipo de gas'],
+  gasRefrigerante: ['gas refrigerante', 'fluido refrigerante', 'refrigerante'],
+  origemCadastro: ['origem', 'origem cadastro', 'ant nov', 'ant ou nov'],
 };
 // 1 BTU/h = 0,29307107 W (valor pedido) = 0,00029307107 kW.
 const BTU_H_PARA_KW = 0.00029307107;
@@ -1033,17 +1052,131 @@ function _resolverAliasesImportEquip(obj) {
       break;
     }
   }
+  // "S/P", "SP" ou só traço em patrimônio = sem patrimônio.
+  ['patrimonio', 'patrimônio'].forEach(k => {
+    if (obj[k] != null && /^(s\/?p|-+)$/i.test(String(obj[k]).trim())) obj[k] = '';
+  });
   return obj;
 }
 
-// ── File handlers ─────────────────────────────────────────────────
-function handleEquipFile(e) {
-  const file = e.target.files[0]; if (!file) return;
-  const ext = file.name.split('.').pop().toLowerCase();
+// ── Prévia da importação: avisos e decisões antes de mesclar ──────
+const _normImport = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+function _bigramasImport(s) { const t = ' ' + _normImport(s) + ' '; const out = []; for (let i = 0; i < t.length - 1; i++) out.push(t.slice(i, i + 2)); return out; }
+// Coeficiente de Dice sobre pares de letras: 1 = igual, 0 = nada em comum.
+function _similaridadeImport(a, b) {
+  const A = _bigramasImport(a), resto = _bigramasImport(b), total = A.length + resto.length;
+  let comuns = 0;
+  A.forEach(x => { const i = resto.indexOf(x); if (i >= 0) { comuns++; resto.splice(i, 1); } });
+  return total ? (2 * comuns) / total : 0;
+}
+// Coluna que só tem marcas: valores curtos, sem número, e poucos distintos.
+function _pareceSoMarca(valores) {
+  const v = valores.map(x => String(x || '').trim()).filter(Boolean);
+  if (v.length < 3) return false;
+  const curtos = v.filter(x => x.split(/\s+/).length <= 2 && !/\d/.test(x)).length;
+  return curtos / v.length >= 0.8 && new Set(v.map(_normImport)).size <= Math.max(3, v.length * 0.3);
+}
+const _tagImport = l => normalizarTagNumero(String(l.tag || '').toUpperCase().trim());
 
-  const processarDados = (csvData) => {
-    if (!csvData.length) { showToast('Nenhum equipamento válido encontrado no arquivo'); return; }
+function analisarImportEquip(linhas) {
+  const temMarca = linhas.some(l => String(l.marca || '').trim());
+  const chaveDesc = ['descricao', 'descrição'].find(k => linhas.some(l => l[k] !== undefined));
+  const descricaoComoMarca = !temMarca && chaveDesc && _pareceSoMarca(linhas.map(l => l[chaveDesc])) ? chaveDesc : null;
+  const semTag = linhas.filter(l => !_tagImport(l)).map(l => l._linha);
+  const porTag = new Map();
+  linhas.forEach((l, i) => { const t = _tagImport(l); if (!t) return; if (!porTag.has(t)) porTag.set(t, []); porTag.get(t).push(i); });
+  const duplicadas = [...porTag.entries()].filter(([, idxs]) => idxs.length > 1).map(([tag, idxs]) => ({ tag, idxs }));
+  const semFamilia = [...new Set(linhas.map(l => String(l.tipo || '').trim()).filter(t => t && familiaDoTipo(t) === 'outros'))];
+  const existentes = [...new Set((pendingEquip || []).map(e => String(e.estabelecimento || '').trim()).filter(Boolean))];
+  const conhecidos = new Set(existentes.map(_normImport));
+  const estabNovos = !existentes.length ? [] : [...new Set(linhas.map(l => String(l.estabelecimento || '').trim())
+    .filter(e => e && !conhecidos.has(_normImport(e))))].map(nome => {
+      let sugestao = null, nota = 0;
+      existentes.forEach(x => { const n = _similaridadeImport(nome, x); if (n > nota) { nota = n; sugestao = x; } });
+      return { nome, sugestao: nota >= 0.6 ? sugestao : null };
+    });
+  return { semTag, duplicadas, semFamilia, estabNovos, descricaoComoMarca };
+}
 
+function _avisosImportHtml(a) {
+  const itens = [];
+  if (a.semTag.length) itens.push(`⚠️ ${a.semTag.length} linha(s) sem TAG ignorada(s): ${a.semTag.slice(0, 20).join(', ')}${a.semTag.length > 20 ? '…' : ''}`);
+  if (a.semFamilia.length) itens.push(`ℹ️ Tipo(s) sem família conhecida (ficam como "outros"): ${a.semFamilia.slice(0, 15).map(esc).join(', ')}${a.semFamilia.length > 15 ? '…' : ''}`);
+  const semSugestao = a.estabNovos.filter(e => !e.sugestao);
+  if (semSugestao.length) itens.push(`ℹ️ Estabelecimento(s) novo(s) neste contrato: ${semSugestao.slice(0, 15).map(e => esc(e.nome)).join(', ')}`);
+  return itens.length ? `<div style="margin-top:6px;font-size:11px;line-height:1.7;color:#92400e">${itens.join('<br>')}</div>` : '';
+}
+
+let _importEquipPendente = null;
+function _resumoLinhaImport(l) {
+  return [l.tipo, l.marca, l.estabelecimento, l.recinto].map(x => String(x || '').trim()).filter(Boolean).join(' · ') || '(sem dados)';
+}
+function mostrarDecisoesImportEquip(linhas, a) {
+  _importEquipPendente = { linhas, analise: a };
+  const blocos = [];
+  a.duplicadas.forEach((d, di) => {
+    blocos.push(`<div style="margin:6px 0"><strong>TAG ${esc(d.tag)}</strong> aparece em ${d.idxs.length} linhas. Qual vale?
+      <select data-dup="${di}" style="display:block;width:100%;margin-top:4px">
+        <option value="">— escolha —</option>
+        ${d.idxs.map(i => `<option value="${i}">Linha ${linhas[i]._linha}: ${esc(_resumoLinhaImport(linhas[i]))}</option>`).join('')}
+        <option value="ignorar">Ignorar esta TAG</option>
+      </select></div>`);
+  });
+  if (a.descricaoComoMarca) blocos.push(`<label style="display:flex;gap:6px;align-items:center;margin:6px 0">
+      <input type="checkbox" id="imp-desc-marca"> A coluna DESCRIÇÃO parece ter só marcas. Usar como marca.</label>`);
+  a.estabNovos.forEach((e, ei) => {
+    if (!e.sugestao) return;
+    blocos.push(`<div style="margin:6px 0">Estabelecimento <strong>${esc(e.nome)}</strong> não existe neste contrato.
+      <select data-estab="${ei}" style="display:block;width:100%;margin-top:4px">
+        <option value="manter">Manter "${esc(e.nome)}" (novo)</option>
+        <option value="sugestao" selected>Usar "${esc(e.sugestao)}"</option>
+      </select></div>`);
+  });
+  document.getElementById('equip-preview').style.display = '';
+  document.getElementById('equip-sample').innerHTML = `
+    <div style="font-size:12px;line-height:1.5;color:var(--text-2)">
+      <div style="font-weight:700;margin-bottom:4px">Antes de importar, decida:</div>
+      ${blocos.join('')}
+      ${_avisosImportHtml(a)}
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button type="button" class="btn btn-primary" onclick="aplicarDecisoesImportEquip()">Aplicar importação</button>
+        <button type="button" class="btn" onclick="cancelarImportEquip()">Cancelar</button>
+      </div>
+    </div>`;
+}
+function cancelarImportEquip() {
+  _importEquipPendente = null;
+  document.getElementById('equip-sample').innerHTML = '';
+  showToast('Importação cancelada; nada foi alterado');
+}
+function aplicarDecisoesImportEquip() {
+  if (!_importEquipPendente) return;
+  const { linhas, analise: a } = _importEquipPendente;
+  const box = document.getElementById('equip-sample');
+  const descartar = new Set();
+  for (const [di, d] of a.duplicadas.entries()) {
+    const v = box.querySelector(`select[data-dup="${di}"]`)?.value;
+    if (!v) { showToast(`Escolha qual linha vale para a TAG ${d.tag}`); return; }
+    d.idxs.forEach(i => { if (String(i) !== v) descartar.add(i); });
+  }
+  const trocaEstab = new Map();
+  a.estabNovos.forEach((e, ei) => {
+    if (e.sugestao && box.querySelector(`select[data-estab="${ei}"]`)?.value === 'sugestao') trocaEstab.set(e.nome, e.sugestao);
+  });
+  const usarDescricao = a.descricaoComoMarca && document.getElementById('imp-desc-marca')?.checked;
+  const finais = linhas.filter((_, i) => !descartar.has(i)).map(l => {
+    const out = { ...l };
+    if (usarDescricao) { out.marca = out[a.descricaoComoMarca]; delete out[a.descricaoComoMarca]; }
+    const est = String(out.estabelecimento || '').trim();
+    if (trocaEstab.has(est)) out.estabelecimento = trocaEstab.get(est);
+    return out;
+  });
+  _importEquipPendente = null;
+  aplicarImportEquip(finais, { ...a, estabNovos: a.estabNovos.filter(e => !trocaEstab.has(e.nome)) });
+}
+
+// Mescla no banco do contrato em edição (só em memória; grava ao salvar o contrato).
+function aplicarImportEquip(csvData, analise) {
     // ── Merge inteligente ─────────────────────────────────────────
     const existing = pendingEquip || [];
     const result   = [...existing];
@@ -1051,14 +1184,16 @@ function handleEquipFile(e) {
     let adicionados = 0, atualizados = 0, ignorados = 0;
 
     csvData.forEach(novo => {
-      _resolverAliasesImportEquip(novo);
+      delete novo._linha;
       const tag = (novo.tag||novo['tag']||'').toString().toUpperCase().trim();
       if (!tag) return;
       novo.tag = tag;
       if (!novo.status) novo.status = 'operante';
 
+      // Mesma identidade de TAG do servidor (0049 === 49): sem isso, "010"
+      // na planilha entrava como novo ao lado do "10" e o salvamento dava 409.
       const idx = result.findIndex(eq =>
-        (eq.tag||eq['tag']||'').toString().toUpperCase().trim() === tag
+        normalizarTagNumero((eq.tag||eq['tag']||'').toString().toUpperCase().trim()) === normalizarTagNumero(tag)
       );
 
       if (idx === -1) {
@@ -1093,9 +1228,23 @@ function handleEquipFile(e) {
         ${inativos>0 ? `🔴 <strong>${inativos}</strong> inoperantes (preservados) &nbsp;·&nbsp;` : ''}
         ${ignorados>0 ? `⚠️ <strong>${ignorados}</strong> ignorados (já inoperantes)` : ''}
         <br>Total ativo: ${ativos} equipamentos
-      </div>`;
+      </div>${analise ? _avisosImportHtml(analise) : ''}`;
 
     showToast(`Merge concluído: +${adicionados} novos, ${atualizados} atualizados${ignorados>0?`, ${ignorados} ignorados`:''}`);
+}
+
+// ── File handlers ─────────────────────────────────────────────────
+function handleEquipFile(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  const processarDados = (csvData) => {
+    csvData.forEach(_resolverAliasesImportEquip);
+    if (!csvData.some(l => _tagImport(l))) { showToast('Nenhum equipamento válido encontrado no arquivo'); return; }
+    const analise = analisarImportEquip(csvData);
+    const precisaDecidir = analise.duplicadas.length || analise.descricaoComoMarca || analise.estabNovos.some(e => e.sugestao);
+    if (precisaDecidir) mostrarDecisoesImportEquip(csvData, analise);
+    else aplicarImportEquip(csvData, analise);
   };
 
   if (ext === 'csv') {
@@ -1105,12 +1254,13 @@ function handleEquipFile(e) {
       const rows    = ev.target.result.split('\n').filter(r=>r.trim());
       if (!rows.length) { showToast('Arquivo CSV vazio'); return; }
       const headers = rows[0].split(',').map(h=>h.trim().toLowerCase().replace(/['"]/g,''));
-      const csvData = rows.slice(1).map(row => {
+      const csvData = rows.slice(1).map((row, i) => {
         const cols = row.split(',');
         const obj  = {};
         headers.forEach((h,i) => { obj[h] = (cols[i]||'').trim().replace(/^"|"$/g,''); });
+        obj._linha = i + 2;
         return obj;
-      }).filter(r => r.tag||r['tag']);
+      });
       processarDados(csvData);
     };
     reader.readAsText(file, 'UTF-8');
@@ -1136,14 +1286,15 @@ function handleEquipFile(e) {
         // Normaliza cabeçalhos (lowercase, sem espaços)
         const headers = rowsArr[0].map(h => String(h||'').trim().toLowerCase());
         const csvData = rowsArr.slice(1)
-          .map(row => {
+          .map((row, i) => {
             const obj = {};
             headers.forEach((h,i) => {
               obj[h] = row[i] != null ? String(row[i]).trim() : '';
             });
+            obj._linha = i + 2;
             return obj;
           })
-          .filter(r => r.tag || r['tag']);
+          .filter(r => Object.keys(r).some(k => k !== '_linha' && r[k]));
 
         if (!csvData.length) {
           showToast('Nenhum equipamento válido. Verifique se há coluna "tag" no cabeçalho.');

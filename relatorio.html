@@ -206,7 +206,7 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
 <script>
   window.SMM_API = 'https://smm-backend-a8a4.onrender.com';
 </script>
-<script src="api-client.js?v=20261113.1"></script>
+<script src="api-client.js?v=20261116.1"></script>
 <script>
 // ── Auth ──────────────────────────────────────────────────────────
 const CAN_REPORT_ROLES = ['admin','diretor','supervisor','gestor']; // gestor pra cima
@@ -1072,6 +1072,13 @@ const CHECKLIST = {
     "Aplicação de solução antibactericida na serpentina da evaporadora",
   ],
 };
+// Mesma regra de preventiva.html: cópia gravada no plano (contrato com
+// checklist genérico/por família) ou, sem cópia, a lista de split acima.
+function itensChecklist(plan, lv) {
+  const copia = plan?.checklist?.itens;
+  if (Array.isArray(copia)) return lv === 1 ? copia : [];
+  return CHECKLIST[lv];
+}
 const LEVEL_LABEL = {1:'Nível 1 — Leve', 2:'Nível 2 — Intermediária', 3:'Nível 3 — Pesada'};
 const LEVEL_COLOR = {1:'#2563eb', 2:'#d97706', 3:'#dc2626'};
 const fmtMonthPrev = m => { if(!m) return '—'; const [y,mo]=m.split('-'); return new Date(y,mo-1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); };
@@ -1215,9 +1222,9 @@ async function renderPreventivaPlanDetail(doc, plan, sessao) {
     doc.text(`${eq.estabelecimento||''} · ${eq.recinto||''}`, M+CW/2, y+20);
     y+=32;
 
-    const levelGroups = [{lv:1, items:CHECKLIST[1]}];
-    if(plan.level>=2) levelGroups.push({lv:2, items:CHECKLIST[2]});
-    if(plan.level>=3) levelGroups.push({lv:3, items:CHECKLIST[3]});
+    const levelGroups = [{lv:1, items:itensChecklist(plan, 1)}];
+    if(plan.level>=2) levelGroups.push({lv:2, items:itensChecklist(plan, 2)});
+    if(plan.level>=3) levelGroups.push({lv:3, items:itensChecklist(plan, 3)});
 
     levelGroups.forEach(({lv, items:lvItems}) => {
       if(y>250){doc.addPage();y=M;header(`TAG ${eq.tag||'—'} (cont.)`);}
