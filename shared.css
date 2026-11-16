@@ -225,13 +225,7 @@ html { scroll-padding-top: calc(var(--header-h) + 8px); }
 
 .svc-item-name { font-size: 14px; font-weight: 500; }
 
-/* Record list */
-
-
-
-
-
-
+/* Record list (card .lcard; só o contador de fotos tem regra própria) */
 
 .rc-count { font-size: 13px; font-weight: 700; color: var(--primary); white-space: nowrap; }
 
