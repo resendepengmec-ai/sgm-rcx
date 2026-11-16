@@ -96,10 +96,17 @@ function detectar(opts) {
       if (corta && el.scrollWidth > el.clientWidth + 1 && cs.textOverflow !== 'ellipsis' && !el.matches('img,input,select,textarea')) {
         add('texto-cortado', true, el, `scrollWidth ${el.scrollWidth} > ${el.clientWidth}`);
       }
+      // Linhas reais do texto (topos distintos dos retângulos de linha), não a
+      // altura da caixa: botão com min-height alto não é texto quebrado.
       const r = el.getBoundingClientRect();
-      const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
-      if (r.width < 60 && r.height / lh > 3.2 && (el.textContent || '').trim().length > 6) {
-        add('quebra-degenerada', true, el, `largura ${Math.round(r.width)}px, ~${Math.round(r.height / lh)} linhas`);
+      const topos = new Set();
+      el.childNodes.forEach((n) => {
+        if (n.nodeType !== 3 || !n.textContent.trim()) return;
+        const rg = document.createRange(); rg.selectNodeContents(n);
+        [...rg.getClientRects()].forEach((q) => { if (q.width > 1) topos.add(Math.round(q.top)); });
+      });
+      if (r.width < 60 && topos.size > 3 && (el.textContent || '').trim().length > 6) {
+        add('quebra-degenerada', true, el, `largura ${Math.round(r.width)}px, ${topos.size} linhas`);
       }
     });
     // 5. Conteúdo do card vazando para fora do card

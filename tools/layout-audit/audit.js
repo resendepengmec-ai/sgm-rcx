@@ -21,10 +21,13 @@ const CI = !!arg('ci'), QUICK = !!arg('quick');
 const SAIDA = path.join(__dirname, 'out', String(arg('out') || 'ultimo'));
 const LARGURAS = [360, 375, 390, 412, 768, 1024, 1280, 1366, 1920];
 
-// O site é servido pelo próprio page.route num host fictício, em http e
-// https: a CSP das páginas tem upgrade-insecure-requests, e o WebKit
-// promove até localhost para https (o CSS/JS não carregaria).
+// O site é servido pelo próprio page.route (sem servidor). A CSP das páginas
+// tem upgrade-insecure-requests: o WebKit promove até 127.0.0.1 para https,
+// então ali se usa um host fictício (o route atende http e https); o
+// Firefox resolve o DNS do https promovido antes do route e falha com host
+// fictício, mas não promove 127.0.0.1 (endereço local é considerado seguro).
 const HOST = 'sgm.auditoria.local';
+const baseDe = (engine) => (engine === 'webkit' ? `http://${HOST}` : 'http://127.0.0.1:9');
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
 function servirArquivo(route) {
   let p = decodeURIComponent(new URL(route.request().url()).pathname);
@@ -79,7 +82,7 @@ async function auditarPagina(ctx, base, pg, c, shotsDir) {
   await page.route('**/*', (route) => {
     const u = route.request().url();
     if (u.startsWith(API)) return responder(route, pg.papel);
-    if (new URL(u).hostname === HOST) return servirArquivo(route);
+    if ([HOST, '127.0.0.1'].includes(new URL(u).hostname)) return servirArquivo(route);
     if (u.startsWith('data:') || u.startsWith('blob:')) return route.continue();
     return route.abort();
   });
@@ -135,7 +138,6 @@ function html(resultados) {
   fs.rmSync(SAIDA, { recursive: true, force: true });
   const shots = path.join(SAIDA, 'shots');
   fs.mkdirSync(shots, { recursive: true });
-  const base = `http://${HOST}`;
   const resultados = [];
   const porEngine = {};
   for (const c of matriz()) (porEngine[c.engine] = porEngine[c.engine] || []).push(c);
@@ -144,7 +146,7 @@ function html(resultados) {
     try { browser = await pw[engine].launch(); } catch (e) { console.error(`motor ${engine} indisponível: ${e.message.split('\n')[0]}`); continue; }
     for (const c of configs) {
       const ctx = await contexto(browser, c);
-      for (const pg of paginas) resultados.push(await auditarPagina(ctx, base, pg, c, shots));
+      for (const pg of paginas) resultados.push(await auditarPagina(ctx, baseDe(engine), pg, c, shots));
       await ctx.close();
       process.stdout.write('.');
     }
