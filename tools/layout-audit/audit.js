@@ -26,8 +26,10 @@ const LARGURAS = [360, 375, 390, 412, 768, 1024, 1280, 1366, 1920];
 // então ali se usa um host fictício (o route atende http e https); o
 // Firefox resolve o DNS do https promovido antes do route e falha com host
 // fictício, mas não promove 127.0.0.1 (endereço local é considerado seguro).
+// Porta 8099 só no endereço (o route atende, não há servidor); não usar
+// portas bloqueadas pelo Firefox, como a 9.
 const HOST = 'sgm.auditoria.local';
-const baseDe = (engine) => (engine === 'webkit' ? `http://${HOST}` : 'http://127.0.0.1:9');
+const baseDe = (engine) => (engine === 'webkit' ? `http://${HOST}` : 'http://127.0.0.1:8099');
 const TIPOS = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
 function servirArquivo(route) {
   let p = decodeURIComponent(new URL(route.request().url()).pathname);
@@ -120,7 +122,7 @@ async function auditarPagina(ctx, base, pg, c, shotsDir) {
       await card.screenshot({ path: path.join(shotsDir, f) }).catch(() => {});
     }
   } catch (e) {
-    res.ocorrencias.push({ tipo: 'falha-auditoria', critico: false, onde: pg.arquivo, detalhe: e.message.split('\n')[0] });
+    res.ocorrencias.push({ tipo: 'falha-auditoria', critico: true, onde: pg.arquivo, detalhe: e.message.split('\n')[0] });
   }
   await page.close();
   return res;
