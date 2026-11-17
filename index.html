@@ -687,13 +687,15 @@ function showAdminPanel() {
         <button class="admin-tab ${adminTab==='whitelist'?'active':''}" data-tab="whitelist" role="tab" aria-selected="${adminTab==='whitelist'}" onclick="setAdminTab('whitelist')">📋 Pré-autorizar</button>
         ${podeRecebimento ? `<button class="admin-tab ${adminTab==='responsaveis'?'active':''}" data-tab="responsaveis" role="tab" aria-selected="${adminTab==='responsaveis'}" onclick="setAdminTab('responsaveis')">✍️ Tomadores de Serviço</button>` : ''}
         ${ehMaster
-          ? `<button class="admin-tab ${adminTab==='config'?'active':''}" data-tab="config" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>`
+          ? `<button class="admin-tab ${adminTab==='config'?'active':''}" data-tab="config" role="tab" aria-selected="${adminTab==='config'}" onclick="setAdminTab('config')">⚙️ Config</button>
+             <button class="admin-tab ${adminTab==='auditoria'?'active':''}" data-tab="auditoria" role="tab" aria-selected="${adminTab==='auditoria'}" onclick="setAdminTab('auditoria')">🔐 Auditoria</button>`
           : `<button class="admin-tab ${adminTab==='minhaempresa'?'active':''}" data-tab="minhaempresa" role="tab" aria-selected="${adminTab==='minhaempresa'}" onclick="setAdminTab('minhaempresa')">🏢 Minha Empresa</button>`}
       </div>
       <div style="padding:14px" id="admin-tab-content"></div>
     </div>`;
   if (!ehMaster && adminTab === 'config') adminTab = 'usuarios';
   if (ehMaster && adminTab === 'minhaempresa') adminTab = 'usuarios';
+  if (!ehMaster && adminTab === 'auditoria') adminTab = 'usuarios';
   if (adminTab === 'responsaveis' && !podeRecebimento) adminTab = 'usuarios';
   renderAdminTab();
   // scroll to panel
@@ -719,6 +721,7 @@ function renderAdminTab() {
   else if (adminTab === 'whitelist') renderWhitelistTab(content);
   else if (adminTab === 'responsaveis') renderResponsaveisTab(content);
   else if (adminTab === 'minhaempresa') renderMinhaEmpresaTab(content);
+  else if (adminTab === 'auditoria') renderAuditTab(content);
   else renderConfigTab(content);
 }
 
@@ -2329,12 +2332,21 @@ async function renderAuditTab(el) {
 
       ${expiredHtml}
 
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="font-size:13px;font-weight:600">Integridade da trilha</div>
+          <button id="btn-verificar-trilha" onclick="verificarTrilha(this)" style="min-height:40px;padding:8px 14px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:13px;cursor:pointer">🔐 Verificar integridade</button>
+        </div>
+        <div style="font-size:12px;color:var(--text-3);margin-top:4px">Confere se alguma linha do log foi alterada, inserida ou apagada.</div>
+        <div id="trilha-resultado" aria-live="polite" style="margin-top:8px"></div>
+      </div>
+
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">Log de atividades recentes</div>
       <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
         <input id="audit-filter-email" type="text" placeholder="Filtrar por e-mail" style="flex:1;min-width:160px;font-size:12px;padding:6px 10px">
         <select id="audit-filter-module" style="font-size:12px;padding:6px">
           <option value="">Todos os módulos</option>
-          ${['chamados','registros','orcamentos','preventiva','contratos','movimentacoes','auth','users'].map(m=>`<option value="${m}">${m}</option>`).join('')}
+          ${['chamados','registros','orcamentos','preventiva','contratos','movimentacoes','auth','users','lgpd','audit'].map(m=>`<option value="${m}">${m}</option>`).join('')}
         </select>
         <button onclick="loadAuditLog()" style="padding:6px 14px;border-radius:6px;border:none;background:var(--primary);color:#fff;font-size:12px;cursor:pointer">Filtrar</button>
       </div>
@@ -2343,6 +2355,31 @@ async function renderAuditTab(el) {
       </div>`;
   } catch(e) {
     el.innerHTML = '<div style="color:var(--danger);padding:16px">Erro ao carregar auditoria: ' + e.message + '</div>';
+  }
+}
+
+async function verificarTrilha(btn) {
+  const out = document.getElementById('trilha-resultado');
+  if (!out) return;
+  btn.disabled = true; const rotulo = btn.textContent; btn.textContent = 'Verificando…';
+  out.innerHTML = '<div style="font-size:12px;color:var(--text-3)">Conferindo a cadeia, pode levar alguns segundos…</div>';
+  try {
+    const r = await DB.verificarTrilha();
+    const n = v => Number(v || 0).toLocaleString('pt-BR');
+    const legado = r.legados ? ` · ${n(r.legados)} linha(s) anteriores à cadeia (sem assinatura)` : '';
+    out.innerHTML = r.ok
+      ? `<div style="background:var(--success-bg);border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-size:13px;color:var(--success)">
+           ✅ Trilha íntegra: ${n(r.verificados)} linha(s) conferida(s)${legado}.
+           ${r.ancora ? `<div style="font-size:11px;color:var(--text-2);margin-top:4px;word-break:break-all">Última linha: #${esc(r.ancora.id)} · hash <code>${esc(String(r.ancora.hash).slice(0, 16))}</code> — compare com a âncora “audit: âncora” no log do servidor.</div>` : ''}
+         </div>`
+      : `<div style="background:var(--danger-bg, #fef2f2);border:1px solid #fecaca;border-radius:8px;padding:10px 12px;font-size:13px;color:var(--danger)">
+           ⚠️ Possível adulteração na linha #${esc(r.falha?.id)}: ${esc(r.falha?.motivo)}.
+           <div style="font-size:11px;margin-top:4px">${n(r.verificados)} linha(s) conferidas antes da falha. Siga o plano de incidente (docs/LGPD.md). Se o expurgo diário estava rodando, verifique de novo.</div>
+         </div>`;
+  } catch (e) {
+    out.innerHTML = '<div style="color:var(--danger);font-size:12px">Erro ao verificar: ' + esc(e.message) + '</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = rotulo;
   }
 }
 
@@ -2362,10 +2399,10 @@ async function loadAuditLog() {
       return `<div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;align-items:flex-start">
         <span style="font-size:14px;flex-shrink:0">${icon}</span>
         <div style="flex:1;min-width:0">
-          <span style="font-weight:600">${l.user_email||'sistema'}</span>
-          <span style="color:var(--text-3)"> · ${l.user_role||''}</span>
-          <span style="margin-left:6px;padding:1px 6px;border-radius:4px;background:var(--bg);font-size:11px">${l.action}</span>
-          ${l.module?`<span style="color:var(--text-3)"> · ${l.module}${l.record_id?' #'+l.record_id.slice(-6):''}</span>`:''}
+          <span style="font-weight:600">${esc(l.user_email||'sistema')}</span>
+          <span style="color:var(--text-3)"> · ${esc(l.user_role||'')}</span>
+          <span style="margin-left:6px;padding:1px 6px;border-radius:4px;background:var(--bg);font-size:11px">${esc(l.action)}</span>
+          ${l.module?`<span style="color:var(--text-3)"> · ${esc(l.module)}${l.record_id?' #'+esc(String(l.record_id).slice(-6)):''}</span>`:''}
         </div>
         <span style="color:var(--text-3);white-space:nowrap">${dt}</span>
       </div>`;

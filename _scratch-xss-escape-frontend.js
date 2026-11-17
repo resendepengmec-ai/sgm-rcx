@@ -19,7 +19,7 @@ const cru = {
   'preventiva.html': [/\$\{e\.estabelecimento\} · \$\{e\.recinto\}/, />\$\{plan\.obs\}</],
   'patrimonio.html': [/\$\{equip\.(marca|tipo|capacidade|estabelecimento|recinto)(\|\|[^}]*)?\}/, /🟢 '\}\$\{equip\.tag\}/],
   'registro.html': [/>\$\{it\.obs\|\|''\}<\/textarea>/, /\$\{it\.desc\|\|(INVIAVEL_NOTE|'')\}/],
-  'index.html': [/value="\$\{cfg\.(address|company|cnpj)/, /src="\$\{(user|u)\.picture\}"/],
+  'index.html': [/value="\$\{cfg\.(address|company|cnpj)/, /src="\$\{(user|u)\.picture\}"/, /\$\{l\.(user_email|user_role|action|module)(\|\|[^}]*)?\}/],
 };
 for (const [arquivo, padroes] of Object.entries(cru)) {
   const src = ler(arquivo);

@@ -1272,6 +1272,7 @@ const DB = {
   // Auditoria formal
   getAuditLog:        (filters={}) => API.get('/audit?' + new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([,v])=>v))).toString()),
   getAuditSummary:    ()           => API.get('/audit/summary'),
+  verificarTrilha:    ()           => API.get('/audit/verificar'),
   getExpiredAccess:   (days=90)    => API.get(`/audit/expired-access?days=${days}`),
   revokeUserSession:  (userId)     => API.delete(`/users/${userId}/session`),
   logout:             ()           => API.post('/auth/logout', {}),
