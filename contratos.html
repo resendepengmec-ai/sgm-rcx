@@ -440,12 +440,105 @@ function renderList() {
             ? `<span class="doc-chip truncate" style="cursor:pointer" data-doc-sha="${esc(d.sha)}" data-doc-name="${esc(d.name)}" onclick="abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();abrirDocumento({sha:this.dataset.docSha},this.dataset.docName)}" title="Baixar ${esc(d.name)}">📄 ${esc(d.name)}</span>`
             : `<span class="doc-chip truncate" title="${esc(d.name)}">📄 ${esc(d.name)}</span>`).join('')}
           ${equipCount ? `<button onclick="viewEquipamentos('${esc(c.id)}')" class="contrato-acao" style="font-size:12px">Ver equipamentos →</button>` : ''}
+          ${c.modeloCorretiva === 'franquia' && PODE_CURAR_VOCAB.includes(getCurrentUser()?.role) ? `<button data-numero="${esc(c.numero)}" onclick="abrirCuradoria(this.dataset.numero)" class="contrato-acao" style="font-size:12px">📚 Vocabulário <span class="vocab-pend" data-numero="${esc(c.numero)}"></span></button>` : ''}
         </div>
       </div>
       ${sigTrailCardHtml(c._signatures)}
      </div>
     </div>`;
   }).join('');
+  atualizarPendenciasVocab();
+}
+
+// ── Curadoria do vocabulário (contratos com franquia, gestor+) ────
+const PODE_CURAR_VOCAB = ['admin', 'admin_cliente', 'diretor', 'supervisor', 'gestor'];
+function atualizarPendenciasVocab() {
+  document.querySelectorAll('.vocab-pend').forEach(el => {
+    API.get('/vocab/curadoria?resumo=1&contrato=' + encodeURIComponent(el.dataset.numero))
+      .then(r => { el.textContent = r?.pendencias ? `(${r.pendencias} pendente${r.pendencias > 1 ? 's' : ''})` : ''; })
+      .catch(() => {});
+  });
+}
+let _curadoria = null;
+async function abrirCuradoria(numero) {
+  showScreen('detail');
+  const detail = document.getElementById('detail-content');
+  detail.innerHTML = '<div style="padding:20px;color:var(--text-3)">Carregando vocabulário…</div>';
+  try {
+    const [filas, vocab] = await Promise.all([
+      API.get('/vocab/curadoria?contrato=' + encodeURIComponent(numero)),
+      API.get('/vocab?contrato=' + encodeURIComponent(numero)),
+    ]);
+    _curadoria = { numero, filas, vocab };
+    renderCuradoria();
+  } catch (e) {
+    detail.innerHTML = `<div style="padding:20px">Não foi possível carregar o vocabulário: ${esc(e.message)}</div>`;
+  }
+}
+function _destinosCuradoria(t) {
+  const acoes = new Map((_curadoria.vocab.acoes || []).map(a => [a.c, a.n]));
+  return (_curadoria.vocab.termos || []).filter(x => x.i !== t.i && x.s === 'a' && (x.f === t.f || x.f === 'outros'))
+    .map(x => ({ i: x.i, rotulo: `${acoes.get(x.a) || x.a} · ${x.k}` }))
+    .sort((a, b) => a.rotulo.localeCompare(b.rotulo, 'pt-BR'));
+}
+function _linhaTermoCuradoria(t) {
+  const quem = t.origem === 'ia' ? 'IA' : t.origem === 'campo' ? 'campo' : t.origem;
+  return `<div class="lcard estatico" style="padding:10px;margin-bottom:6px">
+    <div style="font-weight:600" class="wrap-any">${esc(t.rotulo)} <span style="font-size:11px;color:var(--text-3)"><span class="sep">${esc(t.u)}</span><span class="sep">${esc(quem)}</span></span></div>
+    <div class="cluster" style="gap:6px;margin-top:6px">
+      <button class="contrato-acao" data-t="${esc(t.i)}" onclick="acaoCuradoria('aprovar', this.dataset.t)">✅ Aprovar</button>
+      <button class="contrato-acao" data-t="${esc(t.i)}" onclick="editarTermoCuradoria(this.dataset.t)">✏️ Editar</button>
+      <button class="contrato-acao" data-t="${esc(t.i)}" onclick="mostrarMesclaCuradoria(this.dataset.t)">🔀 Mesclar</button>
+      <button class="contrato-acao" data-t="${esc(t.i)}" onclick="acaoCuradoria('rejeitar', this.dataset.t)" style="color:var(--danger)">✕ Rejeitar</button>
+    </div>
+    <div id="mescla-${esc(t.i)}" style="display:none;margin-top:6px">
+      <select style="width:100%">${_destinosCuradoria(t).map(d => `<option value="${esc(d.i)}">${esc(d.rotulo)}</option>`).join('')}</select>
+      <button class="btn btn-primary" style="margin-top:4px" data-t="${esc(t.i)}" onclick="confirmarMesclaCuradoria(this.dataset.t, this)">Mesclar neste termo</button>
+    </div>
+  </div>`;
+}
+function renderCuradoria() {
+  const { numero, filas } = _curadoria;
+  const secao = (titulo, itens, html) => `<h3 style="font-size:14px;margin:14px 0 6px">${titulo} (${itens.length})</h3>`
+    + (itens.length ? itens.map(html).join('') : '<div style="font-size:12px;color:var(--text-3)">Nada pendente.</div>');
+  document.getElementById('detail-content').innerHTML = `
+    <div class="cluster" style="gap:6px 10px;margin-bottom:6px">
+      <button onclick="showScreen('list');renderList()" style="background:none;border:none;color:var(--primary);cursor:pointer;font-size:14px;min-height:2.75rem">← Contratos</button>
+      <h2 class="wrap-any" style="font-size:16px;font-weight:700;flex:1 1 12rem">Vocabulário — Contrato ${esc(numero)}</h2>
+    </div>
+    <div style="font-size:12px;color:var(--text-3)">Mesclar transforma o termo em sinônimo do escolhido; registros antigos passam a somar no termo escolhido. Nada é apagado.</div>
+    ${secao('Novos de campo', filas.novos, _linhaTermoCuradoria)}
+    ${secao('Sugeridos pela IA', filas.sugeridos, _linhaTermoCuradoria)}
+    ${secao('Sinônimos aprendidos', filas.sinonimos, x => `<div class="lcard estatico" style="padding:10px;margin-bottom:6px">
+      <div class="wrap-any">"${esc(x.sinonimo)}" → <strong>${esc(x.rotulo)}</strong></div>
+      <div class="cluster" style="gap:6px;margin-top:6px">
+        <button class="contrato-acao" data-t="${esc(x.termoId)}" data-s="${esc(x.sinonimo)}" onclick="acaoCuradoria('aprovar_sinonimo', this.dataset.t, {sinonimo: this.dataset.s})">✅ Aprovar</button>
+        <button class="contrato-acao" data-t="${esc(x.termoId)}" data-s="${esc(x.sinonimo)}" onclick="acaoCuradoria('rejeitar_sinonimo', this.dataset.t, {sinonimo: this.dataset.s})" style="color:var(--danger)">✕ Rejeitar</button>
+      </div></div>`)}`;
+}
+async function acaoCuradoria(acao, termoId, extra = {}) {
+  try {
+    await API.post('/vocab/curadoria', { contrato: _curadoria.numero, acao, termoId, ...extra });
+    showToast('Vocabulário atualizado');
+    await abrirCuradoria(_curadoria.numero);
+  } catch (e) { showToast(e.message); }
+}
+function editarTermoCuradoria(termoId) {
+  const t = [..._curadoria.filas.novos, ..._curadoria.filas.sugeridos].find(x => x.i === termoId);
+  const componente = prompt('Componente', t?.k || '');
+  if (componente === null) return;
+  const unidade = prompt('Unidade (un, par, jogo, kit, m, m², kg, g, L, h)', t?.u || 'un');
+  if (unidade === null) return;
+  acaoCuradoria('editar', termoId, { componente, unidade });
+}
+function mostrarMesclaCuradoria(termoId) {
+  const el = document.getElementById('mescla-' + termoId);
+  if (el) el.style.display = el.style.display === 'none' ? '' : 'none';
+}
+function confirmarMesclaCuradoria(termoId, btn) {
+  const destinoId = btn.parentElement.querySelector('select')?.value;
+  if (!destinoId) { showToast('Escolha o termo destino'); return; }
+  acaoCuradoria('mesclar', termoId, { destinoId });
 }
 
 // ── PDF do contrato ──────────────────────────────────────────────
