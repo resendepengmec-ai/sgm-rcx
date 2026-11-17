@@ -1454,6 +1454,16 @@ function sugerirParecidosFq(v, consulta, familia, limite = 3) {
   for (const { t } of notas) { if (vistos.has(t.k)) continue; vistos.add(t.k); out.push(t); if (out.length >= limite) break; }
   return out;
 }
+// Próximo item provável: o servidor manda em v.prox[familia][termoA] os
+// termos que costumam vir depois de A neste contrato (ver vocab-store.js).
+function proximosFq(v, familia, itens) {
+  const ultimo = [...(itens || [])].reverse().find(it => it && it.termoId);
+  if (!ultimo) return [];
+  const lancados = new Set(itens.map(it => it && it.termoId));
+  const porId = new Map((v?.termos || []).map(t => [t.i, t]));
+  return ((v?.prox && v.prox[familia] && v.prox[familia][ultimo.termoId]) || [])
+    .filter(id => !lancados.has(id)).map(id => porId.get(id)).filter(Boolean).slice(0, 3);
+}
 function maisUsadosFq(v, familia, limite = 5) {
   const uso = (v?.uso && v.uso[familia]) || {};
   const porId = new Map((v?.termos || []).map(t => [t.i, t]));
@@ -1507,7 +1517,9 @@ function fqAtualizar() {
   const achados = buscarTermosFq(v, consulta, familia);
   sug.innerHTML = achados.map(t => _botaoTermoFq(v, t)).join('');
   const top = consulta.trim() ? [] : maisUsadosFq(v, familia);
-  at.innerHTML = top.length ? `<div style="font-size:11px;color:var(--text-3);margin:4px 0">Mais usados nesta família</div>` + top.map(t => _botaoTermoFq(v, t)).join('') : '';
+  const juntos = consulta.trim() ? [] : proximosFq(v, familia, newItems);
+  at.innerHTML = (juntos.length ? `<div style="font-size:11px;color:var(--text-3);margin:4px 0">Costuma vir junto</div>` + juntos.map(t => _botaoTermoFq(v, t)).join('') : '')
+    + (top.length ? `<div style="font-size:11px;color:var(--text-3);margin:4px 0">Mais usados nesta família</div>` + top.map(t => _botaoTermoFq(v, t)).join('') : '');
   if (!consulta.trim() || achados.length) { novo.innerHTML = ''; return; }
   const parecidos = sugerirParecidosFq(v, consulta, familia);
   novo.innerHTML = (parecidos.length ? `<div style="font-size:12px;color:var(--text-2);margin:4px 0">Você quis dizer…</div>` + parecidos.map(t => _botaoTermoFq(v, t)).join('') : '')

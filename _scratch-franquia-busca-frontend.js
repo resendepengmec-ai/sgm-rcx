@@ -10,7 +10,7 @@ const fim = html.indexOf('async function carregarVocabFq');
 assert('trecho da busca encontrado', ini > 0 && fim > ini);
 const ctx = {};
 vm.createContext(ctx);
-vm.runInContext(html.slice(ini, fim) + '\nthis.buscar = buscarTermosFq; this.parecidos = sugerirParecidosFq; this.sim = similaridadeFq; this.top = maisUsadosFq; this.rotulo = rotuloTermo; this.ehItem = ehItemFranquia;', ctx);
+vm.runInContext(html.slice(ini, fim) + '\nthis.buscar = buscarTermosFq; this.parecidos = sugerirParecidosFq; this.sim = similaridadeFq; this.top = maisUsadosFq; this.rotulo = rotuloTermo; this.ehItem = ehItemFranquia; this.prox = proximosFq;', ctx);
 
 const v = {
   acoes: [
@@ -55,6 +55,12 @@ assert('similaridade: troca de uma letra fica alta', ctx.sim('termostato', 'term
 console.log('── Mais usados e itens ──');
 assert('mais usados da família, em ordem de uso', ctx.top(v, 'refrigeracao').map(t => t.i).join() === 'b:refrigeracao:REP.BORRACHA_VEDACAO,b:refrigeracao:SUB.TERMOSTATO');
 assert('item de franquia reconhecido; item de lista não', ctx.ehItem({ qtd: 1, termoId: 'x' }) && !ctx.ehItem({ name: 'Limpeza', qty: 1, price: 10 }) && !ctx.ehItem({ inviavel: true, qtd: 1 }));
+
+console.log('── Costuma vir junto ──');
+const vp = { ...v, prox: { refrigeracao: { 'b:refrigeracao:SUB.TERMOSTATO': ['b:refrigeracao:SUB.BORRACHA_VEDACAO', 'b:refrigeracao:REP.BORRACHA_VEDACAO'] } } };
+assert('sugere depois do último lançado', ctx.prox(vp, 'refrigeracao', [{ termoId: 'b:refrigeracao:SUB.TERMOSTATO' }]).length === 2);
+assert('não repete o que já foi lançado', ctx.prox(vp, 'refrigeracao', [{ termoId: 'b:refrigeracao:SUB.BORRACHA_VEDACAO' }, { termoId: 'b:refrigeracao:SUB.TERMOSTATO' }]).map(t => t.i).join() === 'b:refrigeracao:REP.BORRACHA_VEDACAO');
+assert('sem item lançado, nada', ctx.prox(vp, 'refrigeracao', []).length === 0);
 
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);
