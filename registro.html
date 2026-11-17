@@ -393,7 +393,7 @@ const SERVICES = [
 let records = safeLocalStorageGetJSON('registro_records', []);
 
 // Marcador de build (confirma qual versão está no ar; o Safari do iOS cacheia).
-const APP_BUILD = '2026-09-23.1';
+const APP_BUILD = '2026-11-16.1';
 try {
   window.__SGM_BUILD = APP_BUILD;
   console.log('SGM registro build', APP_BUILD);
@@ -1164,6 +1164,15 @@ function onContractChange() {
   if (!num) { if (container) container.innerHTML = ''; return; }
   const contracts = safeLocalStorageGetJSON('smm_contracts', []);
   const cont = contracts.find(c => c.numero === num);
+  // Item de franquia não serve para contrato em lista (e vice-versa): ao
+  // trocar de contrato num registro novo, descarta os que não combinam.
+  if (!editingId && newItems.length) {
+    const franquia = cont?.modeloCorretiva === 'franquia';
+    const antes = newItems.length;
+    newItems = newItems.filter(it => it.inviavel || ehItemFranquia(it) === franquia);
+    if (newItems.length !== antes) { renderNewItems(); showToast('Serviços lançados no outro contrato foram removidos'); }
+  }
+  if (cont?.modeloCorretiva === 'franquia' && !editingId) { renderFranquiaBox(num); return; }
   const svcs = cont?.servicos || [];
   if (svcs.length) renderOSChecklist(svcs);
   else if (container) container.innerHTML = '<div style="font-size:12px;color:#92400e;padding:8px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px">Este contrato não possui serviços cadastrados.</div>';
@@ -1287,6 +1296,7 @@ function editRecord(id) {
   document.getElementById('field-queixa-avaliacao').style.display = r.queixaAvaliacao ? '' : 'none';
   if (r.machine) showMachineInfo(r.machine); else hideMachineInfo();
   checarRecorrenciaMes();
+  if (r.modeloCorretiva === 'franquia') renderFranquiaBox(r.client);
   renderNewItems();
   onContractChange();   // mostra o checklist do contrato com os itens já marcados
   renderPhotoGrid();
@@ -1343,7 +1353,7 @@ function renderNewItems() {
   const el = document.getElementById('new-items-list');
   if (!newItems.length) { el.innerHTML = '<div class="empty" style="padding:24px 0"><p>Nenhum serviço adicionado</p></div>'; return; }
   const _canPrice = ['admin','diretor','supervisor'].includes(getCurrentUser()?.role);
-  el.innerHTML = newItems.map((it,i) => it.inviavel
+  el.innerHTML = newItems.map((it,i) => ehItemFranquia(it) ? itemFranquiaHtml(it, i) : it.inviavel
     ? `<div class="inviavel-row" style="flex-wrap:wrap;gap:8px">
         <div style="flex:1;min-width:0">
           <div style="color:#dc2626;font-weight:700;font-size:14px">⚠️ Inviável — Equipamento condenado</div>
@@ -1374,6 +1384,216 @@ function renderNewItems() {
   }
 }
 function removeItem(i){ newItems.splice(i,1); renderNewItems(); if (window._osChecklistServices) renderOSChecklist(window._osChecklistServices); }
+
+// ── Corretiva com franquia ────────────────────────────────────────
+// Contrato com modeloCorretiva 'franquia': no lugar dos serviços com preço,
+// o técnico busca no vocabulário do contrato (ação · componente), informa a
+// quantidade e a unidade. Busca 100% local sobre o vocabulário baixado de
+// GET /vocab (o navegador revalida pelo ETag). Sem rede: usa a última cópia;
+// sem cópia nenhuma: permite lançar termo novo (o servidor cadastra ao salvar).
+const _vocabPorContrato = new Map();
+const ACOES_FRANQUIA_PADRAO = [['SUB','Substituição'],['REP','Reparo'],['LIM','Limpeza'],['HIG','Higienização'],['AJU','Ajuste/Regulagem'],['LUB','Lubrificação'],['REC','Recarga'],['TES','Teste'],['INS','Instalação'],['DES','Desinstalação'],['APE','Aperto/Fixação'],['VED','Vedação']].map(([c,n])=>({c,n,s:[]}));
+const UNIDADES_FRANQUIA = ['un','par','jogo','kit','m','m²','kg','g','L','h'];
+let _fqContrato = null;
+
+function ehItemFranquia(it) { return !!it && !it.inviavel && (it.qtd !== undefined || !!it.termoId || !!it.termoNovo); }
+const _normFq = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+// Parecença 0..1: o maior entre trigramas (Dice) e Levenshtein normalizado.
+// Mesma função do servidor (src/vocab.js similaridade).
+function similaridadeFq(a, b) {
+  a = _normFq(a); b = _normFq(b);
+  if (!a || !b) return 0;
+  if (a === b) return 1;
+  const tri = s => { const t = '  ' + s + ' '; const out = []; for (let i = 0; i < t.length - 2; i++) out.push(t.slice(i, i + 3)); return out; };
+  const A = tri(a), resto = tri(b), total = A.length + resto.length;
+  let comuns = 0;
+  A.forEach(x => { const i = resto.indexOf(x); if (i >= 0) { comuns++; resto.splice(i, 1); } });
+  const dice = total ? 2 * comuns / total : 0;
+  const m = a.length, n = b.length;
+  let ant = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(ant[j] + 1, cur[j - 1] + 1, ant[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    ant = cur;
+  }
+  return Math.max(dice, 1 - ant[n] / Math.max(m, n));
+}
+
+function _acoesVocab(v) { return (v && v.acoes && v.acoes.length) ? v.acoes : ACOES_FRANQUIA_PADRAO; }
+function rotuloTermo(v, t) { const a = _acoesVocab(v).find(x => x.c === t.a); return `${a ? a.n : t.a} · ${t.k}`; }
+const _ORDEM_STATUS = { a: 0, s: 1, n: 2 };
+
+// Busca local: cada palavra digitada precisa ser início de alguma palavra da
+// ação (nome/sinônimos), do componente ou de um sinônimo. Ordem: aprovado >
+// sugerido > novo; depois uso no contrato para a família da TAG; depois nome.
+function buscarTermosFq(v, consulta, familia, limite = 6) {
+  const tokens = _normFq(consulta).split(' ').filter(Boolean);
+  if (!v || !tokens.length) return [];
+  const acoes = new Map(_acoesVocab(v).map(a => [a.c, [_normFq(a.n), ...(a.s || [])].join(' ')]));
+  const uso = (v.uso && v.uso[familia]) || {};
+  const achados = (v.termos || []).filter(t => !familia || t.f === familia || t.f === 'outros').filter(t => {
+    const palavras = [acoes.get(t.a) || '', _normFq(t.k), ...(t.y || [])].join(' ').split(/[^a-z0-9²]+/).filter(Boolean);
+    return tokens.every(tok => palavras.some(p => p.startsWith(tok)));
+  });
+  achados.sort((x, y) => (_ORDEM_STATUS[x.s] - _ORDEM_STATUS[y.s])
+    || ((x.f === familia ? 1 : 0) - (y.f === familia ? 1 : 0)) * -1
+    || ((uso[y.i] || 0) - (uso[x.i] || 0))
+    || rotuloTermo(v, x).localeCompare(rotuloTermo(v, y), 'pt-BR'));
+  return achados.slice(0, limite);
+}
+// "Você quis dizer…": componentes/sinônimos parecidos com o que foi digitado.
+function sugerirParecidosFq(v, consulta, familia, limite = 3) {
+  const alvo = _normFq(consulta);
+  if (!v || alvo.length < 3) return [];
+  const notas = (v.termos || []).filter(t => !familia || t.f === familia || t.f === 'outros').map(t => {
+    const nota = Math.max(...[t.k, ...(t.y || [])].map(x => similaridadeFq(alvo, x)), ...alvo.split(' ').map(p => similaridadeFq(p, t.k)));
+    return { t, nota };
+  }).filter(x => x.nota >= 0.5).sort((a, b) => b.nota - a.nota || _ORDEM_STATUS[a.t.s] - _ORDEM_STATUS[b.t.s]);
+  const vistos = new Set(), out = [];
+  for (const { t } of notas) { if (vistos.has(t.k)) continue; vistos.add(t.k); out.push(t); if (out.length >= limite) break; }
+  return out;
+}
+function maisUsadosFq(v, familia, limite = 5) {
+  const uso = (v?.uso && v.uso[familia]) || {};
+  const porId = new Map((v?.termos || []).map(t => [t.i, t]));
+  return Object.entries(uso).sort((a, b) => b[1] - a[1]).map(([id]) => porId.get(id)).filter(Boolean).slice(0, limite);
+}
+
+async function carregarVocabFq(numero) {
+  try {
+    const v = await API.get('/vocab?contrato=' + encodeURIComponent(numero));
+    _vocabPorContrato.set(numero, v);
+    try { localStorage.setItem('smm_vocab_' + numero, JSON.stringify(v)); } catch (_) {}
+    return v;
+  } catch (e) {
+    if (_vocabPorContrato.has(numero)) return _vocabPorContrato.get(numero);
+    const salvo = safeLocalStorageGetJSON('smm_vocab_' + numero, null);
+    if (salvo) { _vocabPorContrato.set(numero, salvo); return salvo; }
+    return null;
+  }
+}
+function _familiaDaTagFq() {
+  const m = selectedMachine;
+  return (m && (m.familia || (typeof familiaDoTipo === 'function' ? familiaDoTipo(m.tipo) : ''))) || '';
+}
+
+function renderFranquiaBox(numero) {
+  _fqContrato = numero;
+  window._osChecklistServices = null;
+  const container = document.getElementById('svc-checklist-container');
+  if (!container) return;
+  container.innerHTML = `
+    <div id="franquia-box" style="background:#f8fafc;border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:8px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">Serviço executado</div>
+      <input type="search" id="fq-busca" autocomplete="off" placeholder="Ex.: troca borracha porta" oninput="fqAtualizar()" style="width:100%">
+      <div id="fq-sugestoes" style="margin-top:6px"></div>
+      <div id="fq-atalhos" style="margin-top:6px"></div>
+      <div id="fq-novo" style="margin-top:6px"></div>
+      <button type="button" class="btn btn-secondary" style="margin-top:8px;width:100%;color:#dc2626" onclick="fqInviavel()">⚠️ Inviável — equipamento condenado</button>
+    </div>`;
+  carregarVocabFq(numero).then(() => { if (_fqContrato === numero) fqAtualizar(); });
+}
+function _botaoTermoFq(v, t, extra) {
+  const marca = t.s === 'n' ? ' <span style="font-size:10px;color:#92400e">(novo)</span>' : t.s === 's' ? ' <span style="font-size:10px;color:#64748b">(sugerido)</span>' : '';
+  return `<button type="button" class="chk-btn" data-termo="${esc(t.i)}" onclick="fqEscolher(this.dataset.termo)" style="display:block;width:100%;text-align:left;margin:3px 0;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff">${esc(rotuloTermo(v, t))}${marca}${extra || ''}</button>`;
+}
+function fqAtualizar() {
+  const v = _vocabPorContrato.get(_fqContrato);
+  const consulta = document.getElementById('fq-busca')?.value || '';
+  const familia = _familiaDaTagFq();
+  const sug = document.getElementById('fq-sugestoes'), at = document.getElementById('fq-atalhos'), novo = document.getElementById('fq-novo');
+  if (!sug) return;
+  const achados = buscarTermosFq(v, consulta, familia);
+  sug.innerHTML = achados.map(t => _botaoTermoFq(v, t)).join('');
+  const top = consulta.trim() ? [] : maisUsadosFq(v, familia);
+  at.innerHTML = top.length ? `<div style="font-size:11px;color:var(--text-3);margin:4px 0">Mais usados nesta família</div>` + top.map(t => _botaoTermoFq(v, t)).join('') : '';
+  if (!consulta.trim() || achados.length) { novo.innerHTML = ''; return; }
+  const parecidos = sugerirParecidosFq(v, consulta, familia);
+  novo.innerHTML = (parecidos.length ? `<div style="font-size:12px;color:var(--text-2);margin:4px 0">Você quis dizer…</div>` + parecidos.map(t => _botaoTermoFq(v, t)).join('') : '')
+    + `<button type="button" class="btn btn-secondary" style="width:100%;margin-top:6px" onclick="fqAbrirNovo()">+ Adicionar como novo termo</button>
+       <div id="fq-novo-form" style="display:none;margin-top:6px">
+         <select id="fq-novo-acao" style="width:100%;margin-bottom:4px">${_acoesVocab(v).map(a => `<option value="${esc(a.c)}">${esc(a.n)}</option>`).join('')}</select>
+         <input id="fq-novo-comp" maxlength="60" placeholder="Componente (ex.: borracha da porta)" style="width:100%;margin-bottom:4px">
+         <select id="fq-novo-unid" style="width:100%;margin-bottom:4px">${UNIDADES_FRANQUIA.map(u => `<option>${esc(u)}</option>`).join('')}</select>
+         <button type="button" class="btn btn-primary" style="width:100%" onclick="fqSalvarNovo(this)">Adicionar</button>
+       </div>`;
+}
+function fqAbrirNovo() {
+  const f = document.getElementById('fq-novo-form'); if (!f) return;
+  f.style.display = '';
+  const comp = document.getElementById('fq-novo-comp');
+  if (comp && !comp.value) comp.value = (document.getElementById('fq-busca')?.value || '').trim().slice(0, 60);
+}
+function _adicionarItemFq(item) {
+  newItems = newItems.filter(x => !x.inviavel);
+  newItems.push(item);
+  renderNewItems();
+  const b = document.getElementById('fq-busca'); if (b) b.value = '';
+  fqAtualizar();
+}
+function fqEscolher(termoId) {
+  const v = _vocabPorContrato.get(_fqContrato);
+  const t = (v?.termos || []).find(x => x.i === termoId);
+  if (!t) return;
+  const rotulo = rotuloTermo(v, t);
+  _adicionarItemFq({ qtd: 1, unidade: t.u || 'un', termoId: t.i, acao: rotulo.split(' · ')[0], componente: t.k,
+    descricao: rotulo, name: rotulo, obs: '', consulta: _normFq(document.getElementById('fq-busca')?.value || '').slice(0, 30) });
+}
+async function fqSalvarNovo(btn) {
+  const acao = document.getElementById('fq-novo-acao')?.value;
+  const componente = (document.getElementById('fq-novo-comp')?.value || '').trim();
+  const unidade = document.getElementById('fq-novo-unid')?.value || 'un';
+  if (!componente) { showToast('Informe o componente'); return; }
+  const v = _vocabPorContrato.get(_fqContrato);
+  const nomeAcao = (_acoesVocab(v).find(a => a.c === acao) || {}).n || acao;
+  btn.disabled = true;
+  try {
+    const r = await API.post('/vocab/termos', { contrato: _fqContrato, acao, componente, unidade, familia: _familiaDaTagFq() || 'outros' });
+    const t = r.termo;
+    if (v && !(v.termos || []).some(x => x.i === t.i)) v.termos.push(t);
+    if (r.existente) showToast('Já existia: ' + rotuloTermo(v, t));
+    fqEscolher(t.i);
+  } catch (e) {
+    if (e.status && e.status !== 0 && !e.transient) { showToast(e.message); btn.disabled = false; return; }
+    // Sem rede: vai como termo novo no próprio registro; o servidor cadastra ao salvar.
+    const rotulo = `${nomeAcao} · ${componente}`;
+    _adicionarItemFq({ qtd: 1, unidade, termoNovo: { acao, componente }, acao: nomeAcao, componente, descricao: rotulo, name: rotulo, obs: '' });
+    showToast('Sem conexão: o termo será cadastrado quando o registro for enviado');
+  }
+}
+function fqInviavel() {
+  const s = SERVICES.find(x => x.inviavel);
+  newItems = [{ name: s.name, desc: s.desc, inviavel: true, qty: 1, obs: '' }];
+  document.getElementById('f-notes').value = INVIAVEL_NOTE;
+  renderNewItems(); showToast('Equipamento marcado como inviável');
+}
+function fqMudarQtd(i, delta) {
+  const it = newItems[i]; if (!it) return;
+  const nova = Math.round(((Number(it.qtd) || 0) + delta) * 100) / 100;
+  if (nova <= 0) return;   // abaixo de 1: digitar a fração no campo
+  it.qtd = nova;
+  renderNewItems();
+}
+function fqDefinirQtd(i, valor) {
+  const n = Math.round(Number(String(valor).replace(',', '.')) * 100) / 100;
+  if (Number.isFinite(n) && n > 0) newItems[i].qtd = n;
+}
+function itemFranquiaHtml(it, i) {
+  return `<div class="svc-item-row" style="flex-wrap:wrap;align-items:flex-start;gap:6px;padding:12px 0">
+      <div style="flex:1;min-width:0">
+        <div class="svc-item-name" style="margin-bottom:6px">${esc(it.descricao || it.name || '')}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+          <button type="button" onclick="fqMudarQtd(${i},-1)" aria-label="Diminuir" style="width:36px;height:36px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;font-size:20px">−</button>
+          <input type="text" inputmode="decimal" aria-label="Quantidade" value="${esc(String(it.qtd ?? 1).replace('.', ','))}" onchange="fqDefinirQtd(${i}, this.value)" style="width:70px;text-align:center">
+          <button type="button" onclick="fqMudarQtd(${i},1)" aria-label="Aumentar" style="width:36px;height:36px;border-radius:8px;border:1px solid #cbd5e1;background:#fff;font-size:20px">+</button>
+          <select aria-label="Unidade" onchange="newItems[${i}].unidade=this.value">${UNIDADES_FRANQUIA.map(u => `<option ${u === it.unidade ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select>
+        </div>
+        <textarea placeholder="Observação (opcional)..." rows="2" maxlength="200" style="font-size:13px;padding:7px 10px;resize:vertical;color:var(--text-2)" oninput="newItems[${i}].obs=this.value">${esc(it.obs || '')}</textarea>
+      </div>
+      <button class="btn-del" style="margin-top:2px" onclick="removeItem(${i})">×</button>
+    </div>`;
+}
 
 // ── Service modal ──
 function openServiceModal(){ document.getElementById('svc-search').value=''; filterServices(); document.getElementById('service-modal').classList.remove('hidden'); }
@@ -2520,7 +2740,9 @@ function iniciarRegistroOS(osId) {
       const contracts = safeLocalStorageGetJSON('smm_contracts', []);
       const cont = contracts.find(c => c.numero === contratoNumero);
       const svcs = cont?.servicos || [];
-      if (svcs.length) {
+      if (cont?.modeloCorretiva === 'franquia') {
+        renderFranquiaBox(contratoNumero);
+      } else if (svcs.length) {
         // Renderiza como checklist ABAIXO do banner
         renderOSChecklist(svcs);
       } else {
