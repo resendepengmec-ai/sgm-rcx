@@ -2205,14 +2205,14 @@ function renderEquipHistoryModal(equip, contrato, events) {
         <div style="display:flex;justify-content:space-between;align-items:flex-start">
           <div>
             <div style="font-size:18px;font-weight:700;color:#0f172a">
-              ${isInativo?'🔴 ':'🟢 '}${equip.tag}
+              ${isInativo?'🔴 ':'🟢 '}${esc(equip.tag)}
               ${isInativo ? '<span style="background:#dc2626;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">' + statusEquip.toUpperCase() + '</span>' : '<span style="background:#16a34a;color:#fff;font-size:10px;padding:2px 6px;border-radius:4px;margin-left:6px;vertical-align:middle">OPERANTE</span>'}
             </div>
             <div style="font-size:12px;color:#64748b;margin-top:2px">
-              ${equip.marca||''} ${equip.tipo||''} ${equip.capacidade||''}
+              ${esc(equip.marca)} ${esc(equip.tipo)} ${esc(equip.capacidade)}
             </div>
             <div style="font-size:12px;color:#64748b">
-              Contrato ${contrato} · ${equip.estabelecimento||'—'} · ${equip.recinto||'—'}
+              Contrato ${esc(contrato)} · ${esc(equip.estabelecimento||'—')} · ${esc(equip.recinto||'—')}
             </div>
           </div>
           <button onclick="document.getElementById('equip-history-modal').remove()"

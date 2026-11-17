@@ -758,8 +758,8 @@ try { guardaDeModulo('preventiva'); } catch (e) {}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
-        <div class="un">${user.name}</div>
-        <div class="ue">${user.email}</div>
+        <div class="un">${esc(user.name)}</div>
+        <div class="ue">${esc(user.email)}</div>
         <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
       </div>
       <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
@@ -1152,7 +1152,7 @@ function renderEquipList(filter='') {
       <div style="flex:1;min-width:0">
         <div style="font-size:13px;font-weight:600">TAG ${esc(e.tag)}</div>
         <div style="font-size:11px;color:var(--text-2)">${esc(e.marca)} ${esc(e.tipo)}${e.capacidade?' · '+e.capacidade+' BTU':''}</div>
-        <div style="font-size:11px;color:var(--text-3)">${e.estabelecimento} · ${e.recinto}</div>
+        <div style="font-size:11px;color:var(--text-3)">${esc(e.estabelecimento)} · ${esc(e.recinto)}</div>
       </div>
     </div>`).join('') || '<p style="font-size:13px;color:var(--text-3);padding:12px 0;text-align:center">Nenhum equipamento encontrado</p>';
 }
@@ -1197,7 +1197,7 @@ function renderExecHeader(plan) {
         ${['admin','diretor','supervisor'].includes(getCurrentUser()?.role) ? `<button class="btn-sm btn-secondary" onclick="deletePlan('${plan.id}', this)">🗑️</button>` : ''}
       </div>
     </div>
-    ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${plan.obs}</div>`:''}`;
+    ${plan.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:8px;padding:8px 12px">${esc(plan.obs)}</div>`:''}`;
 }
 
 // Busca o plano completo só ao abrir: a listagem já veio sem bytes de fotos.

@@ -121,8 +121,8 @@ body{padding-bottom:40px;background:var(--bg);color:var(--text);}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
-        <div style="font-weight:600;font-size:14px">${user.name}</div>
-        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <div style="font-weight:600;font-size:14px">${esc(user.name)}</div>
+        <div style="font-size:12px;color:#475569">${esc(user.email)}</div>
         <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
       </div>
       <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>

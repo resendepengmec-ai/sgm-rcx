@@ -557,8 +557,8 @@ try { guardaDeModulo('orcamento'); } catch (e) {}
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
-        <div style="font-weight:600;font-size:14px">${user.name}</div>
-        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <div style="font-weight:600;font-size:14px">${esc(user.name)}</div>
+        <div style="font-size:12px;color:#475569">${esc(user.email)}</div>
         <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
       </div>
       <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
@@ -766,8 +766,8 @@ function showTagSuggestions(q) {
   box.innerHTML = matches.map(m => `
     <div onclick="selectTag('${esc(m.tag)}')" style="padding:10px 14px;cursor:pointer;border-bottom:0.5px solid var(--border);transition:background .1s" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background=''" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();selectTag('${esc(m.tag)}')}">
       <div style="font-weight:600;font-size:14px">TAG ${esc(m.tag)}</div>
-      <div style="font-size:12px;color:var(--text-2)">${m.marca} ${m.tipo} ${m.capacidade ? m.capacidade+' BTU' : ''} · ${m.estabelecimento}</div>
-      <div style="font-size:12px;color:var(--text-3)">${m.recinto}</div>
+      <div style="font-size:12px;color:var(--text-2)">${esc(m.marca)} ${esc(m.tipo)} ${m.capacidade ? esc(m.capacidade)+' BTU' : ''} · ${esc(m.estabelecimento)}</div>
+      <div style="font-size:12px;color:var(--text-3)">${esc(m.recinto)}</div>
     </div>`).join('');
   box.style.display = 'block';
 }
@@ -3051,11 +3051,11 @@ function openDetail(id) {
         <div style="font-size:19px;font-weight:700">Contrato: ${esc(q.client)}</div>
         ${q.equip ? `<div style="font-size:14px;color:var(--text-2);margin-top:2px">🏷️ TAG: ${esc(q.equip)}</div>` : ''}
         ${q.machine ? `
-          <div style="font-size:13px;color:var(--text-2)">${q.machine.marca} ${q.machine.tipo}${q.machine.capacidade ? ' · '+q.machine.capacidade+' BTU' : ''}</div>
-          <div style="font-size:13px;color:var(--text-2)">${q.machine.estabelecimento}</div>
-          <div style="font-size:13px;color:var(--text-3)">${q.machine.recinto}</div>
+          <div style="font-size:13px;color:var(--text-2)">${esc(q.machine.marca)} ${esc(q.machine.tipo)}${q.machine.capacidade ? ' · '+esc(q.machine.capacidade)+' BTU' : ''}</div>
+          <div style="font-size:13px;color:var(--text-2)">${esc(q.machine.estabelecimento)}</div>
+          <div style="font-size:13px;color:var(--text-3)">${esc(q.machine.recinto)}</div>
         ` : ''}
-        ${q.address ? `<div style="font-size:14px;color:var(--text-2)">📍 ${q.address}</div>` : ''}
+        ${q.address ? `<div style="font-size:14px;color:var(--text-2)">📍 ${esc(q.address)}</div>` : ''}
         <div style="font-size:13px;color:var(--text-3);margin-top:4px">📅 ${q.date || ''}</div>
       </div>
       ${podeMudarStatus()

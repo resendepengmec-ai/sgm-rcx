@@ -299,8 +299,8 @@ body { padding-bottom: 80px; background: var(--bg); color: var(--text); }
     </div>
     <div class="user-menu hidden" id="umenu">
       <div class="user-menu-header">
-        <div style="font-weight:600;font-size:14px">${user.name}</div>
-        <div style="font-size:12px;color:#475569">${user.email}</div>
+        <div style="font-weight:600;font-size:14px">${esc(user.name)}</div>
+        <div style="font-size:12px;color:#475569">${esc(user.email)}</div>
         <span class="role-badge" style="background:${r.color}22;color:${r.color}">${r.icon} ${r.label}</span>
       </div>
       <button class="user-menu-item" onclick="window.location.href='index.html'">🏠 Início</button>
@@ -1370,7 +1370,7 @@ function renderNewItems() {
             rows="2"
             style="font-size:13px;padding:7px 10px;resize:vertical;color:var(--text-2)"
             oninput="newItems[${i}].obs=this.value"
-          >${it.obs||''}</textarea>
+          >${esc(it.obs||'')}</textarea>
         </div>
         <button class="btn-del" style="margin-top:2px" onclick="removeItem(${i})">×</button>
     </div>`
@@ -2019,11 +2019,11 @@ function openDetail(id){
   const svcList = r.items.map(it=>it.inviavel
     ? `<div style="background:#fef2f2;border-radius:8px;padding:10px;margin-bottom:8px">
         <div style="color:#dc2626;font-weight:700;font-size:14px;margin-bottom:4px">⚠️ Inviável — Equipamento condenado</div>
-        <div style="font-size:12px;color:#dc2626;line-height:1.5">${it.desc||INVIAVEL_NOTE}</div>
+        <div style="font-size:12px;color:#dc2626;line-height:1.5">${esc(it.desc||INVIAVEL_NOTE)}</div>
       </div>`
     : `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
         <div style="font-size:14px;font-weight:600;margin-bottom:3px">${esc(textoItemPdf(it))}</div>
-        <div style="font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:${it.obs?'6px':'0'}">${it.desc||''}</div>
+        <div style="font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:${it.obs?'6px':'0'}">${esc(it.desc||'')}</div>
         ${it.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:6px;padding:7px 10px;margin-top:4px">📝 ${esc(it.obs)}</div>`:''}
       </div>`
   ).join('');
