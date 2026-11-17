@@ -981,7 +981,7 @@ async function printFilteredPDF() {
         if(idx%2===0){doc.setFillColor(240,253,244);}else{doc.setFillColor(255,255,255);}
         doc.rect(M,y,CW,8,'F');
         doc.setTextColor(5,100,70); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-        doc.text(it.name, M+3, y+5.5);
+        doc.text(textoItemPdf(it), M+3, y+5.5);
         y += 8;
         if (it.desc) {
           const dl = doc.splitTextToSize(it.desc, CW-10);
@@ -1396,6 +1396,12 @@ const ACOES_FRANQUIA_PADRAO = [['SUB','Substituição'],['REP','Reparo'],['LIM',
 const UNIDADES_FRANQUIA = ['un','par','jogo','kit','m','m²','kg','g','L','h'];
 let _fqContrato = null;
 
+// Linha do item no PDF e no detalhe: franquia mostra quantidade, unidade e a
+// descrição padronizada (sem preço); lista continua só com o nome.
+function textoItemPdf(it) {
+  if (!ehItemFranquia(it)) return it.name;
+  return `${String(it.qtd ?? 1).replace('.', ',')} ${it.unidade || 'un'} — ${it.descricao || it.name || ''}`;
+}
 function ehItemFranquia(it) { return !!it && !it.inviavel && (it.qtd !== undefined || !!it.termoId || !!it.termoNovo); }
 const _normFq = s => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -2016,9 +2022,9 @@ function openDetail(id){
         <div style="font-size:12px;color:#dc2626;line-height:1.5">${it.desc||INVIAVEL_NOTE}</div>
       </div>`
     : `<div style="padding:10px 0;border-bottom:0.5px solid var(--border)">
-        <div style="font-size:14px;font-weight:600;margin-bottom:3px">${esc(it.name)}</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:3px">${esc(textoItemPdf(it))}</div>
         <div style="font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:${it.obs?'6px':'0'}">${it.desc||''}</div>
-        ${it.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:6px;padding:7px 10px;margin-top:4px">📝 ${it.obs}</div>`:''}
+        ${it.obs?`<div style="font-size:13px;color:var(--text-2);background:var(--bg);border-radius:6px;padding:7px 10px;margin-top:4px">📝 ${esc(it.obs)}</div>`:''}
       </div>`
   ).join('');
   const photos = r.photos && r.photos.length
@@ -2224,7 +2230,7 @@ async function printPDF(id){
       if(idx%2===0){doc.setFillColor(240,253,244);}else{doc.setFillColor(255,255,255);}
       doc.rect(M,y,CW,8,'F');
       doc.setTextColor(5,100,70); doc.setFont('helvetica','bold'); doc.setFontSize(10);
-      doc.text(it.name, M+3, y+5.5);
+      doc.text(textoItemPdf(it), M+3, y+5.5);
       y+=8;
       // Technical description
       if(it.desc){

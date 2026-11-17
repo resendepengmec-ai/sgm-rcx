@@ -187,6 +187,12 @@ body{padding-bottom:80px;background:var(--bg);color:var(--text);}
   </div>
 
   <!-- Reincidências por equipamento -->
+  <div id="section-consumo" class="section-card" style="display:none">
+    <h3>📦 Consumo — contratos com franquia</h3>
+    <p style="font-size:12px;color:var(--text-3);margin-bottom:10px">Quantidade lançada no período, por unidade. Contrato com franquia não tem valor por serviço; termos mesclados na curadoria somam no termo escolhido.</p>
+    <div id="consumo-tables"></div>
+  </div>
+
   <div id="section-reincidencias" class="section-card" style="display:none">
     <h3>🔁 Reincidências por equipamento</h3>
     <p style="font-size:12px;color:var(--text-3);margin-bottom:10px">Equipamentos com 2 ou mais chamados no período selecionado</p>
@@ -858,6 +864,21 @@ async function render() {
     hidratarFotosDOM(document.getElementById('registros-table'));
   } else { document.getElementById('section-registros').style.display='none'; }
 
+  // Consumo (registros de contratos com franquia) — seção própria; registros
+  // de contratos em lista continuam só na tabela acima, como sempre.
+  const regsFranquia = filtRegistros.filter(r => r.modeloCorretiva === 'franquia');
+  if (regsFranquia.length) {
+    const c = consumoFranquia(regsFranquia, await carregarVocabsRel(regsFranquia));
+    const linhas = (rotulo, lista) => lista.length ? `<h4 style="font-size:13px;margin:12px 0 6px">${rotulo}</h4>` + tableHTML([rotulo, 'Quantidade'],
+      lista.map(x => [esc(x.chave), esc(fmtQtdRel(x.qtd) + ' ' + x.unidade)])) : '';
+    document.getElementById('section-consumo').style.display = '';
+    document.getElementById('consumo-tables').innerHTML =
+      linhas('Componente', c.porComponente) + linhas('Família', c.porFamilia) +
+      linhas('Estabelecimento', c.porEstabelecimento) + linhas('TAG', c.porTag) +
+      (c.recorrencia.length ? `<h4 style="font-size:13px;margin:12px 0 6px">Recorrência por TAG × componente</h4>` + tableHTML(['TAG', 'Componente', 'Registros'],
+        c.recorrencia.map(x => [esc(x.tag), esc(x.componente), x.registros])) : '');
+  } else { document.getElementById('section-consumo').style.display = 'none'; }
+
   // Preventiva table
   if (filtPreventiva.length) {
     document.getElementById('section-preventiva').style.display='';
@@ -926,6 +947,55 @@ async function render() {
         ])
     );
   } else { document.getElementById('section-patrimonio').style.display='none'; }
+}
+
+// ── Consumo nos contratos com franquia ────────────────────────────
+// Vocabulário de cada contrato (GET /vocab) só para resolver termos mesclados
+// e o nome atual do componente; sem ele, usa o que ficou gravado no item.
+const _vocabRel = new Map();
+async function carregarVocabsRel(registros) {
+  const out = new Map();
+  for (const numero of new Set(registros.map(r => r.client || r.contract))) {
+    if (!_vocabRel.has(numero)) _vocabRel.set(numero, API.get('/vocab?contrato=' + encodeURIComponent(numero)).catch(() => null));
+    out.set(numero, await _vocabRel.get(numero));
+  }
+  return out;
+}
+const FAMILIA_ROTULO = { climatizacao: 'Climatização', refrigeracao: 'Refrigeração', agua: 'Água', coccao_gas: 'Cocção a gás',
+  coccao_eletrica: 'Cocção elétrica', processamento_alimentos: 'Processamento de alimentos', lavanderia: 'Lavanderia',
+  limpeza: 'Limpeza', pesagem: 'Pesagem', jardinagem: 'Jardinagem', outros: 'Outros' };
+function fmtQtdRel(n) { return (Math.round(n * 100) / 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 }); }
+function consumoFranquia(registros, vocabs) {
+  const linhas = [];
+  for (const r of registros) {
+    const numero = r.client || r.contract, v = vocabs?.get(numero);
+    const termos = new Map((v?.termos || []).map(t => [t.i, t]));
+    for (const it of (r.items || [])) {
+      if (!it || it.inviavel || !(Number(it.qtd) > 0)) continue;
+      let id = it.termoId;
+      for (let i = 0; i < 5 && id && v?.mesclados?.[id]; i++) id = v.mesclados[id];
+      const t = termos.get(id);
+      linhas.push({
+        registro: r.id, tag: String(r.equip || r.tag || '—'), estab: r.machine?.estabelecimento || 'Não informado',
+        familia: FAMILIA_ROTULO[t?.f || r.machine?.familia] || 'Outros',
+        componente: t ? t.k : (it.componente || it.descricao || it.name || '—'),
+        unidade: it.unidade || 'un', qtd: Number(it.qtd),
+      });
+    }
+  }
+  const somar = chave => {
+    const m = new Map();
+    linhas.forEach(l => { const k = chave(l) + '\u0000' + l.unidade; const a = m.get(k) || { chave: chave(l), unidade: l.unidade, qtd: 0 }; a.qtd += l.qtd; m.set(k, a); });
+    return [...m.values()].sort((a, b) => b.qtd - a.qtd || a.chave.localeCompare(b.chave, 'pt-BR'));
+  };
+  const rec = new Map();
+  linhas.forEach(l => { const k = l.tag + '\u0000' + l.componente; const a = rec.get(k) || { tag: l.tag, componente: l.componente, regs: new Set() }; a.regs.add(l.registro); rec.set(k, a); });
+  return {
+    porComponente: somar(l => l.componente), porFamilia: somar(l => l.familia),
+    porEstabelecimento: somar(l => l.estab), porTag: somar(l => l.tag),
+    recorrencia: [...rec.values()].filter(a => a.regs.size >= 2).map(a => ({ tag: a.tag, componente: a.componente, registros: a.regs.size }))
+      .sort((a, b) => b.registros - a.registros),
+  };
 }
 
 // `photoCount`: a pré-visualização na tela usa _dados.chamados/registros,
@@ -1561,6 +1631,21 @@ async function generatePDF() {
     porEquipPdf[tag].count++;
     porEquipPdf[tag].datas.push(c.date||'—');
   });
+  const regsFranquiaPdf = registros.filter(r => r.modeloCorretiva === 'franquia');
+  if (regsFranquiaPdf.length) {
+    const c = consumoFranquia(regsFranquiaPdf, await carregarVocabsRel(regsFranquiaPdf));
+    addSection('Consumo — contratos com franquia (quantidade por unidade)');
+    for (const [rotulo, lista] of [['Componente', c.porComponente], ['Família', c.porFamilia], ['Estabelecimento', c.porEstabelecimento], ['TAG', c.porTag]]) {
+      ensurePage(255); doc.setFont('helvetica','bold'); doc.text(rotulo, PDF_M+2, y); y+=5; doc.setFont('helvetica','normal');
+      lista.forEach(x => { ensurePage(255); doc.text(`${String(x.chave).slice(0,70)} | ${fmtQtdRel(x.qtd)} ${x.unidade}`, PDF_M+4, y); y+=5; });
+      y+=2;
+    }
+    if (c.recorrencia.length) {
+      ensurePage(255); doc.setFont('helvetica','bold'); doc.text('Recorrência por TAG × componente', PDF_M+2, y); y+=5; doc.setFont('helvetica','normal');
+      c.recorrencia.forEach(x => { ensurePage(255); doc.text(`TAG: ${x.tag} | ${String(x.componente).slice(0,60)} | ${x.registros} registros`, PDF_M+4, y); y+=5; });
+    }
+    y+=4;
+  }
   const reincidenciasPdf = Object.values(porEquipPdf).filter(e=>e.count>=2).sort((a,b)=>b.count-a.count);
   if (reincidenciasPdf.length) {
     addSection(`Reincidências por equipamento (${reincidenciasPdf.length})`);
