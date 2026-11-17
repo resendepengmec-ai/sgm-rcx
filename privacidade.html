@@ -101,11 +101,13 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
     <h2>🗂️ Quais dados coletamos</h2>
     <div style="overflow-x:auto">
     <table>
-      <tr><th scope="col">Dado</th><th scope="col">De quem</th><th scope="col">Para quê</th></tr>
-      <tr><td>Nome, e-mail, foto do perfil Google</td><td>Quem usa o sistema (técnicos, gestores, administradores)</td><td>Login e identificação de quem registrou cada ação</td></tr>
-      <tr><td>Nome, CPF, celular, cargo</td><td>Quem recebe e assina o serviço (sem conta no sistema)</td><td>Comprovar quem recebeu o serviço, em nome de qual estabelecimento</td></tr>
-      <tr><td>Localização aproximada (GPS do dispositivo)</td><td>Técnico em campo e, ao assinar, quem recebeu o serviço</td><td>Confirmar onde o serviço foi executado/recebido</td></tr>
-      <tr><td>Fotos do serviço</td><td>Técnico em campo</td><td>Evidência do que foi feito</td></tr>
+      <tr><th scope="col">Dado</th><th scope="col">De quem</th><th scope="col">Para quê</th><th scope="col">Base legal (LGPD)</th></tr>
+      <tr><td>Nome, e-mail, foto do perfil Google</td><td>Quem usa o sistema (técnicos, gestores, administradores)</td><td>Login e identificação de quem registrou cada ação</td><td>Execução do contrato de prestação de serviço e legítimo interesse (Art. 7º, V e IX)</td></tr>
+      <tr><td>Nome, CPF, celular, cargo</td><td>Quem recebe e assina o serviço (sem conta no sistema)</td><td>Comprovar quem recebeu o serviço, em nome de qual estabelecimento</td><td>Execução do contrato e exercício regular de direitos (Art. 7º, V e VI)</td></tr>
+      <tr><td>Localização aproximada (GPS do dispositivo)</td><td>Técnico em campo e, ao assinar, quem recebeu o serviço</td><td>Confirmar onde o serviço foi executado/recebido</td><td>Legítimo interesse (Art. 7º, IX)</td></tr>
+      <tr><td>Fotos do serviço</td><td>Técnico em campo</td><td>Evidência do que foi feito</td><td>Execução do contrato (Art. 7º, V)</td></tr>
+      <tr><td>Endereço IP e registro das ações (quem fez o quê, quando)</td><td>Quem usa o sistema</td><td>Segurança, investigação de acesso indevido e prova de autoria</td><td>Cumprimento de obrigação legal e legítimo interesse (Art. 7º, II e IX)</td></tr>
+      <tr><td>Cidade aproximada pelo IP</td><td>Quem assina o recebimento, só quando o GPS não está disponível</td><td>Indicar de onde o recebimento foi assinado (marcado como aproximado)</td><td>Legítimo interesse (Art. 7º, IX)</td></tr>
     </table>
     </div>
   </div>
@@ -116,24 +118,29 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
       <li><strong>Google</strong> — login de quem usa o sistema (não se aplica a quem só assina um recebimento).</li>
       <li><strong>OpenStreetMap (Nominatim)</strong> — transforma coordenadas de GPS em um endereço legível, quando aplicável.</li>
       <li><strong>Provedor de hospedagem</strong> — armazena o banco de dados e os arquivos do sistema.</li>
+      <li><strong>Anthropic (inteligência artificial)</strong> — quando a empresa usa a geração de texto de laudo ou a leitura de pedido/orçamento em PDF, o conteúdo enviado é processado pela IA da Anthropic, nos Estados Unidos (transferência internacional, Art. 33 da LGPD), só para devolver o texto pedido. A sugestão de vocabulário de serviços envia apenas nomes de tipos de equipamento, sem dado de pessoa.</li>
     </ul>
     <p>Nenhum desses dados é vendido ou usado para publicidade.</p>
   </div>
 
   <div class="card">
     <h2>🗄️ Por quanto tempo guardamos</h2>
-    <p>Registros de acesso ao sistema (quem fez o quê, quando) são mantidos por até 365 dias e descartados automaticamente depois disso. Comprovantes de serviço executado e de recebimento assinado são mantidos pelo prazo necessário para eventual comprovação, conforme definido pela empresa contratante.</p>
+    <p>Registros de acesso ao sistema (quem fez o quê, quando, de qual IP) são mantidos por até 365 dias e descartados automaticamente depois disso. Comprovantes de serviço executado e de recebimento assinado são mantidos pelo prazo necessário para eventual comprovação, conforme definido pela empresa contratante.</p>
+    <p>Cadastro de quem assina recebimentos (nome, CPF, celular): apagado automaticamente após 5 anos sem uso. Conta de quem usa o sistema: mantida enquanto a pessoa trabalha nos contratos; depois de desativada, nome, foto e e-mail são removidos a pedido. Cópias de segurança do banco são substituídas em até 14 dias.</p>
   </div>
 
   <div class="card">
     <h2>✅ Seus direitos</h2>
-    <p>Você pode pedir, a qualquer momento, confirmação de que temos dados seus, acesso a eles, correção de informação incorreta, ou eliminação, nos casos em que a lei permite. Para isso, entre em contato pelos canais abaixo.</p>
+    <p>Você pode pedir, a qualquer momento, confirmação de que temos dados seus, acesso a eles, correção de informação incorreta, portabilidade, ou eliminação/anonimização, nos casos em que a lei permite (Art. 18 da LGPD). Para isso, fale com o encarregado pelos canais abaixo.</p>
+    <p>Se você usa o sistema, pode baixar agora mesmo uma cópia dos seus dados em <strong>menu do usuário → 📥 Meus dados (LGPD)</strong>.</p>
+    <p>Se não ficar satisfeito com a resposta, você também pode reclamar à Autoridade Nacional de Proteção de Dados (ANPD), em <a href="https://www.gov.br/anpd" target="_blank" rel="noopener">gov.br/anpd</a>.</p>
     <div id="contato-box" class="contact-box empty">Carregando contato…</div>
   </div>
 
   <div class="card">
     <h2>🔐 Segurança</h2>
-    <p>O acesso ao sistema é protegido por autenticação e por permissões que variam por perfil — uma pessoa só vê os dados dos contratos aos quais tem acesso. As conexões com o servidor são criptografadas (HTTPS). CPF é ocultado parcialmente para quem não precisa vê-lo por completo no trabalho do dia a dia.</p>
+    <p>O acesso ao sistema é protegido por autenticação e por permissões que variam por perfil — uma pessoa só vê os dados dos contratos aos quais tem acesso. As conexões com o servidor são criptografadas (HTTPS). CPF é ocultado parcialmente para quem não precisa vê-lo por completo no trabalho do dia a dia. O registro das ações é encadeado com assinatura criptográfica, de modo que alterar ou apagar um registro no meio fica evidente.</p>
+    <p>Se houver um incidente de segurança que possa trazer risco ou dano relevante a você, ele será comunicado a você e à ANPD (Art. 48 da LGPD).</p>
   </div>
 
 </div>
@@ -142,7 +149,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
   <button class="back-btn" onclick="history.length>1?history.back():window.location.href='index.html'">← Voltar</button>
 </div>
 
-<div class="footnote">Última atualização desta política: outubro de 2026.</div>
+<div class="footnote">Última atualização desta política: novembro de 2026.</div>
 
 <script>
 (function(){
@@ -154,7 +161,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,san
     if (!c || (!c.email && !c.whatsapp)) { box.textContent = 'Fale com a empresa que prestou o serviço, pelos canais que ela já usa com você.'; return; }
     box.className = 'contact-box';
     var linhas = [];
-    if (c.nome) linhas.push('<div class="row"><b>Responsável</b><span>' + esc(c.nome) + '</span></div>');
+    if (c.nome) linhas.push('<div class="row"><b>Encarregado</b><span>' + esc(c.nome) + '</span></div>');
     if (c.email) linhas.push('<div class="row"><b>E-mail</b><span>' + esc(c.email) + '</span></div>');
     if (c.whatsapp) linhas.push('<div class="row"><b>WhatsApp</b><span>' + esc(c.whatsapp) + '</span></div>');
     box.innerHTML = linhas.join('');

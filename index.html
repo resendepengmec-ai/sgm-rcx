@@ -518,12 +518,12 @@ function renderDashboard(user) {
         <div style="font-size:20px">🔧</div>
         <div class="dash-user">
           ${user.picture
-            ? `<img src="${user.picture}" class="user-avatar" onclick="toggleUserMenu()" alt="">`
+            ? `<img src="${esc(user.picture)}" class="user-avatar" onclick="toggleUserMenu()" alt="">`
             : `<div class="user-avatar-ph" onclick="toggleUserMenu()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleUserMenu()}">${role.icon||'👤'}</div>`}
           <div class="user-menu hidden" id="user-menu">
             <div class="user-menu-header">
               <div class="uname">${esc(user.name)}</div>
-              <div class="uemail">${user.email}</div>
+              <div class="uemail">${esc(user.email)}</div>
               <span class="role-badge" style="background:${role.color}22;color:${role.color}">${role.icon} ${role.label}</span>
             </div>
             ${(user.empresasDisponiveis || []).length > 1 ? `
@@ -536,6 +536,7 @@ function renderDashboard(user) {
             <hr class="user-menu-sep">
             <button class="user-menu-item" onclick="window.location.reload()">🔄 Atualizar</button>
             <button class="user-menu-item" onclick="window.location.href='privacidade.html'">🔒 Política de Privacidade</button>
+            <button class="user-menu-item" onclick="baixarMeusDados(this)">📥 Meus dados (LGPD)</button>
             <hr class="user-menu-sep">
             <button class="user-menu-item danger" onclick="logout()">🚪 Sair do sistema</button>
           </div>
@@ -1058,7 +1059,7 @@ function _renderUsersList(el, users, currentUser) {
         : '<span class="u-badge" style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600">⚠ sem contrato</span>';
     return `<div class="user-row" style="flex-wrap:wrap">
       ${u.picture
-        ? `<img src="${u.picture}" alt="">`
+        ? `<img src="${esc(u.picture)}" alt="">`
         : `<div class="uavatar">${r.icon||'👤'}</div>`}
       <div class="user-info">
         <div class="uname">${esc(u.name)||'(sem nome)'}</div>
@@ -1071,6 +1072,10 @@ function _renderUsersList(el, users, currentUser) {
       </div>
       <span style="font-size:12px;color:var(--text-2);white-space:nowrap">${r.icon||''} ${r.label||u.role}</span>
       <span class="toggle-btn ${u.active?'active':'inactive'}" style="opacity:.85;cursor:default">${u.active?'Ativo':'Inativo'}</span>
+      ${isAdmin && !u.active && !['admin','admin_cliente'].includes(u.role) && !String(u.email||'').endsWith('@removido.invalid') ? `<button onclick="anonimizarUsuario('${jsAttr(u.id)}','${jsAttr(u.email)}')"
+        style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--danger);font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap">
+        🗑️ Anonimizar (LGPD)
+      </button>` : ''}
       ${isAdmin ? `<button onclick="editUser('${jsAttr(u.id)}','${jsAttr(u.email)}')"
         style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:none;color:var(--primary);font-size:12px;cursor:pointer;font-weight:600;white-space:nowrap">
         ✏️ Editar
@@ -1080,6 +1085,36 @@ function _renderUsersList(el, users, currentUser) {
     ${filtered.length} de ${users.length} usuário${users.length!==1?'s':''}
     ${!isAdmin ? ' · modo visualização' : ''}
   </p>`;
+}
+
+// ── LGPD (Art. 18) ────────────────────────────────────────────────
+// Qualquer usuário baixa o que o sistema guarda sobre ele (JSON).
+async function baixarMeusDados(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const dados = await API.get('/lgpd/meus-dados');
+    const url = URL.createObjectURL(new Blob([JSON.stringify(dados, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = 'meus-dados-sgm-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showToast('Arquivo com os seus dados baixado');
+  } catch (e) { showToast('Não foi possível baixar seus dados: ' + e.message); }
+  finally { if (btn) btn.disabled = false; }
+}
+// Conta já desativada: remove nome, foto e e-mail (pedido de eliminação).
+async function anonimizarUsuario(id, email) {
+  if (!confirm(`Anonimizar ${email}?
+
+Nome, foto e e-mail saem do sistema e as pré-autorizações são apagadas. Os registros e assinaturas que essa pessoa fez continuam guardados como comprovante de serviço.
+
+Não dá para desfazer.`)) return;
+  if (prompt('Para confirmar, digite ANONIMIZAR') !== 'ANONIMIZAR') { showToast('Operação cancelada'); return; }
+  try {
+    await API.post('/lgpd/usuario/anonimizar', { userId: id, confirmar: true });
+    showToast('Usuário anonimizado');
+    renderAdminTab();
+  } catch (e) { showToast(e.message); }
 }
 
 // ── Tab: Pré-autorizar (whitelist) ──
@@ -1947,15 +1982,15 @@ function renderPrestadoraForm(box, cfg) {
     </div>
     <div class="field">
       <label for="cfg-company">Nome da empresa</label>
-      <input id="cfg-company" type="text" value="${cfg.company||''}" placeholder="Ex: Manutenções ACME Ltda">
+      <input id="cfg-company" type="text" value="${esc(cfg.company||'')}" placeholder="Ex: Manutenções ACME Ltda">
     </div>
     <div class="field">
       <label for="cfg-address">Endereço</label>
-      <input id="cfg-address" type="text" value="${cfg.address||''}" placeholder="Rua, número, bairro, cidade — UF">
+      <input id="cfg-address" type="text" value="${esc(cfg.address||'')}" placeholder="Rua, número, bairro, cidade — UF">
     </div>
     <div class="field">
       <label for="cfg-companycnpj">CNPJ</label>
-      <input id="cfg-companycnpj" type="text" value="${cfg.cnpj||''}" placeholder="00.000.000/0000-00">
+      <input id="cfg-companycnpj" type="text" value="${esc(cfg.cnpj||'')}" placeholder="00.000.000/0000-00">
     </div>
     <button class="btn btn-primary" onclick="savePrestadoraConfig(this)">💾 Salvar dados da prestadora</button>
   `;
